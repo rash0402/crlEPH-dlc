@@ -22,11 +22,11 @@ function main()
     params = Types.EPHParams(
         # Self-hazing parameters
         h_max=0.8,
-        α=2.0,
-        Ω_threshold=1.0,
+        α=10.0,              # Increased sensitivity (was 2.0)
+        Ω_threshold=0.05,    # Lowered threshold (was 1.0) - typical occupancy is 0.0-0.15
         γ=2.0,
         # EFE weights
-        β=0.5,   # Entropy term (epistemic value)
+        β=1.0,   # Increased entropy term weight (was 0.5) for stronger exploration drive
         λ=0.1,   # Pragmatic term (low for exploration-focused behavior)
         # Precision
         Π_max=1.0,

@@ -60,12 +60,12 @@ EPH Parameters for Active Inference formulation.
 Base.@kwdef mutable struct EPHParams
     # Self-hazing parameters
     h_max::Float64 = 0.8          # Maximum self-haze level
-    α::Float64 = 2.0               # Sigmoid sensitivity
-    Ω_threshold::Float64 = 1.0     # Occupancy threshold
+    α::Float64 = 10.0              # Sigmoid sensitivity (higher = more responsive)
+    Ω_threshold::Float64 = 0.05    # Occupancy threshold (typical range: 0.0-0.15)
     γ::Float64 = 2.0               # Haze attenuation exponent
 
     # Expected Free Energy weights
-    β::Float64 = 0.5               # Entropy term weight
+    β::Float64 = 1.0               # Entropy term weight (epistemic value)
     λ::Float64 = 0.1               # Pragmatic term weight (low for exploration)
 
     # Precision matrix base
