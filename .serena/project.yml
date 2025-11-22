@@ -1,0 +1,38 @@
+# Updated 2025-11-22: Transitioned to Julia-based EPH implementation
+
+# Primary language: Julia (simulation core)
+# Secondary: Python (visualization only)
+language: julia
+
+# whether to use the project's gitignore file to ignore files
+ignore_all_files_in_gitignore: true
+
+# list of additional paths to ignore
+ignored_paths:
+  - "*.DS_Store"
+  - "src_julia/Manifest.toml"
+  - ".git/"
+  - "log/"
+  - "tmp/"
+
+# whether the project is in read-only mode
+read_only: false
+
+# list of tool names to exclude
+excluded_tools: []
+
+# Initial prompt for the project
+initial_prompt: |
+  This is the crlEPH-dlc project: a Julia-based implementation of the Emergent Perceptual Haze (EPH)
+  framework for swarm intelligence research. The project uses Active Inference and Free Energy Principle
+  to guide multi-agent behavior through spatial precision modulation (Haze).
+
+  Key points:
+  - Main implementation: Julia (src_julia/)
+  - Visualization: Python with Pygame (viewer.py)
+  - Communication: ZeroMQ (Julia server → Python client)
+  - Core concepts: SPM (Saliency Polar Map), EPH (Haze-modulated precision), Stigmergy
+
+  Please refer to CLAUDE.md for comprehensive development guidance.
+
+project_name: "crlEPH-dlc"

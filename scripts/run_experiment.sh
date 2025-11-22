@@ -17,6 +17,12 @@ cd "$PROJECT_DIR"
 
 # Start Julia Server in background
 echo "Starting Julia EPH Server..."
+# If a previous server is still bound to the port, terminate it
+if lsof -i :5555 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "Found existing Julia server on port 5555, terminating..."
+    pkill -f "julia src_julia/main.jl" || true
+    sleep 1
+fi
 julia src_julia/main.jl &
 SERVER_PID=$!
 

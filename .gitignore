@@ -54,3 +54,17 @@ env/
 *.mp4
 *.avi
 recordings/
+
+# Archive directory (legacy code, keep in repo for reference)
+# archive/
+
+# macOS system files
+.DS_Store
+**/.DS_Store
+
+# JetBrains IDEs
+.idea/
+
+# Temporary directories
+log/
+tmp/

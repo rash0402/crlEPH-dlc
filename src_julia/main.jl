@@ -16,7 +16,7 @@ function main()
     println("Starting Julia EPH Server...")
     
     # Initialize Simulation
-    env = Simulation.initialize_simulation(width=800.0, height=800.0, n_agents=20)
+    env = Simulation.initialize_simulation(width=800.0, height=800.0, n_agents=12)
     println("Simulation initialized with $(length(env.agents)) agents.")
     
     # Initialize ZeroMQ
@@ -43,7 +43,8 @@ function main()
                     "vy" => agent.velocity[2],
                     "radius" => agent.radius,
                     "color" => agent.color,
-                    "orientation" => agent.orientation
+                    "orientation" => agent.orientation,
+                    "has_goal" => agent.goal !== nothing
                 ))
             end
             

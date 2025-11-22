@@ -17,7 +17,7 @@ struct GradientEPHController
     end
 end
 
-function decide_action(controller::GradientEPHController, agent::Agent, spm_tensor::Array{Float64, 3}, precision_matrix::Matrix{Float64}, env_haze::Float64, preferred_velocity::Union{Vector{Float64}, Nothing})
+function decide_action(controller::GradientEPHController, agent::Agent, spm_tensor::Array{Float64, 3}, precision_matrix::Matrix{Float64}, haze_grid::Matrix{Float64}, env_width::Float64, env_height::Float64, grid_size::Int, preferred_velocity::Union{Vector{Float64}, Nothing})
     
     # Initial guess: current velocity (for continuity)
     current_action = copy(agent.velocity)
@@ -28,8 +28,8 @@ function decide_action(controller::GradientEPHController, agent::Agent, spm_tens
     
     # Gradient Descent
     for i in 1:controller.n_iterations
-        # Compute gradient
-        grads = Zygote.gradient(a -> cost_function(a, agent, spm_tensor, precision_matrix, env_haze, preferred_velocity), current_action)
+        # Compute gradient with haze-modulated SPM
+        grads = Zygote.gradient(a -> cost_function(a, agent, spm_tensor, precision_matrix, haze_grid, env_width, env_height, grid_size, preferred_velocity), current_action)
         grad = grads[1]
         
         # Clip gradient
@@ -53,45 +53,25 @@ function decide_action(controller::GradientEPHController, agent::Agent, spm_tens
     return smoothed_action
 end
 
-function cost_function(action::Vector{Float64}, agent::Agent, spm_tensor::Array{Float64, 3}, precision_matrix::Matrix{Float64}, env_haze::Float64, preferred_velocity::Union{Vector{Float64}, Nothing})
+function cost_function(action::Vector{Float64}, agent::Agent, spm_tensor::Array{Float64, 3}, precision_matrix::Matrix{Float64}, haze_grid::Matrix{Float64}, env_width::Float64, env_height::Float64, grid_size::Int, preferred_velocity::Union{Vector{Float64}, Nothing})
     
     # 1. Perceptual Free Energy (F_percept)
-    # Simplified: Minimize collision risk based on SPM occupancy
-    # We want to avoid directions where occupancy is high.
-    # Predicted position change
+    # SPM with haze-modulated uncertainty
     dt = 0.1 # Prediction horizon
     dx = action[1] * dt
     dy = action[2] * dt
     
-    # Map action to SPM coordinates (approximate)
-    # We check if the action vector points towards high occupancy bins
-    action_angle = atan(action[2], action[1])
-    rel_angle = normalize_angle(action_angle - agent.orientation)
+    # Sample haze at predicted position (used as noise magnitude)
+    predicted_x = mod(agent.position[1] + dx, env_width)
+    predicted_y = mod(agent.position[2] + dy, env_height)
     
-    # Map to theta index (continuous)
-    Ntheta = size(spm_tensor, 3)
-    theta_idx = (rel_angle + π) / (2π) * Ntheta + 1.0
-    
-    # Gather occupancy from SPM based on direction
-    # This is a simplified "forward model" in SPM space
-    # We penalize velocity in directions of high occupancy
-    
-    # Differentiable lookup (soft indexing could be better, but simple interpolation for now)
-    # For Zygote, we need to be careful with indexing.
-    # Let's compute a "collision cost" by weighting occupancy with action alignment.
-    
-    collision_cost = 0.0
-    
-    # Vectorized calculation might be better for Zygote
-    # But for now, let's loop (Zygote handles loops, though slower than vec)
-    # Actually, let's use a dot product approach for efficiency if possible.
-    
-    # Simple repulsion:
-    # Look at near bins (r=1, 2)
-    # If occupancy is high, and we are moving towards it, penalty.
-    
-    # We can't easily index spm_tensor with continuous theta_idx in Zygote without custom adjoints.
-    # So we iterate over all bins and weight them by alignment with action.
+    gx = clamp(floor(Int, predicted_x / grid_size) + 1, 1, size(haze_grid, 2))
+    gy = clamp(floor(Int, predicted_y / grid_size) + 1, 1, size(haze_grid, 1))
+    haze_at_predicted = haze_grid[gy, gx]
+
+    # Add deterministic noise to the SPM based on haze magnitude
+    noise_factor = 0.05  # tunable
+    spm_noisy = spm_tensor .+ (haze_at_predicted * noise_factor)
     
     # Pre-compute action direction vector
     speed = norm(action) + 1e-6
@@ -103,7 +83,7 @@ function cost_function(action::Vector{Float64}, agent::Agent, spm_tensor::Array{
     
     f_percept = 0.0
     
-    # We can use sum() with a generator for Zygote
+    # Compute perceptual cost with haze-modulated precision
     f_percept = sum(
         let
             # Bin angle
@@ -119,20 +99,28 @@ function cost_function(action::Vector{Float64}, agent::Agent, spm_tensor::Array{
             # Only penalize if moving towards (alignment > 0)
             align_factor = max(0.0, alignment)
             
-            # Occupancy
-            occ = spm_tensor[1, r, t]
+            # Occupancy from SPM
+            occ = spm_noisy[1, r, t]
             
-            # Precision
-            prec = precision_matrix[r, t]
+            # Base precision
+            base_prec = precision_matrix[r, t]
+            
+            # Haze-modulated precision (Lubricant Haze)
+            # High haze = known area = higher certainty = LOWER effective uncertainty
+            # We reduce the collision cost in high-haze areas
+            # uncertainty_factor: 1.0 (no haze) -> 0.2 (max haze)
+            uncertainty_factor = 1.0 - haze_at_predicted * 0.8
+            
+            # Effective precision (lower in high-haze areas for lubricant effect)
+            effective_prec = base_prec * uncertainty_factor
             
             # Distance factor (closer bins have higher weight)
-            # r=1 is closest (0 distance), r=Nr is furthest
             dist_factor = 1.0 / r
             
-            # Cost
-            occ * prec * align_factor * dist_factor * speed * 10.0
+            # Cost: collision avoidance weighted by effective precision
+            occ * effective_prec * align_factor * dist_factor * speed * 10.0
         end
-        for r in 1:3, t in 1:Nt # Only check close bins (r=1,2,3)
+        for r in 1:3, t in 1:Nt # Only check close bins
     )
     
     # 2. Instrumental Value (M_meta)
@@ -148,9 +136,6 @@ function cost_function(action::Vector{Float64}, agent::Agent, spm_tensor::Array{
         target_speed = 20.0
         m_meta += (speed - target_speed)^2 * 0.1
     end
-    
-    # Haze avoidance (Stigmergy) - Strengthened
-    m_meta += env_haze * 500.0
     
     return f_percept + m_meta
 end

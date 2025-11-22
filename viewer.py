@@ -93,9 +93,9 @@ def main():
                         for j in range(grid_w):
                             haze_val = haze_array[i, j]
                             if haze_val > 0.01:  # Only draw visible haze
-                                # Color: red for repellent haze
+                                # Color: green for lubricant haze (attractive)
                                 intensity = int(min(255, haze_val * 255))
-                                color = (intensity, 0, 0, int(intensity * 0.3))  # Semi-transparent red
+                                color = (0, intensity, 0, int(intensity * 0.3))  # Semi-transparent green
                                 
                                 # Create surface for transparency
                                 haze_surf = pygame.Surface((int(cell_width), int(cell_height)), pygame.SRCALPHA)

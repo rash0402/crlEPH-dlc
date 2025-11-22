@@ -9,7 +9,7 @@ using Random
 
 export initialize_simulation, step!
 
-function initialize_simulation(;width=800.0, height=800.0, n_agents=20)
+function initialize_simulation(;width=800.0, height=800.0, n_agents=12)
     env = Environment(width, height)
     
     # Scramble Crossing Setup
@@ -28,22 +28,20 @@ function initialize_simulation(;width=800.0, height=800.0, n_agents=20)
     
     for dir in directions
         for i in 1:agents_per_dir
-            # Random spread
+            # High variance random spread
             if dir.name in ["North", "South"]
-                x = dir.spawn[1] + rand() * 60 - 30
-                y = dir.spawn[2] + rand() * 40 - 20
+                x = dir.spawn[1] + rand() * 200 - 100  # Increased from 60
+                y = dir.spawn[2] + rand() * 150 - 75   # Increased from 40
             else
-                x = dir.spawn[1] + rand() * 40 - 20
-                y = dir.spawn[2] + rand() * 60 - 30
+                x = dir.spawn[1] + rand() * 150 - 75   # Increased from 40
+                y = dir.spawn[2] + rand() * 200 - 100  # Increased from 60
             end
             
             theta = rand() * 2π - π
             agent = Agent(id_counter, x, y, theta=theta, color=dir.color)
             
-            # Goal
-            gx = dir.goal[1] + rand() * 60 - 30
-            gy = dir.goal[2] + rand() * 60 - 30
-            agent.goal = [gx, gy]
+            # All agents are goal‑less (random walk only)
+agent.goal = nothing
             
             agent.personal_space = 15.0 + rand() * 20.0
             
@@ -68,11 +66,6 @@ function step!(env::Environment)
         agent.current_spm = spm
         agent.current_precision = prec
         
-        # Haze (simplified)
-        grid_x = clamp(floor(Int, agent.position[1] / env.grid_size) + 1, 1, size(env.haze_grid, 1))
-        grid_y = clamp(floor(Int, agent.position[2] / env.grid_size) + 1, 1, size(env.haze_grid, 2))
-        env_haze = env.haze_grid[grid_x, grid_y]
-        
         # Preferred Velocity
         pref_vel = nothing
         if agent.goal !== nothing
@@ -83,10 +76,12 @@ function step!(env::Environment)
         end
         
         # Decide
-        action = EPH.decide_action(controller, agent, spm, prec, env_haze, pref_vel)
+        action = EPH.decide_action(controller, agent, spm, prec, env.haze_grid, env.width, env.height, env.grid_size, pref_vel)
         agent.velocity = action
         
         # Update Haze (Trail) - Increased deposition
+        grid_x = clamp(floor(Int, agent.position[1] / env.grid_size) + 1, 1, size(env.haze_grid, 1))
+        grid_y = clamp(floor(Int, agent.position[2] / env.grid_size) + 1, 1, size(env.haze_grid, 2))
         env.haze_grid[grid_x, grid_y] = min(1.0, env.haze_grid[grid_x, grid_y] + 0.2)
     end
     
@@ -107,8 +102,8 @@ function step!(env::Environment)
         end
     end
     
-    # 3. Resolve Collisions (Simple elastic)
-    _resolve_collisions!(env)
+    # 3. Resolve Collisions (Disabled)
+    # _resolve_collisions!(env)
     
     # 4. Decay Haze
     env.haze_grid *= 0.99
