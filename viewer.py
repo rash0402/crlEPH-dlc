@@ -303,15 +303,15 @@ def main():
 
                         # Gradient is negative of the force (∇G points uphill, we want downhill)
                         # Scale gradient for visibility (negative sign for descent direction)
-                        grad_scale = 3.0
+                        grad_scale = 8.0  # Increased from 3.0 for better visibility
                         grad_end_x = int(x1 - grad_x * grad_scale)
                         grad_end_y = int(y1 - grad_y * grad_scale)
 
                         # Draw gradient arrow (red with thicker line)
-                        pygame.draw.line(screen, (255, 0, 0), (x1, y1), (grad_end_x, grad_end_y), 3)
+                        pygame.draw.line(screen, (255, 0, 0), (x1, y1), (grad_end_x, grad_end_y), 5)
 
-                        # Draw arrowhead
-                        arrow_length = 8
+                        # Draw arrowhead (larger)
+                        arrow_length = 12
                         angle = np.arctan2(grad_end_y - y1, grad_end_x - x1)
                         arrow_angle1 = angle + 2.8
                         arrow_angle2 = angle - 2.8
