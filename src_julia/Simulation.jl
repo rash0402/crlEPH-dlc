@@ -14,7 +14,7 @@ export initialize_simulation, step!
 Initialize Sparse Foraging Task environment.
 
 # Scenario
-- 6 agents in 1200×800 toroidal world
+- 6 agents in toroidal world
 - Sparse initial placement (agents far apart)
 - No explicit goals (epistemic foraging only)
 - FOV: 120° × 100px
@@ -24,17 +24,19 @@ Test Active Inference hypothesis:
 When agents see few neighbors (low Ω), self-haze increases → precision decreases
 → belief entropy increases → epistemic term dominates → exploration emerges
 """
-function initialize_simulation(;width=1200.0, height=800.0, n_agents=6)
-    env = Environment(width, height, grid_size=40)  # Larger grid for visualization
+function initialize_simulation(;width=800.0, height=600.0, n_agents=6)
+    env = Environment(width, height, grid_size=30)
 
     # Sparse initial placement: divide world into regions
+    # Scaled for variable world size
+    margin = 0.15  # 15% margin from edges
     regions = [
-        (x=200.0, y=150.0),   # Top-left
-        (x=1000.0, y=150.0),  # Top-right
-        (x=200.0, y=650.0),   # Bottom-left
-        (x=1000.0, y=650.0),  # Bottom-right
-        (x=600.0, y=200.0),   # Center-top
-        (x=600.0, y=600.0),   # Center-bottom
+        (x=width * margin, y=height * 0.25),        # Left-top
+        (x=width * (1-margin), y=height * 0.25),    # Right-top
+        (x=width * margin, y=height * 0.75),        # Left-bottom
+        (x=width * (1-margin), y=height * 0.75),    # Right-bottom
+        (x=width * 0.5, y=height * 0.15),           # Center-top
+        (x=width * 0.5, y=height * 0.85),           # Center-bottom
     ]
 
     colors = [
