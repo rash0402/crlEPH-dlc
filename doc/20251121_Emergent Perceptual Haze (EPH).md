@@ -122,6 +122,65 @@ $$
 $$
 ここで $\frac{\partial S_{pred}}{\partial a}$ は、SPM v4.0のConv-based Predictorに対する自動微分により算出される。
 
+#### 2.3.1 Surprise as Temporal Prediction Error (実装版)
+
+> [!NOTE] Implementation Detail
+> 
+> 理論的には $F_{percept}$ は行動 $a$ による予測 $S_{pred}(a)$ と観測 $S_{obs}$ の差分として定義されるが、実装においては**時間的予測誤差**として計算する。
+
+実装におけるSurpriseの計算式：
+
+$$
+\boxed{
+\text{Surprise}(t) = \sum_{r,\theta,c} \Pi(r,\theta; \mathcal{H}_t) \cdot w_c \cdot d(r) \cdot \left( S_t(r,\theta,c) - S_{t-1}(r,\theta,c) \right)^2
+}
+$$
+
+ここで：
+- $S_t$: 現在フレームのSPM
+- $S_{t-1}$: 前フレームのSPM（予測の代理）
+- $w_c$: チャンネル重み（後述）
+- $d(r) = \frac{1}{r + 0.1}$: 距離減衰（近い領域を重視）
+
+**理論的正当化**: 
+
+前フレームのSPMを「予測」として扱うことは、以下の仮定に基づく：
+
+1. **時間的連続性**: 環境は急激には変化しない → $S_{t-1} \approx S_{pred}(t)$
+2. **予測誤差の代理**: $S_t - S_{t-1}$ は観測が予測から外れた度合いを表す
+3. **計算効率**: 明示的な予測モデル $S_{pred}(a)$ の構築が不要
+
+これは、Active Inferenceにおける「観測が予測から外れた度合い（Prediction Error）」の実装である。
+
+#### 2.3.2 Multi-Channel Surprise (実装版)
+
+SPMの全3チャンネルを活用したSurpriseの計算：
+
+$$
+\text{Surprise}(t) = \sum_{r,\theta} \Pi(r,\theta) \cdot d(r) \cdot \left( w_{\text{occ}} \cdot e_{\text{occ}}^2 + w_{\text{rad}} \cdot e_{\text{rad}}^2 + w_{\text{tan}} \cdot e_{\text{tan}}^2 \right)
+$$
+
+ここで：
+- $e_c(r,\theta) = S_t[c, r, \theta] - S_{t-1}[c, r, \theta]$: チャンネル $c$ の予測誤差
+- **チャンネル重み**:
+  - $w_{\text{occ}} = 1.0$: Occupancy（位置情報）
+  - $w_{\text{rad}} = 0.5$: Radial Velocity（接近/離脱速度）
+  - $w_{\text{tan}} = 0.3$: Tangential Velocity（横方向移動速度）
+
+**設計根拠**:
+
+1. **Occupancyの優先**: 位置の予測誤差が最も重要（衝突回避の基本）
+2. **速度情報の活用**: 動的な環境変化を検出
+   - Radial Vel: 他エージェントの接近/離脱の予測ミス
+   - Tangential Vel: 他エージェントの方向転換の予測ミス
+3. **重み付けの理論的根拠**: 
+   - Occupancyは直接的な衝突リスク → 最大重み
+   - Radial Velは接近速度 → 中程度の重み
+   - Tangential Velは間接的な影響 → 最小重み
+
+**効果**: 他エージェントの突然の方向転換や加速を高いSurpriseとして認識し、適応的な行動を促す。
+
+
 ### 2.4 Expected Free Energy and Epistemic Value (期待自由エネルギーと認識的価値)
 
 > [!NOTE] 🎓 Active Inference Formulation
@@ -233,6 +292,69 @@ Epistemic項が支配的になる
     ↓
 情報獲得行動（探索）が創発
 ```
+
+#### 2.4.3.1 Enhanced Belief Entropy (実装版)
+
+> [!NOTE] Implementation Enhancement
+>
+> 実装においては、Belief Entropyを**空間的不確実性**と**時間的不確実性**の和として計算することで、より完全な不確実性の定量化を実現する。
+
+実装におけるBelief Entropyの計算式：
+
+$$
+\boxed{
+H_{\text{belief}}(t) = \underbrace{H_{\text{spatial}}(t)}_{\text{Precision Matrix}} + \underbrace{H_{\text{temporal}}(t)}_{\text{Prediction Variance}}
+}
+$$
+
+**空間的エントロピー**（従来通り）:
+$$
+H_{\text{spatial}} = -\frac{1}{2} \log \det(2\pi e \Sigma) = \frac{1}{2} \log \det(\Pi^{-1})
+$$
+
+ここで $\Pi$ はHaze変調された精度行列。
+
+**時間的エントロピー**（新規追加）:
+$$
+H_{\text{temporal}} = \log(\text{Var}[S_t[1, :, :] - S_{t-1}[1, :, :]] + \epsilon)
+$$
+
+ここで：
+- $\text{Var}[\cdot]$: 予測誤差（Occupancyチャンネル）の分散
+- $\epsilon = 10^{-6}$: 数値安定性のための微小値
+
+**物理的意味**:
+
+- $H_{\text{spatial}}$: **現在の観測の空間的な不確実性**
+  - 精度行列 $\Pi$ が低い → 共分散 $\Sigma$ が大きい → エントロピー高
+  - 「今見えているものがどれだけ不確実か」
+
+- $H_{\text{temporal}}$: **環境の時間的な予測不可能性**
+  - 予測誤差の分散が大きい → 環境が予測困難 → エントロピー高
+  - 「環境がどれだけ予測不可能に変化しているか」
+
+**理論的根拠**: 
+
+時間的不確実性の追加により、以下が実現される：
+
+1. **動的環境への適応**: 予測誤差の分散が大きい領域（予測不可能な領域）に対して、エージェントは情報収集行動を優先する
+2. **探索の方向性**: 単なる空間的不確実性だけでなく、時間的変化の大きさも考慮した探索
+3. **完全なActive Inference**: 空間的・時間的の両方の不確実性を統合した、より理論的に完全な実装
+
+**因果連鎖の拡張**:
+
+```
+他エージェント不在 または 環境が予測不可能
+    ↓
+H_spatial増加 または H_temporal増加
+    ↓
+H_belief = H_spatial + H_temporal 増加
+    ↓
+Epistemic項が支配的になる
+    ↓
+情報獲得行動（探索）が創発
+```
+
 
 #### 2.4.4 Information-Driven Exploration without Random Walk
 
