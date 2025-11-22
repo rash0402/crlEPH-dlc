@@ -78,26 +78,24 @@ function compute_precision_matrix(spm::Array{Float64, 3}, h_self::Float64,
     Nr = size(spm, 2)
     Nθ = size(spm, 3)
 
-    # Initialize base precision matrix (distance-based decay)
-    Π_base = zeros(Nr, Nθ)
-
-    for i_r in 1:Nr
-        # Distance from agent (normalized to [0, 1])
-        r_normalized = (i_r - 1) / (Nr - 1)
-
-        # Exponential decay with distance
-        Π_base[i_r, :] .= params.Π_max * exp(-params.decay_rate * r_normalized)
-    end
-
-    # Haze modulation: Π(h) = Π_base · (1-h)^γ
+    # Haze modulation factor: (1-h)^γ
     # When h → h_max, precision → 0, uncertainty → ∞
     haze_factor = (1.0 - h_self)^params.γ
-    Π_modulated = Π_base .* haze_factor
 
-    # Ensure numerical stability (avoid zero precision)
-    Π_modulated .= max.(Π_modulated, 1e-6)
+    # Compute precision matrix without mutations (Zygote-compatible)
+    # Use array comprehension to avoid in-place operations
+    Π = [begin
+        # Distance from agent (normalized to [0, 1])
+        r_normalized = (i_r - 1) / max(Nr - 1, 1)
 
-    return Π_modulated
+        # Base precision with exponential decay
+        Π_base = params.Π_max * exp(-params.decay_rate * r_normalized)
+
+        # Apply haze modulation and ensure numerical stability
+        max(Π_base * haze_factor, 1e-6)
+    end for i_r in 1:Nr, i_θ in 1:Nθ]
+
+    return Π
 end
 
 """
