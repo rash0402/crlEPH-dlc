@@ -4,154 +4,202 @@ using ..Types
 using ..MathUtils
 using ..SPM
 using ..EPH
+using ..SelfHaze
 using LinearAlgebra
 using Random
 
 export initialize_simulation, step!
 
-function initialize_simulation(;width=800.0, height=800.0, n_agents=12)
-    env = Environment(width, height)
-    
-    # Scramble Crossing Setup
-    center_x, center_y = width / 2, height / 2
-    spawn_dist = 150.0
-    
-    directions = [
-        (name="North", spawn=[center_x, center_y - spawn_dist], goal=[center_x, center_y + spawn_dist], color=(255, 100, 100)),
-        (name="South", spawn=[center_x, center_y + spawn_dist], goal=[center_x, center_y - spawn_dist], color=(100, 255, 100)),
-        (name="East", spawn=[center_x + spawn_dist, center_y], goal=[center_x - spawn_dist, center_y], color=(100, 100, 255)),
-        (name="West", spawn=[center_x - spawn_dist, center_y], goal=[center_x + spawn_dist, center_y], color=(255, 255, 100))
+"""
+Initialize Sparse Foraging Task environment.
+
+# Scenario
+- 6 agents in 1200×800 toroidal world
+- Sparse initial placement (agents far apart)
+- No explicit goals (epistemic foraging only)
+- FOV: 120° × 100px
+
+# Objective
+Test Active Inference hypothesis:
+When agents see few neighbors (low Ω), self-haze increases → precision decreases
+→ belief entropy increases → epistemic term dominates → exploration emerges
+"""
+function initialize_simulation(;width=1200.0, height=800.0, n_agents=6)
+    env = Environment(width, height, grid_size=40)  # Larger grid for visualization
+
+    # Sparse initial placement: divide world into regions
+    regions = [
+        (x=200.0, y=150.0),   # Top-left
+        (x=1000.0, y=150.0),  # Top-right
+        (x=200.0, y=650.0),   # Bottom-left
+        (x=1000.0, y=650.0),  # Bottom-right
+        (x=600.0, y=200.0),   # Center-top
+        (x=600.0, y=600.0),   # Center-bottom
     ]
-    
-    agents_per_dir = div(n_agents, 4)
-    id_counter = 1
-    
-    for dir in directions
-        for i in 1:agents_per_dir
-            # High variance random spread
-            if dir.name in ["North", "South"]
-                x = dir.spawn[1] + rand() * 200 - 100  # Increased from 60
-                y = dir.spawn[2] + rand() * 150 - 75   # Increased from 40
-            else
-                x = dir.spawn[1] + rand() * 150 - 75   # Increased from 40
-                y = dir.spawn[2] + rand() * 200 - 100  # Increased from 60
-            end
-            
-            theta = rand() * 2π - π
-            agent = Agent(id_counter, x, y, theta=theta, color=dir.color)
-            
-            # All agents are goal‑less (random walk only)
-agent.goal = nothing
-            
-            agent.personal_space = 15.0 + rand() * 20.0
-            
-            push!(env.agents, agent)
-            id_counter += 1
-        end
+
+    colors = [
+        (255, 100, 100),  # Red
+        (100, 255, 100),  # Green
+        (100, 100, 255),  # Blue
+        (255, 255, 100),  # Yellow
+        (255, 100, 255),  # Magenta
+        (100, 255, 255),  # Cyan
+    ]
+
+    for i in 1:n_agents
+        region = regions[i]
+
+        # Add jitter to position (±50px)
+        x = region.x + (rand() - 0.5) * 100.0
+        y = region.y + (rand() - 0.5) * 100.0
+
+        # Random initial orientation
+        theta = rand() * 2π - π
+
+        agent = Agent(i, x, y, theta=theta, color=colors[i])
+
+        # No explicit goals (epistemic foraging only)
+        agent.goal = nothing
+
+        # Moderate personal space for collision avoidance
+        agent.personal_space = 20.0
+
+        push!(env.agents, agent)
     end
-    
+
     return env
 end
 
-function step!(env::Environment)
-    # 1. Sense & Decide
-    spm_params = SPM.SPMParams(d_max=300.0)
-    controller = EPH.GradientEPHController()
-    
+"""
+    step!(env::Environment, params::EPHParams)
+
+Execute one simulation timestep with Active Inference-based EPH control.
+
+# Workflow
+1. Perception: Compute SPM for each agent
+2. Inference: Compute self-haze and belief entropy
+3. Action Selection: Minimize Expected Free Energy G(a)
+4. Physics: Update positions and orientations
+5. Tracking: Update coverage map and detect information gain events
+"""
+function step!(env::Environment, params::EPHParams)
+    # Initialize controller with EPH parameters
+    controller = EPH.GradientEPHController(params)
+    spm_params = SPM.SPMParams(d_max=params.fov_range)
+
+    # --- 1. Perception & Action Selection ---
     for agent in env.agents
-        # Sense
+        # Compute SPM (Saliency Polar Map)
         spm = SPM.compute_spm(agent, env, spm_params)
-        prec = SPM.get_precision_matrix(agent, spm_params)
-        
+
+        # Store SPM for visualization/debugging
         agent.current_spm = spm
-        agent.current_precision = prec
-        
-        # Preferred Velocity
+
+        # Compute self-haze from SPM occupancy
+        agent.self_haze = SelfHaze.compute_self_haze(spm, params)
+
+        # Track visible agents (for analysis)
+        agent.visible_agents = _get_visible_agent_ids(agent, env, params)
+
+        # Compute precision matrix (will be computed inside EFE, but store for viz)
+        Π = SelfHaze.compute_precision_matrix(spm, agent.self_haze, params)
+        agent.current_precision = Π
+
+        # Preferred velocity (no goals in sparse foraging)
         pref_vel = nothing
         if agent.goal !== nothing
             dx, dy, dist = toroidal_distance(agent.position, agent.goal, env.width, env.height)
             if dist > 0
-                pref_vel = [dx / dist * agent.max_speed, dy / dist * agent.max_speed]
+                pref_vel = [dx / dist * params.max_speed, dy / dist * params.max_speed]
             end
         end
-        
-        # Decide
-        action = EPH.decide_action(controller, agent, spm, prec, env.haze_grid, env.width, env.height, env.grid_size, pref_vel)
+
+        # Decide action by minimizing Expected Free Energy
+        action = EPH.decide_action(controller, agent, spm, pref_vel)
         agent.velocity = action
-        
-        # Update Haze (Trail) - Increased deposition
-        grid_x = clamp(floor(Int, agent.position[1] / env.grid_size) + 1, 1, size(env.haze_grid, 1))
-        grid_y = clamp(floor(Int, agent.position[2] / env.grid_size) + 1, 1, size(env.haze_grid, 2))
-        env.haze_grid[grid_x, grid_y] = min(1.0, env.haze_grid[grid_x, grid_y] + 0.2)
     end
-    
-    # 2. Update Physics
+
+    # --- 2. Physics Update ---
     dt = env.dt
     for agent in env.agents
-        # Update Position
+        # Update position
         agent.position += agent.velocity * dt
-        
-        # Wrap around (Toroidal)
+
+        # Toroidal wrap-around
         agent.position[1] = mod(agent.position[1], env.width)
         agent.position[2] = mod(agent.position[2], env.height)
-        
-        # Update Orientation
+
+        # Update orientation (heading direction)
         speed = norm(agent.velocity)
         if speed > 0.1
             agent.orientation = atan(agent.velocity[2], agent.velocity[1])
         end
     end
-    
-    # 3. Resolve Collisions (Disabled)
-    # _resolve_collisions!(env)
-    
-    # 4. Decay Haze
-    env.haze_grid *= 0.99
-    
-    # 5. Respawn logic (Simplified)
-    for agent in env.agents
-        if agent.goal !== nothing
-            dx, dy, dist = toroidal_distance(agent.position, agent.goal, env.width, env.height)
-            if dist < 20.0
-                # Reached goal, respawn at random start
-                # For simplicity, just swap goal and spawn roughly
-                # Or just reverse goal
-                agent.goal, agent.position = agent.position, agent.goal
-                # Actually, let's just reset to a random edge for continuous flow
-                # But swapping is easier to implement without directions struct here.
-                # Let's just reverse velocity and set new goal far away?
-                # No, let's keep it simple: Just reverse goal direction
-                # agent.goal = [env.width - agent.goal[1], env.height - agent.goal[2]]
-            end
-        end
-    end
+
+    # --- 3. Coverage Map Update ---
+    _update_coverage_map!(env, params)
+
+    # --- 4. Frame Counter ---
+    env.frame_count += 1
 end
 
-function _resolve_collisions!(env::Environment)
-    for i in 1:length(env.agents)
-        for j in (i+1):length(env.agents)
-            a1 = env.agents[i]
-            a2 = env.agents[j]
-            
-            dx, dy, dist = toroidal_distance(a1.position, a2.position, env.width, env.height)
-            min_dist = a1.radius + a2.radius
-            
-            if dist < min_dist
-                # Collision
-                overlap = min_dist - dist
-                
-                # Push apart
-                nx = dx / dist
-                ny = dy / dist
-                
-                # Move a1
-                a1.position[1] -= nx * overlap * 0.5
-                a1.position[2] -= ny * overlap * 0.5
-                
-                # Move a2
-                a2.position[1] += nx * overlap * 0.5
-                a2.position[2] += ny * overlap * 0.5
-            end
+"""
+    _get_visible_agent_ids(agent, env, params) -> Vector{Int}
+
+Get IDs of agents currently within FOV.
+Used for tracking visible neighbors and computing occupancy statistics.
+"""
+function _get_visible_agent_ids(agent::Agent, env::Environment, params::EPHParams)::Vector{Int}
+    visible_ids = Int[]
+
+    for other in env.agents
+        if other.id == agent.id
+            continue
+        end
+
+        # Compute toroidal distance
+        dx, dy, dist = toroidal_distance(agent.position, other.position, env.width, env.height)
+
+        # Check if within range
+        if dist > params.fov_range
+            continue
+        end
+
+        # Check if within FOV angle
+        angle_to_other = atan(dy, dx)
+        relative_angle = mod(angle_to_other - agent.orientation + π, 2π) - π
+
+        if abs(relative_angle) <= params.fov_angle / 2.0
+            push!(visible_ids, other.id)
+        end
+    end
+
+    return visible_ids
+end
+
+"""
+    _update_coverage_map!(env, params)
+
+Update coverage map based on current agent positions.
+Marks grid cells as covered if an agent is within detection range.
+"""
+function _update_coverage_map!(env::Environment, params::EPHParams)
+    grid_w = size(env.coverage_map, 1)
+    grid_h = size(env.coverage_map, 2)
+
+    for agent in env.agents
+        # Compute grid coordinates
+        gx = clamp(floor(Int, agent.position[1] / env.grid_size) + 1, 1, grid_w)
+        gy = clamp(floor(Int, agent.position[2] / env.grid_size) + 1, 1, grid_h)
+
+        # Mark as covered
+        env.coverage_map[gx, gy] = true
+
+        # Also mark adjacent cells (agent's footprint)
+        for dx in -1:1, dy in -1:1
+            nx = clamp(gx + dx, 1, grid_w)
+            ny = clamp(gy + dy, 1, grid_h)
+            env.coverage_map[nx, ny] = true
         end
     end
 end

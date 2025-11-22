@@ -1,6 +1,12 @@
 """
-Python Viewer for Julia EPH Simulation.
+Python Viewer for Julia EPH Simulation (Sparse Foraging Task).
 Receives agent data via ZeroMQ and renders using Pygame.
+
+Displays:
+- Agent positions, orientations, and FOV
+- Self-haze levels (color intensity)
+- Number of visible neighbors (text label)
+- Coverage percentage
 """
 import sys
 import zmq
@@ -53,11 +59,12 @@ def main():
     
     # Initialize Pygame
     pygame.init()
-    width, height = 800, 800
+    width, height = 1200, 800  # Updated for sparse foraging task
     screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption("Julia EPH Viewer")
+    pygame.display.set_caption("Julia EPH Viewer - Sparse Foraging Task")
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("Arial", 14)
+    small_font = pygame.font.SysFont("Arial", 10)
     
     running = True
     while running:
@@ -109,32 +116,56 @@ def main():
                     x = int(agent["x"])
                     y = int(agent["y"])
                     orientation = agent["orientation"]
-                    # FOV parameters (could be dynamic, but fixed for now)
-                    fov_radius = 100 # Visual radius (not full d_max=300 to avoid clutter)
-                    fov_angle = np.radians(210) # 210 degrees
-                    draw_fov(screen, x, y, orientation, fov_radius, fov_angle, color=(200, 200, 200, 30))
+                    # Updated FOV parameters for sparse foraging task
+                    fov_radius = 100  # Matches params.fov_range
+                    fov_angle = np.radians(120)  # 120 degrees
+
+                    # FOV color modulated by self-haze (if available)
+                    self_haze = agent.get("self_haze", 0.0)
+                    # High haze → red tint, low haze → blue tint
+                    haze_intensity = int(self_haze * 255)
+                    fov_color = (100 + haze_intensity, 200 - haze_intensity, 200 - haze_intensity, 30)
+
+                    draw_fov(screen, x, y, orientation, fov_radius, fov_angle, color=fov_color)
 
                 for agent in agents:
                     x = int(agent["x"])
                     y = int(agent["y"])
                     radius = int(agent["radius"])
-                    color = agent["color"] # [r, g, b]
+                    color = agent["color"]  # [r, g, b]
                     orientation = agent["orientation"]
-                    
+
+                    # Modulate agent color by self-haze (brighter = higher haze)
+                    self_haze = agent.get("self_haze", 0.0)
+                    brightness = 1.0 + self_haze * 0.5  # 1.0 to 1.5
+                    bright_color = tuple(min(255, int(c * brightness)) for c in color)
+
                     # Draw Agent
-                    pygame.draw.circle(screen, color, (x, y), radius)
-                    
+                    pygame.draw.circle(screen, bright_color, (x, y), radius)
+
                     # Draw Direction
                     end_x = int(x + np.cos(orientation) * radius * 1.5)
                     end_y = int(y + np.sin(orientation) * radius * 1.5)
                     pygame.draw.line(screen, (255, 255, 100), (x, y), (end_x, end_y), 2)
+
+                    # Draw number of visible neighbors (if available)
+                    num_visible = agent.get("num_visible", 0)
+                    if num_visible > 0:
+                        vis_text = small_font.render(str(num_visible), True, (255, 255, 255))
+                        screen.blit(vis_text, (x + radius + 2, y - radius - 2))
                 
                 # Info
                 frame = message.get("frame", 0)
                 fps = clock.get_fps()
-                info_text = f"Frame: {frame} | FPS: {fps:.1f} | Agents: {len(agents)}"
+                coverage = message.get("coverage", 0.0) * 100.0  # Convert to percentage
+                info_text = f"Frame: {frame} | FPS: {fps:.1f} | Agents: {len(agents)} | Coverage: {coverage:.1f}%"
                 text_surf = font.render(info_text, True, (255, 255, 255))
                 screen.blit(text_surf, (10, 10))
+
+                # Legend for self-haze visualization
+                legend_text = "Self-Haze: Low (Blue FOV) → High (Red FOV)"
+                legend_surf = font.render(legend_text, True, (200, 200, 200))
+                screen.blit(legend_surf, (10, 30))
                 
                 pygame.display.flip()
         

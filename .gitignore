@@ -68,3 +68,6 @@ recordings/
 # Temporary directories
 log/
 tmp/
+
+# Serena MCP server cache
+.serena/
