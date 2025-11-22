@@ -44,8 +44,8 @@ function main()
         fov_range=100.0
     )
 
-    # Initialize Sparse Foraging Environment
-    env = Simulation.initialize_simulation(width=800.0, height=800.0, n_agents=10)
+    # Initialize Sparse Foraging Environment (smaller for more interactions)
+    env = Simulation.initialize_simulation(width=600.0, height=600.0, n_agents=10)
     println("Simulation initialized with $(length(env.agents)) agents.")
     println("World size: $(env.width) × $(env.height)")
     println("FOV: $(params.fov_angle * 180 / π)° × $(params.fov_range)px")
@@ -97,6 +97,7 @@ function main()
                 spm_total = sum(spm_occupancy)
                 spm_max = maximum(spm_occupancy)
 
+                # Send full SPM for visualization
                 Dict(
                     "efe" => efe_current,
                     "self_haze" => tracked_agent.self_haze,
@@ -104,7 +105,11 @@ function main()
                     "num_visible" => length(tracked_agent.visible_agents),
                     "spm_total_occupancy" => spm_total,
                     "spm_max_occupancy" => spm_max,
-                    "speed" => sqrt(tracked_agent.velocity[1]^2 + tracked_agent.velocity[2]^2)
+                    "speed" => sqrt(tracked_agent.velocity[1]^2 + tracked_agent.velocity[2]^2),
+                    # Full SPM channels for heatmap visualization
+                    "spm_occupancy" => collect(tracked_agent.current_spm[1, :, :]),  # Occupancy channel
+                    "spm_radial_vel" => collect(tracked_agent.current_spm[2, :, :]), # Radial velocity
+                    "spm_tangential_vel" => collect(tracked_agent.current_spm[3, :, :]) # Tangential velocity
                 )
             else
                 nothing

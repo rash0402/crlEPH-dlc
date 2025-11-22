@@ -24,8 +24,8 @@ Test Active Inference hypothesis:
 When agents see few neighbors (low Ω), self-haze increases → precision decreases
 → belief entropy increases → epistemic term dominates → exploration emerges
 """
-function initialize_simulation(;width=800.0, height=800.0, n_agents=10)
-    env = Environment(width, height, grid_size=40)
+function initialize_simulation(;width=600.0, height=600.0, n_agents=10)
+    env = Environment(width, height, grid_size=30)
 
     # Sparse initial placement: divide world into regions
     # Scaled for variable world size and agent count

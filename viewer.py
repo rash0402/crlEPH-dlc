@@ -85,7 +85,11 @@ def main():
 
     # Initialize Pygame
     pygame.init()
-    width, height = 800, 800  # Match simulation world size
+    width, height = 800, 800  # Window size (display)
+    sim_width, sim_height = 600, 600  # Simulation world size
+    scale_x = width / sim_width
+    scale_y = height / sim_height
+
     screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption("Julia EPH Viewer - Sparse Foraging Task")
     clock = pygame.time.Clock()
@@ -95,8 +99,14 @@ def main():
     # Initialize real-time plots for tracked agent (if matplotlib available)
     if matplotlib is not None:
         plt.ion()  # Interactive mode
+
+        # Time series plots
         fig, axes = plt.subplots(2, 2, figsize=(10, 8))
         fig.suptitle('Agent 1 (Red) - Real-time Metrics', fontsize=14)
+
+        # SPM Heatmap window
+        fig_spm, axes_spm = plt.subplots(1, 3, figsize=(12, 4))
+        fig_spm.suptitle('Agent 1 (Red) - SPM Heatmaps (Log-Polar)', fontsize=14)
 
         # Data buffers (keep last 200 frames)
         max_history = 200
@@ -190,11 +200,12 @@ def main():
                 
                 # Draw FOV first (so it's behind agents)
                 for agent in agents:
-                    x = int(agent["x"])
-                    y = int(agent["y"])
+                    # Scale coordinates from simulation space to display space
+                    x = int(agent["x"] * scale_x)
+                    y = int(agent["y"] * scale_y)
                     orientation = agent["orientation"]
                     # Updated FOV parameters for sparse foraging task
-                    fov_radius = 100  # Matches params.fov_range
+                    fov_radius = int(100 * scale_x)  # Matches params.fov_range, scaled
                     fov_angle = np.radians(210)  # 210 degrees (matches Julia params)
 
                     # FOV color modulated by self-haze (if available)
@@ -227,9 +238,10 @@ def main():
                     draw_fov(screen, x, y, orientation, fov_radius, fov_angle, color=fov_color)
 
                 for agent in agents:
-                    x = int(agent["x"])
-                    y = int(agent["y"])
-                    radius = int(agent["radius"])
+                    # Scale coordinates
+                    x = int(agent["x"] * scale_x)
+                    y = int(agent["y"] * scale_y)
+                    radius = int(agent["radius"] * scale_x)
                     color = agent["color"]  # [r, g, b]
                     orientation = agent["orientation"]
 
@@ -319,6 +331,42 @@ def main():
 
                             plt.tight_layout()
                             plt.pause(0.001)  # Allow matplotlib to update
+
+                        # Update SPM heatmaps (every 10 frames for performance)
+                        if frame % 10 == 0:
+                            spm_occ = tracked.get('spm_occupancy')
+                            spm_rad = tracked.get('spm_radial_vel')
+                            spm_tan = tracked.get('spm_tangential_vel')
+
+                            if spm_occ is not None:
+                                spm_occ_array = np.array(spm_occ)
+                                spm_rad_array = np.array(spm_rad) if spm_rad is not None else np.zeros_like(spm_occ_array)
+                                spm_tan_array = np.array(spm_tan) if spm_tan is not None else np.zeros_like(spm_occ_array)
+
+                                # Clear and plot heatmaps
+                                axes_spm[0].clear()
+                                im0 = axes_spm[0].imshow(spm_occ_array, cmap='hot', aspect='auto', interpolation='nearest')
+                                axes_spm[0].set_title('Occupancy Channel')
+                                axes_spm[0].set_xlabel('θ (angular bins)')
+                                axes_spm[0].set_ylabel('r (radial bins)')
+                                fig_spm.colorbar(im0, ax=axes_spm[0], fraction=0.046, pad=0.04)
+
+                                axes_spm[1].clear()
+                                im1 = axes_spm[1].imshow(spm_rad_array, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-1, vmax=1)
+                                axes_spm[1].set_title('Radial Velocity')
+                                axes_spm[1].set_xlabel('θ (angular bins)')
+                                axes_spm[1].set_ylabel('r (radial bins)')
+                                fig_spm.colorbar(im1, ax=axes_spm[1], fraction=0.046, pad=0.04)
+
+                                axes_spm[2].clear()
+                                im2 = axes_spm[2].imshow(spm_tan_array, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-1, vmax=1)
+                                axes_spm[2].set_title('Tangential Velocity')
+                                axes_spm[2].set_xlabel('θ (angular bins)')
+                                axes_spm[2].set_ylabel('r (radial bins)')
+                                fig_spm.colorbar(im2, ax=axes_spm[2], fraction=0.046, pad=0.04)
+
+                                fig_spm.tight_layout()
+                                plt.pause(0.001)
         
         except Exception as e:
             print(f"Error: {e}")
