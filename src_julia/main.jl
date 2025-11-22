@@ -79,11 +79,43 @@ function main()
                 ))
             end
 
+            # Special tracking data for Agent 1 (red agent)
+            tracked_agent = env.agents[1]
+            tracked_data = if tracked_agent.current_spm !== nothing && tracked_agent.current_precision !== nothing
+                # Compute EFE and entropy for tracking
+                using .SelfHaze
+                H_belief = SelfHaze.compute_belief_entropy(tracked_agent.current_precision)
+
+                # Compute current EFE (with zero action for reference)
+                using .EPH
+                zero_action = [0.0, 0.0]
+                efe_current = EPH.expected_free_energy(zero_action, tracked_agent,
+                                                       tracked_agent.current_spm, nothing, params)
+
+                # SPM occupancy statistics
+                spm_occupancy = tracked_agent.current_spm[1, :, :]
+                spm_total = sum(spm_occupancy)
+                spm_max = maximum(spm_occupancy)
+
+                Dict(
+                    "efe" => efe_current,
+                    "self_haze" => tracked_agent.self_haze,
+                    "belief_entropy" => H_belief,
+                    "num_visible" => length(tracked_agent.visible_agents),
+                    "spm_total_occupancy" => spm_total,
+                    "spm_max_occupancy" => spm_max,
+                    "speed" => sqrt(tracked_agent.velocity[1]^2 + tracked_agent.velocity[2]^2)
+                )
+            else
+                nothing
+            end
+
             message = Dict(
                 "frame" => env.frame_count,
                 "agents" => agents_data,
                 "haze_grid" => env.haze_grid,  # Keep for backward compatibility
-                "coverage" => sum(env.coverage_map) / length(env.coverage_map)
+                "coverage" => sum(env.coverage_map) / length(env.coverage_map),
+                "tracked_agent" => tracked_data  # Detailed data for Agent 1
             )
 
             # Send Data

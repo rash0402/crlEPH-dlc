@@ -68,10 +68,7 @@ function initialize_simulation(;width=800.0, height=800.0, n_agents=10)
         end
     end
 
-    # Unified color for all agents: blue
-    # Will be modulated by self-haze (brightness increases with self-haze)
-    agent_color = (80, 120, 255)  # Base blue color
-
+    # Color assignment: Agent 1 is red, others are blue
     for i in 1:n_agents
         region = regions[i]
 
@@ -82,7 +79,13 @@ function initialize_simulation(;width=800.0, height=800.0, n_agents=10)
         # Random initial orientation
         theta = rand() * 2π - π
 
-        # All agents use the same blue color
+        # Agent 1 is red (for tracking), others are blue
+        if i == 1
+            agent_color = (255, 80, 80)  # Red
+        else
+            agent_color = (80, 120, 255)  # Blue
+        end
+
         agent = Agent(i, x, y, theta=theta, color=agent_color)
 
         # No explicit goals (epistemic foraging only)

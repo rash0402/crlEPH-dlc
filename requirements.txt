@@ -3,3 +3,4 @@ torch>=2.0.0
 pygame>=2.5.0
 matplotlib>=3.7.0
 scipy>=1.10.0
+pyzmq>=25.0.0

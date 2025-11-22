@@ -7,12 +7,17 @@ Displays:
 - Self-haze levels (color intensity)
 - Number of visible neighbors (text label)
 - Coverage percentage
+- Real-time plots for tracked agent (red agent)
 """
 import sys
 import zmq
 import json
 import pygame
 import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')  # Use TkAgg backend for separate window
+import matplotlib.pyplot as plt
+from collections import deque
 
 def draw_fov(surface, x, y, orientation, radius, fov_angle, color=(255, 255, 255, 50)):
     """Draws a semi-transparent field of view sector."""
@@ -54,9 +59,9 @@ def main():
     socket = context.socket(zmq.SUB)
     socket.connect("tcp://localhost:5555")
     socket.setsockopt_string(zmq.SUBSCRIBE, '')
-    
+
     print("Connected to Julia Server at tcp://localhost:5555")
-    
+
     # Initialize Pygame
     pygame.init()
     width, height = 800, 800  # Match simulation world size
@@ -65,7 +70,52 @@ def main():
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("Arial", 14)
     small_font = pygame.font.SysFont("Arial", 10)
-    
+
+    # Initialize real-time plots for tracked agent
+    plt.ion()  # Interactive mode
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+    fig.suptitle('Agent 1 (Red) - Real-time Metrics', fontsize=14)
+
+    # Data buffers (keep last 200 frames)
+    max_history = 200
+    history = {
+        'frame': deque(maxlen=max_history),
+        'efe': deque(maxlen=max_history),
+        'self_haze': deque(maxlen=max_history),
+        'belief_entropy': deque(maxlen=max_history),
+        'num_visible': deque(maxlen=max_history),
+        'spm_total': deque(maxlen=max_history),
+        'speed': deque(maxlen=max_history)
+    }
+
+    # Configure subplots
+    ax_efe = axes[0, 0]
+    ax_efe.set_title('Expected Free Energy')
+    ax_efe.set_xlabel('Frame')
+    ax_efe.set_ylabel('EFE')
+    ax_efe.grid(True, alpha=0.3)
+
+    ax_haze = axes[0, 1]
+    ax_haze.set_title('Self-Haze & Entropy')
+    ax_haze.set_xlabel('Frame')
+    ax_haze.set_ylabel('Value')
+    ax_haze.grid(True, alpha=0.3)
+
+    ax_spm = axes[1, 0]
+    ax_spm.set_title('SPM Occupancy')
+    ax_spm.set_xlabel('Frame')
+    ax_spm.set_ylabel('Total Occupancy')
+    ax_spm.grid(True, alpha=0.3)
+
+    ax_metrics = axes[1, 1]
+    ax_metrics.set_title('Visibility & Speed')
+    ax_metrics.set_xlabel('Frame')
+    ax_metrics.set_ylabel('Count / Speed')
+    ax_metrics.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show(block=False)
+
     running = True
     while running:
         # Handle Pygame Events
@@ -187,8 +237,60 @@ def main():
                 legend_text = "Self-Haze: Low (Blue FOV) → High (Red FOV)"
                 legend_surf = font.render(legend_text, True, (60, 60, 60))
                 screen.blit(legend_surf, (10, 30))
-                
+
                 pygame.display.flip()
+
+                # Update real-time plots for tracked agent
+                tracked = message.get("tracked_agent")
+                if tracked is not None:
+                    # Append new data
+                    history['frame'].append(frame)
+                    history['efe'].append(tracked.get('efe', 0))
+                    history['self_haze'].append(tracked.get('self_haze', 0))
+                    history['belief_entropy'].append(tracked.get('belief_entropy', 0))
+                    history['num_visible'].append(tracked.get('num_visible', 0))
+                    history['spm_total'].append(tracked.get('spm_total_occupancy', 0))
+                    history['speed'].append(tracked.get('speed', 0))
+
+                    # Update plots every 5 frames (for performance)
+                    if frame % 5 == 0 and len(history['frame']) > 1:
+                        frames = list(history['frame'])
+
+                        # Clear and replot
+                        ax_efe.clear()
+                        ax_efe.plot(frames, list(history['efe']), 'b-', linewidth=2)
+                        ax_efe.set_title('Expected Free Energy')
+                        ax_efe.set_xlabel('Frame')
+                        ax_efe.set_ylabel('EFE')
+                        ax_efe.grid(True, alpha=0.3)
+
+                        ax_haze.clear()
+                        ax_haze.plot(frames, list(history['self_haze']), 'r-', label='Self-Haze', linewidth=2)
+                        ax_haze.plot(frames, [h/50 for h in history['belief_entropy']], 'g-', label='Entropy/50', linewidth=2)
+                        ax_haze.set_title('Self-Haze & Entropy')
+                        ax_haze.set_xlabel('Frame')
+                        ax_haze.set_ylabel('Value')
+                        ax_haze.legend()
+                        ax_haze.grid(True, alpha=0.3)
+
+                        ax_spm.clear()
+                        ax_spm.plot(frames, list(history['spm_total']), 'm-', linewidth=2)
+                        ax_spm.set_title('SPM Total Occupancy')
+                        ax_spm.set_xlabel('Frame')
+                        ax_spm.set_ylabel('Total Occupancy')
+                        ax_spm.grid(True, alpha=0.3)
+
+                        ax_metrics.clear()
+                        ax_metrics.plot(frames, list(history['num_visible']), 'c-', label='# Visible', linewidth=2)
+                        ax_metrics.plot(frames, [s/10 for s in history['speed']], 'orange', label='Speed/10', linewidth=2)
+                        ax_metrics.set_title('Visibility & Speed')
+                        ax_metrics.set_xlabel('Frame')
+                        ax_metrics.set_ylabel('Count / Speed')
+                        ax_metrics.legend()
+                        ax_metrics.grid(True, alpha=0.3)
+
+                        plt.tight_layout()
+                        plt.pause(0.001)  # Allow matplotlib to update
         
         except Exception as e:
             print(f"Error: {e}")
