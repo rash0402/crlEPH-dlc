@@ -11,6 +11,8 @@ include("Simulation.jl")
 
 using .Simulation
 using .Types
+using .SelfHaze
+using .EPH
 using ZMQ
 using JSON
 
@@ -83,11 +85,9 @@ function main()
             tracked_agent = env.agents[1]
             tracked_data = if tracked_agent.current_spm !== nothing && tracked_agent.current_precision !== nothing
                 # Compute EFE and entropy for tracking
-                using .SelfHaze
                 H_belief = SelfHaze.compute_belief_entropy(tracked_agent.current_precision)
 
                 # Compute current EFE (with zero action for reference)
-                using .EPH
                 zero_action = [0.0, 0.0]
                 efe_current = EPH.expected_free_energy(zero_action, tracked_agent,
                                                        tracked_agent.current_spm, nothing, params)
