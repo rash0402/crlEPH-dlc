@@ -55,6 +55,7 @@ function decide_action(controller::GradientEPHController, agent::Agent,
     end
 
     # Gradient Descent on Expected Free Energy
+    final_grad = nothing
     for i in 1:controller.params.max_iter
         # Compute gradient: ∇_a G(a)
         grads = Zygote.gradient(a -> expected_free_energy(a, agent, spm_tensor,
@@ -62,6 +63,11 @@ function decide_action(controller::GradientEPHController, agent::Agent,
                                                          controller.params),
                                current_action)
         grad = grads[1]
+
+        # Store final gradient for visualization
+        if i == controller.params.max_iter
+            final_grad = copy(grad)
+        end
 
         # Clip gradient for stability
         grad = clamp.(grad, -10.0, 10.0)
@@ -75,6 +81,9 @@ function decide_action(controller::GradientEPHController, agent::Agent,
             current_action = (current_action / speed) * controller.params.max_speed
         end
     end
+
+    # Store gradient in agent for visualization
+    agent.current_gradient = final_grad
 
     # Smooth transition: blend with previous velocity for continuity
     smoothing = 0.7  # 70% new action, 30% old velocity

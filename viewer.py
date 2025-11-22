@@ -141,7 +141,8 @@ def main():
             'belief_entropy': deque(maxlen=max_history),
             'num_visible': deque(maxlen=max_history),
             'spm_total': deque(maxlen=max_history),
-            'speed': deque(maxlen=max_history)
+            'speed': deque(maxlen=max_history),
+            'gradient_norm': deque(maxlen=max_history)
         }
 
         # Configure subplots
@@ -157,11 +158,11 @@ def main():
         ax_haze.set_ylabel('Value')
         ax_haze.grid(True, alpha=0.3)
 
-        ax_spm = axes[1, 0]
-        ax_spm.set_title('SPM Occupancy')
-        ax_spm.set_xlabel('Frame')
-        ax_spm.set_ylabel('Total Occupancy')
-        ax_spm.grid(True, alpha=0.3)
+        ax_grad = axes[1, 0]
+        ax_grad.set_title('Gradient Norm (∇G)')
+        ax_grad.set_xlabel('Frame')
+        ax_grad.set_ylabel('||∇G||')
+        ax_grad.grid(True, alpha=0.3)
 
         ax_metrics = axes[1, 1]
         ax_metrics.set_title('Visibility & Speed')
@@ -287,7 +288,39 @@ def main():
                     if num_visible > 0:
                         vis_text = small_font.render(str(num_visible), True, (0, 0, 0))
                         screen.blit(vis_text, (x + radius + 2, y - radius - 2))
-                
+
+                # Draw gradient vector for tracked agent (Agent 1, red)
+                tracked = message.get("tracked_agent")
+                if tracked is not None and len(agents) > 0:
+                    grad_x = tracked.get("gradient_x", 0.0)
+                    grad_y = tracked.get("gradient_y", 0.0)
+
+                    if abs(grad_x) > 0.01 or abs(grad_y) > 0.01:  # Only draw if gradient is non-zero
+                        # Agent 1 position (red agent)
+                        agent1 = agents[0]  # First agent is Agent 1
+                        x1 = int(agent1["x"] * scale_x)
+                        y1 = int(agent1["y"] * scale_y)
+
+                        # Gradient is negative of the force (∇G points uphill, we want downhill)
+                        # Scale gradient for visibility (negative sign for descent direction)
+                        grad_scale = 3.0
+                        grad_end_x = int(x1 - grad_x * grad_scale)
+                        grad_end_y = int(y1 - grad_y * grad_scale)
+
+                        # Draw gradient arrow (red with thicker line)
+                        pygame.draw.line(screen, (255, 0, 0), (x1, y1), (grad_end_x, grad_end_y), 3)
+
+                        # Draw arrowhead
+                        arrow_length = 8
+                        angle = np.arctan2(grad_end_y - y1, grad_end_x - x1)
+                        arrow_angle1 = angle + 2.8
+                        arrow_angle2 = angle - 2.8
+                        arrow_p1 = (int(grad_end_x + arrow_length * np.cos(arrow_angle1)),
+                                   int(grad_end_y + arrow_length * np.sin(arrow_angle1)))
+                        arrow_p2 = (int(grad_end_x + arrow_length * np.cos(arrow_angle2)),
+                                   int(grad_end_y + arrow_length * np.sin(arrow_angle2)))
+                        pygame.draw.polygon(screen, (255, 0, 0), [(grad_end_x, grad_end_y), arrow_p1, arrow_p2])
+
                 # Info (black text for light gray background)
                 frame = message.get("frame", 0)
                 fps = clock.get_fps()
@@ -297,7 +330,7 @@ def main():
                 screen.blit(text_surf, (10, 10))
 
                 # Legend for self-haze visualization
-                legend_text = "Self-Haze: Low (Blue FOV) → High (Red FOV)"
+                legend_text = "Self-Haze: Low (Blue FOV) → High (Red FOV) | Red Arrow: -∇G (Gradient Descent)"
                 legend_surf = font.render(legend_text, True, (60, 60, 60))
                 screen.blit(legend_surf, (10, 30))
 
@@ -315,6 +348,7 @@ def main():
                         history['num_visible'].append(tracked.get('num_visible', 0))
                         history['spm_total'].append(tracked.get('spm_total_occupancy', 0))
                         history['speed'].append(tracked.get('speed', 0))
+                        history['gradient_norm'].append(tracked.get('gradient_norm', 0))
 
                         # Update plots every 5 frames (for performance)
                         if frame % 5 == 0 and len(history['frame']) > 1:
@@ -337,12 +371,12 @@ def main():
                             ax_haze.legend()
                             ax_haze.grid(True, alpha=0.3)
 
-                            ax_spm.clear()
-                            ax_spm.plot(frames, list(history['spm_total']), 'm-', linewidth=2)
-                            ax_spm.set_title('SPM Total Occupancy')
-                            ax_spm.set_xlabel('Frame')
-                            ax_spm.set_ylabel('Total Occupancy')
-                            ax_spm.grid(True, alpha=0.3)
+                            ax_grad.clear()
+                            ax_grad.plot(frames, list(history['gradient_norm']), 'r-', linewidth=2)
+                            ax_grad.set_title('Gradient Norm (∇G)')
+                            ax_grad.set_xlabel('Frame')
+                            ax_grad.set_ylabel('||∇G||')
+                            ax_grad.grid(True, alpha=0.3)
 
                             ax_metrics.clear()
                             ax_metrics.plot(frames, list(history['num_visible']), 'c-', label='# Visible', linewidth=2)

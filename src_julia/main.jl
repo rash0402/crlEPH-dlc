@@ -97,6 +97,11 @@ function main()
                 spm_total = sum(spm_occupancy)
                 spm_max = maximum(spm_occupancy)
 
+                # Gradient information (for visualization)
+                grad_x = tracked_agent.current_gradient !== nothing ? tracked_agent.current_gradient[1] : 0.0
+                grad_y = tracked_agent.current_gradient !== nothing ? tracked_agent.current_gradient[2] : 0.0
+                grad_norm = tracked_agent.current_gradient !== nothing ? sqrt(grad_x^2 + grad_y^2) : 0.0
+
                 # Send full SPM for visualization
                 Dict(
                     "efe" => efe_current,
@@ -106,6 +111,10 @@ function main()
                     "spm_total_occupancy" => spm_total,
                     "spm_max_occupancy" => spm_max,
                     "speed" => sqrt(tracked_agent.velocity[1]^2 + tracked_agent.velocity[2]^2),
+                    # Gradient visualization
+                    "gradient_x" => grad_x,
+                    "gradient_y" => grad_y,
+                    "gradient_norm" => grad_norm,
                     # Full SPM channels for heatmap visualization
                     "spm_occupancy" => collect(tracked_agent.current_spm[1, :, :]),  # Occupancy channel
                     "spm_radial_vel" => collect(tracked_agent.current_spm[2, :, :]), # Radial velocity
