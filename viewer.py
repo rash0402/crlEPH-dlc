@@ -123,8 +123,12 @@ def main():
                     # FOV color modulated by self-haze (if available)
                     self_haze = agent.get("self_haze", 0.0)
                     # High haze → red tint, low haze → blue tint
+                    # Clamp values to [0, 255] to avoid invalid color errors
                     haze_intensity = int(self_haze * 255)
-                    fov_color = (100 + haze_intensity, 200 - haze_intensity, 200 - haze_intensity, 30)
+                    r = min(255, max(0, 100 + haze_intensity))
+                    g = min(255, max(0, 200 - haze_intensity))
+                    b = min(255, max(0, 200 - haze_intensity))
+                    fov_color = (r, g, b, 30)
 
                     draw_fov(screen, x, y, orientation, fov_radius, fov_angle, color=fov_color)
 
