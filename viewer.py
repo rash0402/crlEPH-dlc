@@ -330,8 +330,16 @@ def main():
                 screen.blit(text_surf, (10, 10))
 
                 # Legend for self-haze visualization
-                legend_text = "Self-Haze: Low (Blue FOV) → High (Red FOV) | Red Arrow: -∇G (Gradient Descent)"
-                legend_surf = font.render(legend_text, True, (60, 60, 60))
+                tracked = message.get("tracked_agent")
+                grad_info = ""
+                if tracked is not None:
+                    grad_x = tracked.get("gradient_x", 0.0)
+                    grad_y = tracked.get("gradient_y", 0.0)
+                    grad_norm = tracked.get("gradient_norm", 0.0)
+                    grad_info = f" | ∇G=[{grad_x:.2f}, {grad_y:.2f}] ||∇G||={grad_norm:.2f}"
+
+                legend_text = f"Self-Haze: Low (Blue FOV) → High (Red FOV) | Red Arrow: -∇G{grad_info}"
+                legend_surf = small_font.render(legend_text, True, (60, 60, 60))
                 screen.blit(legend_surf, (10, 30))
 
                 pygame.display.flip()
