@@ -157,9 +157,13 @@ This implementation corresponds to the research proposals in `doc/`:
 - **20251120_Saliency Polar Map (SPM).md** - SPM perceptual representation proposal
 
 The current simulation demonstrates:
-- **Scenario**: Scramble crossing with 12 agents (random walk, no goals)
-- **Goal**: Observe emergent coordination via haze stigmergy
-- **Comparison baseline**: Traditional random walk vs EPH with haze-guided behavior
+- **Scenario**: Sparse Foraging Task with 10 agents in 400×400 toroidal world (displayed as 800×800)
+- **Goal**: Verify Active Inference hypothesis - gradient-only collision avoidance with self-hazing
+- **Key Features**:
+  - Pure gradient descent on Expected Free Energy (no repulsion forces)
+  - Self-haze transitions: Isolated (red FOV) ↔ With neighbors (blue FOV)
+  - Gradient visualization (red arrow shows -∇G direction)
+  - Real-time plots (EFE, self-haze, gradient norm, SPM heatmaps)
 
 ## Development Notes
 
