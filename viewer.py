@@ -59,7 +59,7 @@ def main():
     
     # Initialize Pygame
     pygame.init()
-    width, height = 500, 500  # Compact world for dense interaction observation
+    width, height = 800, 800  # Match simulation world size
     screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption("Julia EPH Viewer - Sparse Foraging Task")
     clock = pygame.time.Clock()
@@ -85,8 +85,8 @@ def main():
                     break
             
             if message:
-                # Render
-                screen.fill((30, 30, 30))
+                # Render with light gray background
+                screen.fill((200, 200, 200))
                 
                 # Draw Haze Grid (if present)
                 haze_grid = message.get("haze_grid", None)
@@ -172,20 +172,20 @@ def main():
                     # Draw number of visible neighbors (if available)
                     num_visible = agent.get("num_visible", 0)
                     if num_visible > 0:
-                        vis_text = small_font.render(str(num_visible), True, (255, 255, 255))
+                        vis_text = small_font.render(str(num_visible), True, (0, 0, 0))
                         screen.blit(vis_text, (x + radius + 2, y - radius - 2))
                 
-                # Info
+                # Info (black text for light gray background)
                 frame = message.get("frame", 0)
                 fps = clock.get_fps()
                 coverage = message.get("coverage", 0.0) * 100.0  # Convert to percentage
                 info_text = f"Frame: {frame} | FPS: {fps:.1f} | Agents: {len(agents)} | Coverage: {coverage:.1f}%"
-                text_surf = font.render(info_text, True, (255, 255, 255))
+                text_surf = font.render(info_text, True, (0, 0, 0))
                 screen.blit(text_surf, (10, 10))
 
                 # Legend for self-haze visualization
                 legend_text = "Self-Haze: Low (Blue FOV) → High (Red FOV)"
-                legend_surf = font.render(legend_text, True, (200, 200, 200))
+                legend_surf = font.render(legend_text, True, (60, 60, 60))
                 screen.blit(legend_surf, (10, 30))
                 
                 pygame.display.flip()

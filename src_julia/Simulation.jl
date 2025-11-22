@@ -24,8 +24,8 @@ Test Active Inference hypothesis:
 When agents see few neighbors (low Ω), self-haze increases → precision decreases
 → belief entropy increases → epistemic term dominates → exploration emerges
 """
-function initialize_simulation(;width=500.0, height=500.0, n_agents=10)
-    env = Environment(width, height, grid_size=25)
+function initialize_simulation(;width=800.0, height=800.0, n_agents=10)
+    env = Environment(width, height, grid_size=40)
 
     # Sparse initial placement: divide world into regions
     # Scaled for variable world size and agent count
@@ -68,19 +68,9 @@ function initialize_simulation(;width=500.0, height=500.0, n_agents=10)
         end
     end
 
-    # Color palette for up to 10 agents
-    colors = [
-        (255, 100, 100),  # Red
-        (100, 255, 100),  # Green
-        (100, 100, 255),  # Blue
-        (255, 255, 100),  # Yellow
-        (255, 100, 255),  # Magenta
-        (100, 255, 255),  # Cyan
-        (255, 150, 100),  # Orange
-        (150, 100, 255),  # Purple
-        (255, 200, 100),  # Light Orange
-        (100, 200, 255),  # Light Blue
-    ]
+    # Unified color for all agents: blue
+    # Will be modulated by self-haze (brightness increases with self-haze)
+    agent_color = (80, 120, 255)  # Base blue color
 
     for i in 1:n_agents
         region = regions[i]
@@ -92,9 +82,8 @@ function initialize_simulation(;width=500.0, height=500.0, n_agents=10)
         # Random initial orientation
         theta = rand() * 2π - π
 
-        # Select color (wrap around if more agents than colors)
-        color_idx = mod1(i, length(colors))
-        agent = Agent(i, x, y, theta=theta, color=colors[color_idx])
+        # All agents use the same blue color
+        agent = Agent(i, x, y, theta=theta, color=agent_color)
 
         # No explicit goals (epistemic foraging only)
         agent.goal = nothing
