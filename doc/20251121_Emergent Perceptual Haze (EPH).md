@@ -122,6 +122,155 @@ $$
 $$
 ここで $\frac{\partial S_{pred}}{\partial a}$ は、SPM v4.0のConv-based Predictorに対する自動微分により算出される。
 
+### 2.4 Expected Free Energy and Epistemic Value (期待自由エネルギーと認識的価値)
+
+> [!NOTE] 🎓 Active Inference Formulation
+>
+> **Purpose**: 本節では、EPHの行動選択を **Expected Free Energy (EFE)** の最小化として再定式化する。これにより、Self-Hazingが「信念分布のエントロピー増加」として数理的に正当化され、探索行動が自然に創発されることを示す。
+>
+> **Complete Derivation**: 完全な数理導出は `EPH_Active_Inference_Derivation.md` を参照。
+
+#### 2.4.1 From Variational Free Energy to Expected Free Energy
+
+Active Inference理論において、エージェントは単に現在の観測を説明する（Variational Free Energy $F$ を最小化）だけでなく、**将来の予測観測を最適化**する（Expected Free Energy $G$ を最小化）。
+
+**Expected Free Energy** $G(a)$ は、行動 $a$ を取った場合の将来の自由エネルギーの期待値として定義される：
+
+$$
+G(a) = \mathbb{E}_{q(o_{t+1}, s_{t+1} | a)} \left[ \log q(s_{t+1} | a) - \log p(o_{t+1}, s_{t+1}) \right]
+$$
+
+これは以下のように分解される：
+
+$$
+\boxed{
+G(a) = \underbrace{\mathbb{E}_{q(s|a)}[D_{KL}[q(o|s) \| p(o|s)]]}_{\text{Epistemic Value (認識的価値)}} - \underbrace{\mathbb{E}_{q(o,s|a)}[\log p^*(o)]}_{\text{Pragmatic Value (道具的価値)}}
+}
+$$
+
+**物理的意味**:
+
+- **Epistemic Value**: 情報獲得の価値（不確実性の低減）
+  - エージェントは「知らないことを知る」ための行動を選ぶ
+  - 探索行動を駆動する本質的な動機
+
+- **Pragmatic Value**: 目標達成の価値（好ましい観測の実現）
+  - エージェントは「好ましい状態」を実現する行動を選ぶ
+  - タスク遂行を駆動する外的な動機
+
+#### 2.4.2 EPH Formulation with Expected Free Energy
+
+EPHにおける行動選択を、Expected Free Energyの枠組みで再定式化する：
+
+$$
+\boxed{
+a_t^* = \arg\min_{a} G(a) = \arg\min_a \left[ \underbrace{F_{\text{percept}}(a, \mathcal{H})}_{\text{Epistemic Term}} + \underbrace{\beta \cdot H[q(s|a)]}_{\text{Entropy Term}} + \underbrace{\lambda \cdot M_{\text{meta}}(a)}_{\text{Pragmatic Term}} \right]
+}
+$$
+
+**各項の詳細**:
+
+1. **Epistemic Term**: Haze変調された予測誤差
+   $$
+   F_{\text{percept}}(a, \mathcal{H}) = \sum_{r,\theta,c} \Pi(r,\theta,c; \mathcal{H}) \cdot (S_{\text{obs}} - S_{\text{pred}}(a))^2
+   $$
+
+2. **Entropy Term**: 信念分布のエントロピー（新規追加）
+   $$
+   H[q(s|a)] = -\mathbb{E}_{q(s|a)}[\log q(s|a)] = -\frac{1}{2} \log \det(2\pi e \Sigma(a))
+   $$
+
+   ここで $\Sigma(a) = (J^T \Pi(\mathcal{H}) J)^{-1}$ は共分散行列、$J = \frac{\partial g(s)}{\partial s}$ は生成モデルのヤコビ行列。
+
+3. **Pragmatic Term**: 衝突回避・ゴール達成
+   $$
+   M_{\text{meta}}(a) = \mathbb{E}_{q(s|a)}[C_{\text{collision}}(s) + C_{\text{goal}}(s)]
+   $$
+
+#### 2.4.3 Self-Hazing as Belief Entropy Modulation
+
+**従来の誤った解釈** (❌):
+> Self-hazingは観測にノイズを加える: $o_{\text{noisy}} = o + \epsilon$
+
+**正しいActive Inference解釈** (✅):
+> Self-hazingは **信念分布のエントロピー** $H[q(s)]$ を増加させる精度変調である
+
+**数理的メカニズム**:
+
+1. **精度行列の変調**:
+   $$
+   \Pi(r, \theta; \mathcal{H}) = \Pi_{\text{base}}(r, \theta) \cdot (1 - h(r, \theta))^\gamma
+   $$
+
+   Hazeが増加 ($h \to 1$) すると、精度が減少 ($\Pi \to 0$)
+
+2. **共分散行列の増大**:
+   $$
+   \Sigma^{-1} = J^T \Pi J \implies \Pi \to 0 \implies \Sigma \to \infty
+   $$
+
+3. **エントロピーの増加**:
+   $$
+   H[q(s)] = \frac{1}{2} \log \det(2\pi e \Sigma) \implies \Sigma \to \infty \implies H \to \infty
+   $$
+
+**因果連鎖**:
+
+```
+他エージェント不在
+    ↓
+占有率低下: Ω(o) < Ω_threshold
+    ↓
+Self-haze増加: h_self → h_max
+    ↓
+精度低下: Π → 0
+    ↓
+共分散増大: Σ → ∞
+    ↓
+信念エントロピー増加: H[q(s)] → ∞
+    ↓
+Epistemic項が支配的になる
+    ↓
+情報獲得行動（探索）が創発
+```
+
+#### 2.4.4 Information-Driven Exploration without Random Walk
+
+**Key Insight**: 高いエントロピー $H[q]$ は、エージェントに「不確実性を解消する行動」を取らせる。
+
+**数理的証明（概略）**:
+
+Expected Free Energy $G(a)$ は以下のように近似できる：
+
+$$
+G(a) \approx H[q(s|a)] - I(o_{t+1}; s_{t+1}|a) + \text{pragmatic terms}
+$$
+
+ここで $I(o; s|a)$ は行動 $a$ による **情報獲得量** (mutual information)。
+
+$G(a)$ を最小化することは、以下を同時に達成する：
+
+1. **将来の不確実性を最小化**: $H[q(s|a)] \to \min$
+2. **情報獲得を最大化**: $I(o; s|a) \to \max$
+
+**結論**: Self-hazingによるエントロピー増加は、**情報理論的に最適な探索行動**を自然に生成する。これはランダムウォークのような無方向な探索ではなく、**不確実性の勾配に従った方向性のある探索**である。
+
+#### 2.4.5 Gradient of Expected Free Energy
+
+行動最適化のため、$G(a)$ の勾配を導出する：
+
+$$
+\nabla_a G(a) = \underbrace{2 (S_{\text{pred}} - S_{\text{obs}})^T \Pi \frac{\partial S_{\text{pred}}}{\partial a}}_{\text{Prediction Error Gradient}} - \underbrace{\frac{\beta}{2} \text{tr}\left( \Pi^{-1} \frac{\partial \Pi}{\partial a} \right)}_{\text{Entropy Gradient}} + \underbrace{\lambda \nabla_a M_{\text{meta}}}_{\text{Pragmatic Gradient}}
+$$
+
+**実装**: Zygote.jlの自動微分により効率的に計算可能。
+
+**参考文献**:
+- Friston et al. (2015) "Active inference and epistemic value" *Cognitive Neuroscience*
+- Parr et al. (2022) *Active Inference: The Free Energy Principle in Mind, Brain, and Behavior*, MIT Press
+
+---
+
 ## 3. Methodology & Implementation (実装計画)
 
 ### 3.1 Haze Architecture
@@ -130,15 +279,55 @@ Hazeは以下の2つのソースから合成される。
 
 $$\mathcal{H}{total}(t) = \mathcal{H}{self}(t) \oplus \mathcal{H}_{env}(x_t, y_t)
 $$
-#### A. Self-Hazing (Autonomic Regulation)
+#### A. Self-Hazing (Autonomic Regulation) - Active Inference Formulation
 
-エージェント自身の内部状態に基づく動的な調整。
+エージェント自身の内部状態に基づく **信念エントロピーの動的調整**。
 
-- **デッドロック検知**: 移動平均速度 $\bar{v} < v_{thresh}$ の場合、進行方向のHazeを一時的に濃くする（＝障害物を無視して突き進む、あるいは別方向の勾配に従う）。
-    
-- 数理モデル:
-    
-    $$\mathcal{H}_{self}(t+1) = (1-\alpha)\mathcal{H}_{self}(t) + \alpha \cdot \Psi(\text{State}_t) $$
+**従来の発見的アプローチ** (deprecated):
+- デッドロック検知に基づく離散的切り替え
+- 数理的根拠が弱い
+
+**Active Inference ベースの新定式化** (推奨):
+
+Self-hazeレベルを、SPMの**情報量（占有率）**に基づいて連続的に調整する：
+
+$$
+\boxed{
+h_{\text{self}}(t) = h_{\max} \cdot \sigma\left( -\alpha (\Omega(o_t) - \Omega_{\text{threshold}}) \right)
+}
+$$
+
+ここで：
+- $\sigma(x) = \frac{1}{1 + e^{-x}}$: Sigmoid関数（微分可能）
+- $\Omega(o_t) = \sum_{r,\theta} o_t[1, r, \theta]$: SPMの総占有率（可視エージェント数の代理変数）
+- $h_{\max}$: 最大hazeレベル（例: 0.8）
+- $\alpha$: 感度パラメータ（例: 2.0）
+- $\Omega_{\text{threshold}}$: 占有率閾値（例: 1.0）
+
+**振る舞い**:
+- $\Omega \ll \Omega_{\text{threshold}}$ （他エージェント見えない）→ $h_{\text{self}} \to h_{\max}$ （高haze, 高entropy, 探索促進）
+- $\Omega \gg \Omega_{\text{threshold}}$ （多数のエージェント可視）→ $h_{\text{self}} \to 0$ （低haze, 低entropy, 精密制御）
+
+**微分可能性の保証**:
+- Sigmoid関数により、$h_{\text{self}}$ は $\Omega$ に関して滑らかに変化
+- Zygote.jlによる勾配計算が可能: $\frac{\partial h_{\text{self}}}{\partial a}$ (行動が占有率に影響する場合)
+
+**実装例** (Julia):
+```julia
+function compute_self_haze(spm::Array{Float64, 3}, params::EPHParams)
+    # 総占有率（Channel 1 = Occupancy）
+    Ω = sum(spm[1, :, :])
+
+    # Sigmoid関数による連続調整
+    x = -params.α * (Ω - params.Ω_threshold)
+    h_self = params.h_max / (1.0 + exp(-x))
+
+    return h_self
+end
+```
+
+**理論的根拠**:
+このメカニズムは、Active Inferenceにおける **Epistemic Foraging** [Friston et al., 2015] を実装している。不確実性が高いときに探索を促進し、確実な情報が得られているときに活用（exploitation）に移行する。
 
 #### B. Environmental Haze (Stigmergy)
 
