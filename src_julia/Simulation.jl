@@ -14,31 +14,61 @@ export initialize_simulation, step!
 Initialize Sparse Foraging Task environment.
 
 # Scenario
-- 6 agents in toroidal world
+- Multiple agents in toroidal world
 - Sparse initial placement (agents far apart)
 - No explicit goals (epistemic foraging only)
-- FOV: 120° × 100px
+- FOV: 210° × 100px
 
 # Objective
 Test Active Inference hypothesis:
 When agents see few neighbors (low Ω), self-haze increases → precision decreases
 → belief entropy increases → epistemic term dominates → exploration emerges
 """
-function initialize_simulation(;width=800.0, height=600.0, n_agents=6)
-    env = Environment(width, height, grid_size=30)
+function initialize_simulation(;width=500.0, height=500.0, n_agents=10)
+    env = Environment(width, height, grid_size=25)
 
     # Sparse initial placement: divide world into regions
-    # Scaled for variable world size
-    margin = 0.15  # 15% margin from edges
-    regions = [
-        (x=width * margin, y=height * 0.25),        # Left-top
-        (x=width * (1-margin), y=height * 0.25),    # Right-top
-        (x=width * margin, y=height * 0.75),        # Left-bottom
-        (x=width * (1-margin), y=height * 0.75),    # Right-bottom
-        (x=width * 0.5, y=height * 0.15),           # Center-top
-        (x=width * 0.5, y=height * 0.85),           # Center-bottom
-    ]
+    # Scaled for variable world size and agent count
+    margin = 0.10  # 10% margin from edges (smaller margin = more spread)
 
+    # Generate regions based on number of agents
+    if n_agents <= 6
+        regions = [
+            (x=width * margin, y=height * 0.25),        # Left-top
+            (x=width * (1-margin), y=height * 0.25),    # Right-top
+            (x=width * margin, y=height * 0.75),        # Left-bottom
+            (x=width * (1-margin), y=height * 0.75),    # Right-bottom
+            (x=width * 0.5, y=height * 0.15),           # Center-top
+            (x=width * 0.5, y=height * 0.85),           # Center-bottom
+        ][1:n_agents]
+    else
+        # For more agents, use grid-based placement with randomized offset
+        # to avoid perfect alignment
+        cols = ceil(Int, sqrt(n_agents))
+        rows = ceil(Int, n_agents / cols)
+        regions = []
+        for i in 0:(n_agents-1)
+            row = div(i, cols)
+            col = mod(i, cols)
+
+            # Base grid position
+            base_x = width * (margin + (1 - 2*margin) * (col + 0.5) / cols)
+            base_y = height * (margin + (1 - 2*margin) * (row + 0.5) / rows)
+
+            # Add randomized offset to break grid pattern (±10% of cell size)
+            cell_width = width * (1 - 2*margin) / cols
+            cell_height = height * (1 - 2*margin) / rows
+            offset_x = (rand() - 0.5) * cell_width * 0.2
+            offset_y = (rand() - 0.5) * cell_height * 0.2
+
+            x = base_x + offset_x
+            y = base_y + offset_y
+
+            push!(regions, (x=x, y=y))
+        end
+    end
+
+    # Color palette for up to 10 agents
     colors = [
         (255, 100, 100),  # Red
         (100, 255, 100),  # Green
@@ -46,20 +76,25 @@ function initialize_simulation(;width=800.0, height=600.0, n_agents=6)
         (255, 255, 100),  # Yellow
         (255, 100, 255),  # Magenta
         (100, 255, 255),  # Cyan
+        (255, 150, 100),  # Orange
+        (150, 100, 255),  # Purple
+        (255, 200, 100),  # Light Orange
+        (100, 200, 255),  # Light Blue
     ]
 
     for i in 1:n_agents
         region = regions[i]
 
-        # Add small jitter to position (±20px)
-        # Smaller jitter ensures agents start well outside each other's FOV
-        x = region.x + (rand() - 0.5) * 40.0
-        y = region.y + (rand() - 0.5) * 40.0
+        # Use region position directly (no jitter for maximum spacing)
+        x = region.x
+        y = region.y
 
         # Random initial orientation
         theta = rand() * 2π - π
 
-        agent = Agent(i, x, y, theta=theta, color=colors[i])
+        # Select color (wrap around if more agents than colors)
+        color_idx = mod1(i, length(colors))
+        agent = Agent(i, x, y, theta=theta, color=colors[color_idx])
 
         # No explicit goals (epistemic foraging only)
         agent.goal = nothing

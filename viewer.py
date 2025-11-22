@@ -59,7 +59,7 @@ def main():
     
     # Initialize Pygame
     pygame.init()
-    width, height = 800, 600  # Smaller world for better observation
+    width, height = 500, 500  # Compact world for dense interaction observation
     screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption("Julia EPH Viewer - Sparse Foraging Task")
     clock = pygame.time.Clock()
