@@ -2,6 +2,7 @@
 
 [![Julia](https://img.shields.io/badge/Julia-1.9%2B-9558B2?logo=julia)](https://julialang.org/)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python)](https://www.python.org/)
+[![PyQt5](https://img.shields.io/badge/PyQt5-5.15%2B-41CD52?logo=qt)](https://www.riverbankcomputing.com/software/pyqt/)
 [![License](https://img.shields.io/badge/License-Research-blue.svg)]()
 
 A research implementation of the **Emergent Perceptual Haze (EPH)** framework for swarm intelligence, combining **Active Inference** and **Free Energy Principle** with bio-inspired perception for gradient-based multi-agent coordination.
@@ -14,17 +15,23 @@ EPH enables multi-agent coordination through **self-hazing** - a precision modul
 
 - **Active Inference**: Agents minimize Expected Free Energy (EFE) through gradient descent
 - **Self-Hazing**: Belief entropy modulation based on SPM occupancy (`h_self(Ω)`)
+- **Prediction-Based Surprise**: Temporal surprise from prediction errors (Active Inference Phase 1)
 - **Saliency Polar Map (SPM)**: Bio-inspired log-polar visual representation (V1 cortex)
 - **Gradient-Based Control**: Pure gradient descent on EFE - **no force fields or repulsion**
-- **Stigmergy**: Environmental coordination through precision modulation
 
 ### Key Innovation
 
 **Collision avoidance emerges purely from gradients** - no repulsion forces, no collision detection:
 ```julia
 # Only gradient descent on Expected Free Energy
-grad = ∇_a G(a) where G(a) = F_percept + β·H[q(s|a)] + λ·M_meta
+grad = ∇_a G(a) where G(a) = F_percept + β·H[q(s|a)] + λ·M_meta + γ_info·I
 action ← action - η·grad
+```
+
+**Surprise-driven exploration**: Prediction errors drive epistemic behavior
+```julia
+Surprise = Σ_{r,θ} Π[r,θ] · (SPM_observed - SPM_predicted)² · dist_weight
+High surprise → Information gain → Exploration
 ```
 
 High occupancy → Low self-haze → High precision → Strong collision avoidance
@@ -35,7 +42,7 @@ Low occupancy → High self-haze → Low precision → Exploratory behavior
 ### Prerequisites
 
 - **Julia 1.9+** (via [juliaup](https://github.com/JuliaLang/juliaup))
-- **Python 3.8+** (for visualization only)
+- **Python 3.8+** with **PyQt5** (for visualization)
 - **ZeroMQ** (bundled with Julia/Python packages)
 
 ### Installation
@@ -50,51 +57,50 @@ cd src_julia
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 cd ..
 
-# Install Python dependencies (for viewer)
+# Install Python dependencies (PyQt5 viewer)
 pip install -r requirements.txt
 ```
 
 ### Run Simulation
 
 ```bash
-# Full simulation with visualization
+# Full simulation with PyQt5 dashboard
 ./scripts/run_experiment.sh
 
 # Julia server only (headless)
 cd src_julia && julia --project=. main.jl
 
 # Python viewer only (requires server running)
-export PYTHONPATH=.
 python viewer.py
 ```
 
 Press `Ctrl+C` to stop. The script automatically cleans up ZeroMQ ports.
 
-## 📊 Visualization
+## 📊 PyQt5 Dashboard Visualization
 
-The viewer displays:
+The integrated PyQt5 viewer displays:
 
-### Pygame Window (800×800)
+### Left Panel: Simulation View
 - **Agents**: Red (tracked Agent 1), Blue (others)
-- **FOV Sectors**: Color indicates self-haze
-  - Red/Pink = High self-haze (isolated, exploration mode)
-  - Blue/Cyan = Low self-haze (with neighbors, exploitation mode)
-- **Red Arrow**: Gradient vector `-∇G` showing descent direction
-- **Numbers**: Visible neighbor count
-- **On-screen metrics**: Gradient values `∇G=[x, y]`, norm
+- **FOV Sectors**: Semi-transparent field of view
+- **Gradient Arrow (Red)**: Shows `-∇G` descent direction
+  - Longer arrow = stronger gradient
+  - Points away from obstacles
+- **Frame & Coverage**: Real-time metrics
 
-### Matplotlib Windows
+### Right Panel: Real-Time Plots
 
-**Time Series (4 subplots)**:
-1. Expected Free Energy (EFE)
-2. Self-Haze & Belief Entropy
-3. **Gradient Norm** `||∇G||` - proves gradient-based control
-4. Visibility & Speed
+**Top Row (3 plots)**:
+1. **Expected Free Energy (EFE)** - Total cost function
+2. **Belief Entropy** - Combined spatial + temporal uncertainty
+3. **Surprise (F_percept)** - Prediction error magnitude
 
-**SPM Heatmaps (3 channels)**:
-- Occupancy channel (log-polar bins)
-- Radial velocity
-- Tangential velocity
+**Middle Row (2 plots)**:
+4. **Gradient Norm** - Proves gradient-based control
+5. **Self-Haze** - Precision modulation level
+
+**Bottom Row (3 plots)**:
+6-8. **SPM Heatmaps** - Occupancy, Radial Velocity, Tangential Velocity
 
 ## 📁 Project Structure
 
@@ -102,7 +108,7 @@ The viewer displays:
 crlEPH-dlc/
 ├── README.md                     # This file
 ├── CLAUDE.md                     # Developer onboarding guide
-├── requirements.txt              # Python dependencies (viewer)
+├── requirements.txt              # Python dependencies (PyQt5 viewer)
 │
 ├── src_julia/                    # Julia implementation (main)
 │   ├── main.jl                   # ZeroMQ server entry point
@@ -112,13 +118,15 @@ crlEPH-dlc/
 │   │   └── Types.jl              # Agent, Environment, EPHParams
 │   ├── perception/
 │   │   └── SPM.jl                # Saliency Polar Map computation
+│   ├── prediction/
+│   │   └── SPMPredictor.jl       # SPM prediction (Phase 1)
 │   ├── control/
 │   │   ├── SelfHaze.jl           # Self-haze & precision computation
 │   │   └── EPH.jl                # Gradient-based EFE minimization
 │   └── utils/
 │       └── MathUtils.jl          # Toroidal geometry utilities
 │
-├── viewer.py                     # Python/Pygame visualization client
+├── viewer.py                     # PyQt5 integrated dashboard
 │
 ├── scripts/
 │   └── run_experiment.sh         # Launch server + viewer
@@ -138,31 +146,47 @@ crlEPH-dlc/
 ### Communication Flow
 
 ```
-Julia Server (port 5555)  ──ZeroMQ PUB/SUB──>  Python Viewer
+Julia Server (port 5555)  ──ZeroMQ PUB/SUB──>  PyQt5 Viewer
      ↓                                              ↓
-  Simulation                                   Pygame Rendering
-  SPM Computation                              Matplotlib Plots
-  Self-Haze Calculation                        SPM Heatmaps
-  EFE Gradient Descent                         Gradient Visualization
+  Simulation                                   Integrated Dashboard
+  SPM Computation                              - Simulation rendering
+  SPM Prediction (Phase 1)                     - Real-time plots
+  Surprise Calculation                         - SPM heatmaps
+  Self-Haze Calculation                        - Gradient visualization
+  EFE Gradient Descent
 ```
 
-### Active Inference Pipeline
+### Active Inference Pipeline (Phase 1)
 
 ```julia
 # 1. Perception: Compute SPM
 spm = compute_spm(agent, env, params)
 
-# 2. Self-Hazing: Compute belief entropy
+# 2. Prediction: Estimate next SPM (Phase 1)
+spm_predicted = predict_spm(agent.previous_spm, agent.velocity, params)
+
+# 3. Surprise: Prediction error
+surprise = Σ Π[r,θ] · (spm - spm_predicted)² · dist_weight
+
+# 4. Self-Hazing: Compute belief entropy
 h_self = compute_self_haze(spm, params)  # Sigmoid based on occupancy
 Π = compute_precision_matrix(spm, h_self, params)
-H_belief = compute_belief_entropy(Π)
 
-# 3. Action Selection: Minimize Expected Free Energy
-G(a) = F_percept(a, Π) + β·H_belief + λ·M_meta(a)
+# Spatial entropy (uncertainty over space)
+H_spatial = compute_belief_entropy(Π)
+
+# Temporal entropy (prediction error variance)
+H_temporal = log(var(spm - spm_predicted) + ε)
+
+# Combined belief entropy
+H_belief = H_spatial + H_temporal
+
+# 5. Action Selection: Minimize Expected Free Energy
+G(a) = F_percept(a, Π) + β·H_belief + λ·M_meta(a) + γ_info·Surprise
 grad = Zygote.gradient(a -> G(a), action)
 action ← action - η·grad  # Pure gradient descent
 
-# 4. Physics: Integrate velocity
+# 6. Physics: Integrate velocity
 position += velocity * dt
 ```
 
@@ -184,24 +208,38 @@ h_self = h_max · sigmoid(-α(Ω - Ω_threshold))
 Π[r,θ] = Π_base[r,θ] · (1 - h_self)^γ
 ```
 
-**Current Parameters** (tuned for 400×400 world, 10 agents):
+**Surprise Calculation (Phase 1)**:
+```julia
+prediction_error = spm_current - spm_previous
+surprise = Σ_{r,θ} Π[r,θ] · (w_occ·error_occ² + w_rad·error_rad² + w_tan·error_tan²) · dist_weight
+```
+
+**Current Parameters** (tuned for 300×300 world, 10 agents):
 - `α = 10.0` (sensitivity, was 2.0)
 - `Ω_threshold = 0.05` (realistic occupancy range 0.0-0.15)
 - `β = 1.0` (entropy weight, was 0.5)
 - `γ = 2.0` (haze attenuation exponent)
+- `γ_info = 0.5` (information gain weight, **new in Phase 1**)
+- `personal_space = 30.0` (collision buffer, was 20.0)
 - `FOV = 210° × 100px`
 
 ## 📊 Current Scenario
 
-**Sparse Foraging Task**
-- **10 agents** in **400×400 toroidal world** (displayed as 800×800)
+**Sparse Foraging Task (Phase 1: Prediction-Based Surprise)**
+- **10 agents** in **300×300 toroidal world** (smaller for frequent interactions)
 - **No explicit goals** - pure epistemic foraging
 - **Hypothesis Testing**: Agents transition between:
   1. **Isolated (high self-haze)** → Exploration (high entropy)
-  2. **Encountering neighbors (low self-haze)** → Exploitation (collision avoidance)
-  3. **Separating** → Back to exploration
+  2. **Encountering neighbors** → Surprise spike → Information-seeking
+  3. **Predictable environment (low self-haze)** → Exploitation (collision avoidance)
 
-**Observation**: Coverage ~50% at frame 100 with emergent coordination
+**Phase 1 Features**:
+- ✅ Linear SPM prediction (velocity-based extrapolation)
+- ✅ Multi-channel surprise (occupancy + radial + tangential velocity)
+- ✅ Temporal belief entropy (prediction error variance)
+- ✅ Information gain term in EFE
+
+**Observation**: High surprise when agents suddenly appear in FOV → Active exploration
 
 ## 🛠️ Development
 
@@ -232,6 +270,7 @@ lsof -i :5555
   - World: Cartesian (x, y) with wrap-around
   - Agent-relative: Polar (r, θ) where θ=0 is forward
   - SPM: Log-polar bins
+- **PyQt5 Integration**: Use Qt signal/slot for safe cross-thread updates
 
 See `CLAUDE.md` for comprehensive development guidelines.
 
@@ -244,7 +283,7 @@ See `CLAUDE.md` for comprehensive development guidelines.
 
 ## 🔬 Research Status
 
-**Current Phase**: Active Inference implementation with gradient visualization
+**Current Phase**: Active Inference Phase 1 - Prediction & Surprise
 
 **Completed**:
 - ✅ Julia-based simulation core
@@ -252,44 +291,73 @@ See `CLAUDE.md` for comprehensive development guidelines.
 - ✅ **Active Inference formulation** (Expected Free Energy)
 - ✅ **Self-hazing mechanism** (belief entropy modulation)
 - ✅ **Gradient-based action selection** (Zygote AD)
-- ✅ **Gradient visualization** (red arrow on screen)
+- ✅ **Phase 1: Prediction-based surprise**
+  - Linear SPM predictor
+  - Multi-channel surprise calculation
+  - Temporal belief entropy
+  - Information gain term in EFE
+- ✅ **PyQt5 integrated dashboard**
+  - Unified simulation + plots window
+  - Surprise plot
+  - Gradient visualization
+  - SPM heatmaps
 - ✅ ZeroMQ communication protocol
-- ✅ Real-time Pygame + Matplotlib visualization
-- ✅ SPM heatmap visualization
 
 **Key Verification**:
 - ✅ **Pure gradient-based collision avoidance** (no repulsion forces)
-- ✅ Gradient values displayed on screen: `∇G=[x, y]`
-- ✅ Self-haze transitions: Red FOV (isolated) ↔ Blue FOV (with neighbors)
+- ✅ Gradient values visualized on screen: Red arrow shows `-∇G`
+- ✅ Self-haze transitions: Isolated ↔ With neighbors
+- ✅ **Surprise spikes on unpredicted encounters**
 - ✅ Parameter tuning: 50% self-haze change on encounter (was 3.3%)
 
 **Next Steps**:
+- **Phase 2**: GRU-based SPM predictor (learned temporal dynamics)
+- **Phase 3**: Goal inference from predicted SPM
 - Baseline comparisons (Random Walk, Potential Field, ACO)
-- Statistical validation (coverage efficiency, interaction rates)
+- Statistical validation (coverage efficiency, interaction rates, surprise correlation)
 - Scalability testing (agent count, world size)
 - Mathematical analysis (convergence proofs, stability)
 
 ## 🎓 Theoretical Foundation
 
-**Active Inference**: Agents act to minimize Expected Free Energy
+**Active Inference (Phase 1)**: Agents minimize Expected Free Energy with information gain
 ```
-G(a) = E_q[log q(s|a) - log p(o,s)] + KL[q(s|a)||q(s)]
-     = F_percept(a) + β·H[q(s|a)] + λ·M_meta(a)
+G(a) = F_percept(a) + β·H[q(s|a)] + λ·M_meta(a) + γ_info·I[a]
+
+Where:
+- F_percept = Perceptual surprise (prediction error)
+- H[q(s|a)] = Belief entropy (spatial + temporal)
+- M_meta = Pragmatic value (goal seeking)
+- I[a] = Information gain (epistemic value)
+```
+
+**Surprise (Prediction Error)**:
+```
+F_percept = Σ_{r,θ,c} Π[r,θ] · w[c] · (SPM_obs[c,r,θ] - SPM_pred[c,r,θ])² · dist_decay(r)
+
+Where c ∈ {occupancy, radial_vel, tangential_vel}
 ```
 
 **Self-Hazing Hypothesis**:
 ```
 Low occupancy Ω → High self-haze h → Low precision Π
-→ High covariance Σ = Π^(-1) → High entropy H[q]
+→ High covariance Σ = Π^(-1) → High spatial entropy H_spatial
 → Epistemic term dominates → Exploration emerges
+```
+
+**Temporal Uncertainty (Phase 1)**:
+```
+Prediction error variance → Temporal entropy H_temporal
+High H_temporal → Unpredictable environment → Information-seeking behavior
 ```
 
 **Gradient Flow**:
 ```
-∂G/∂a = ∂F_percept/∂a + β·∂H/∂a + λ·∂M_meta/∂a
+∂G/∂a = ∂F_percept/∂a + β·∂H/∂a + λ·∂M_meta/∂a + γ_info·∂I/∂a
 
-Where F_percept penalizes moving towards occupied bins:
-F_percept = Σ_{r,θ} occupancy[r,θ] · precision[r,θ] · alignment(a,θ) · dist_decay(r)
+Where F_percept penalizes moving towards occupied bins AND prediction errors:
+F_percept = Σ_{r,θ} [occupancy[r,θ] · precision[r,θ] · alignment(a,θ) · dist_decay(r)
+             + surprise[r,θ]]
 ```
 
 ## 🤝 Contributing
@@ -297,7 +365,7 @@ F_percept = Σ_{r,θ} occupancy[r,θ] · precision[r,θ] · alignment(a,θ) · d
 This is a research project. For contributions:
 1. Read `CLAUDE.md` for code conventions
 2. Ensure Zygote-compatible code (test with `gradient()`)
-3. Run `./scripts/run_experiment.sh` to verify changes
+3. Test with PyQt5 viewer: `./scripts/run_experiment.sh`
 4. Use conventional commit messages (see `CLAUDE.md`)
 
 ## 📝 License
@@ -308,6 +376,7 @@ Research prototype. License TBD.
 
 - **Active Inference**: Friston et al. (2010-2023)
 - **Free Energy Principle**: Friston (2010)
+- **Predictive Coding**: Rao & Ballard (1999)
 - **Log-Polar Mapping**: Schwartz (1977), Traver & Bernardino (2010)
 - **Stigmergy**: Grassé (1959), Theraulaz & Bonabeau (1999)
 - **Gradient-Based Swarms**: Olfati-Saber & Murray (2004), Reynolds (1987)
@@ -318,15 +387,16 @@ For questions about this implementation, see `CLAUDE.md` or open an issue.
 
 ---
 
-**Note**: This project transitioned from Python to Julia (2025-11-22) and implemented Active Inference formulation (2025-11-22). Legacy Python code is archived in `archive/python_legacy/`.
+**Note**: This project transitioned from Python to Julia (2025-11-22), implemented Active Inference formulation (2025-11-22), and added prediction-based surprise (Phase 1, 2025-11-22). Legacy Python code is archived in `archive/python_legacy/`.
 
 **Citation**: If you use this code in your research, please cite:
-```
+```bibtex
 @misc{crleph2025,
-  title={crlEPH-dlc: Gradient-Based Emergent Perceptual Haze for Swarm Coordination},
+  title={crlEPH-dlc: Gradient-Based Emergent Perceptual Haze with Prediction-Based Surprise},
   author={[Your Name]},
   year={2025},
   publisher={GitHub},
+  journal={Active Inference Framework for Swarm Coordination},
   url={[repository-url]}
 }
 ```

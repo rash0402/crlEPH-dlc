@@ -1,22 +1,36 @@
 # EPH Active Inference Formulation: Complete Mathematical Derivation
 
 **Document Type**: Technical Derivation
-**Version**: 1.0
-**Date**: 2025-11-22
+**Version**: 2.0 (Phase 1)
+**Date**: 2025-11-22 (Updated)
 **Author**: Hiroshi Igarashi (with AI-DLC Navigator assistance)
-**Purpose**: Rigorous mathematical foundation for EPH based on Active Inference and Expected Free Energy
+**Purpose**: Mathematical foundation for EPH with prediction-based surprise (Phase 1)
 
 ---
 
 ## 0. Executive Summary
 
-This document provides the **complete mathematical derivation** of the Emergent Perceptual Haze (EPH) framework based on Active Inference theory. We establish:
+This document provides the **complete mathematical derivation** of the Emergent Perceptual Haze (EPH) framework based on Active Inference theory. **Phase 1** extends the formulation with prediction-based surprise.
+
+### Core Contributions
 
 1. **Expected Free Energy** $G(a)$ as the action selection criterion
 2. **Self-hazing as belief entropy modulation** (not additive noise)
-3. **Analytical gradient** $\nabla_a G$ for efficient implementation
+3. **Prediction-based surprise** (Phase 1): Temporal prediction errors drive epistemic behavior
+4. **Multi-channel SPM prediction**: Occupancy + radial/tangential velocity
+5. **Combined belief entropy**: Spatial uncertainty + temporal uncertainty
+6. **Analytical gradient** $\nabla_a G$ for efficient implementation
 
-**Key Result**: When other agents are not visible, self-hazing increases belief uncertainty, which drives **information-seeking exploration** through the epistemic value term in $G(a)$.
+### Phase 1 Key Result
+
+**Prediction errors create surprise** → Information gain drives action selection → Agents actively seek unpredictable encounters for learning.
+
+**Formula**:
+$$
+G(a) = F_{\text{percept}}(a, \Pi) + \beta \cdot H_{\text{belief}} + \lambda \cdot M_{\text{meta}}(a) + \gamma_{\text{info}} \cdot \text{Surprise}
+$$
+
+Where $\text{Surprise} = \sum_{r,\theta,c} \Pi[r,\theta] \cdot w[c] \cdot (\text{SPM}_{\text{obs}}[c,r,\theta] - \text{SPM}_{\text{pred}}[c,r,\theta])^2$
 
 ---
 
@@ -152,6 +166,111 @@ $$
 
 - $C_{\text{collision}}$: Cost of being close to obstacles
 - $C_{\text{goal}}$: Cost of deviating from goal
+
+---
+
+## 3A. Phase 1 Extension: Prediction-Based Surprise
+
+### 3A.1 Motivation
+
+**Problem**: The original EFE formulation doesn't explicitly account for **temporal prediction errors** - agents don't learn from unexpected changes in their environment over time.
+
+**Solution**: Phase 1 introduces **prediction-based surprise** by comparing predicted SPM with observed SPM.
+
+### 3A.2 SPM Prediction
+
+At timestep $t$, the agent predicts the next SPM based on current observations and dynamics:
+
+$$
+\text{SPM}_{\text{pred},t+1} = f_{\text{pred}}(\text{SPM}_t, \mathbf{v}_t, \theta_t)
+$$
+
+**Phase 1 Implementation** (Linear Predictor):
+$$
+\text{SPM}_{\text{pred},t+1} \approx \text{SPM}_t
+$$
+
+This simple baseline assumes minimal change between timesteps, creating surprise when observations differ significantly.
+
+**Phase 2** (Planned): GRU-based learned predictor
+$$
+\text{SPM}_{\text{pred},t+1} = \text{GRU}(\{\text{SPM}_{\tau}\}_{\tau \leq t}, \mathbf{v}_t)
+$$
+
+### 3A.3 Multi-Channel Surprise
+
+Surprise is computed as **precision-weighted squared prediction error** across all SPM channels:
+
+$$
+\boxed{
+\text{Surprise} = \sum_{r=1}^{N_r} \sum_{\theta=1}^{N_\theta} \sum_{c \in \{\text{occ}, \text{rad}, \text{tan}\}} \Pi[r,\theta] \cdot w[c] \cdot e^2_{c,r,\theta} \cdot d(r)
+}
+$$
+
+Where:
+- $e_{c,r,\theta} = \text{SPM}_{\text{obs}}[c,r,\theta] - \text{SPM}_{\text{pred}}[c,r,\theta]$: Prediction error
+- $\Pi[r,\theta]$: Precision (haze-modulated, from Section 4)
+- $w[c]$: Channel importance weights
+  - $w[\text{occ}] = 1.0$ (occupancy most important)
+  - $w[\text{rad}] = 0.5$ (radial velocity)
+  - $w[\text{tan}] = 0.3$ (tangential velocity)
+- $d(r) = 1/(r + 0.1)$: Distance decay (closer bins weighted higher)
+
+**Interpretation**:
+- High surprise when agent suddenly appears in FOV (large $e_{\text{occ}}$)
+- High surprise when agent changes velocity unexpectedly (large $e_{\text{rad}}$, $e_{\text{tan}}$)
+- Precision modulates sensitivity: Low haze → high precision → high surprise for errors
+
+### 3A.4 Temporal Belief Entropy
+
+Phase 1 extends belief entropy to include **temporal uncertainty**:
+
+$$
+H_{\text{belief}} = H_{\text{spatial}} + H_{\text{temporal}}
+$$
+
+**Spatial Entropy** (from precision matrix):
+$$
+H_{\text{spatial}} = -\sum_{r,\theta} \log(\Pi[r,\theta] + \epsilon)
+$$
+
+**Temporal Entropy** (from prediction error variance):
+$$
+H_{\text{temporal}} = \log(\text{Var}(\{\text{SPM}_{\text{obs}}[1,r,\theta] - \text{SPM}_{\text{pred}}[1,r,\theta]\}_{r,\theta}) + \epsilon)
+$$
+
+Where variance is computed over the occupancy channel errors.
+
+**Physical Meaning**:
+- $H_{\text{spatial}}$: Uncertainty about **where** obstacles are (spatial belief distribution)
+- $H_{\text{temporal}}$: Uncertainty about **how** environment changes (temporal dynamics)
+- High $H_{\text{temporal}}$ → unpredictable environment → seek information to improve predictions
+
+### 3A.5 Updated Expected Free Energy
+
+The complete Phase 1 EFE formula:
+
+$$
+\boxed{
+G(a) = F_{\text{percept}}(a, \Pi) + \beta \cdot H_{\text{belief}} + \lambda \cdot M_{\text{meta}}(a) + \gamma_{\text{info}} \cdot \text{Surprise}
+}
+$$
+
+Expanded:
+$$
+G(a) = \underbrace{\sum_{r,\theta} \Pi[r,\theta] \cdot \text{SPM}[1,r,\theta] \cdot \text{align}(a,\theta) \cdot d(r)}_{F_{\text{percept}}} + \beta \cdot (H_{\text{spatial}} + H_{\text{temporal}}) + \lambda \cdot M_{\text{collision}} + \gamma_{\text{info}} \cdot \text{Surprise}
+$$
+
+**New Parameter**: $\gamma_{\text{info}} = 0.5$ (information gain weight)
+
+**Behavior**:
+- When surprise is high (unexpected encounter):
+  - $\gamma_{\text{info}} \cdot \text{Surprise}$ term increases $G(a)$
+  - Gradient descent seeks actions that minimize $G$
+  - Agent adjusts behavior to **approach** information-rich regions
+- When surprise is low (predictable environment):
+  - Epistemic term $\beta \cdot H_{\text{belief}}$ dominates
+  - Agent explores to reduce uncertainty
 
 ---
 
@@ -646,33 +765,65 @@ $$
 
 ## 12. Conclusion
 
-We have provided a **rigorous mathematical foundation** for EPH based on Active Inference:
+We have provided a **rigorous mathematical foundation** for EPH based on Active Inference, now extended with Phase 1 prediction-based surprise:
 
 ### Key Contributions
 
 1. **Expected Free Energy Formulation**
-   - $G(a) = F_{\text{percept}}(a, \mathcal{H}) + \lambda M_{\text{meta}}(a)$
-   - Epistemic (exploration) + Pragmatic (goal achievement) balance
+   - $G(a) = F_{\text{percept}}(a, \Pi) + \beta H_{\text{belief}} + \lambda M_{\text{meta}}(a) + \gamma_{\text{info}} \cdot \text{Surprise}$
+   - Epistemic (exploration) + Pragmatic (goal achievement) + Information gain balance
 
 2. **Self-Hazing as Entropy Modulation**
    - Not additive noise, but precision matrix modulation
    - $h_{\text{self}}(\Omega) \to \Pi(\mathcal{H}) \to H[q(s)]$
 
-3. **Analytical Gradient**
+3. **Prediction-Based Surprise (Phase 1)** ✅
+   - Multi-channel SPM prediction (occupancy + radial/tangential velocity)
+   - Precision-weighted squared prediction errors
+   - Temporal belief entropy from prediction error variance
+
+4. **Combined Belief Entropy (Phase 1)** ✅
+   - $H_{\text{belief}} = H_{\text{spatial}} + H_{\text{temporal}}$
+   - Spatial: Uncertainty over obstacle locations
+   - Temporal: Uncertainty over environment dynamics
+
+5. **Analytical Gradient**
    - $\nabla_a G(a)$ derived for efficient optimization
    - Implementable via automatic differentiation (Zygote.jl)
 
-4. **Exploration Mechanism**
+6. **Exploration Mechanism**
    - High entropy → information-seeking actions
+   - Prediction errors → active learning
    - Theoretically grounded (Active Inference)
    - Distinct from random walk
 
+### Implementation Status
+
+**Phase 1: Completed** ✅
+1. ✅ Julia implementation (`src_julia/control/EPH.jl`, `src_julia/control/SelfHaze.jl`)
+2. ✅ Linear SPM predictor (baseline)
+3. ✅ Multi-channel surprise calculation
+4. ✅ Temporal belief entropy
+5. ✅ PyQt5 integrated dashboard with real-time plots
+6. ✅ 300×300 toroidal world with 10 agents (sparse foraging task)
+
 ### Next Steps
 
-1. Implement in Julia (`src_julia/control/EPH.jl`)
-2. Run Phase 1 experiments (single agent exploration)
-3. Validate theoretical predictions empirically
-4. Extend to multi-agent scenarios with environmental haze
+**Phase 2: GRU-Based SPM Prediction**
+1. Implement GRU-based learned predictor
+2. Train on agent trajectory data
+3. Compare prediction accuracy (linear vs GRU)
+4. Measure information gain improvements
+
+**Phase 3: Goal Inference**
+1. Infer goals from predicted SPM patterns
+2. Multi-agent coordination experiments
+3. Baseline comparisons (Random Walk, Potential Field, ACO)
+
+**Long-term**
+1. Statistical validation (30+ trials, t-tests)
+2. Parameter sensitivity analysis
+3. Mathematical convergence proofs
 
 ---
 
