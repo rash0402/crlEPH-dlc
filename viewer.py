@@ -118,17 +118,34 @@ def main():
                     orientation = agent["orientation"]
                     # Updated FOV parameters for sparse foraging task
                     fov_radius = 100  # Matches params.fov_range
-                    fov_angle = np.radians(120)  # 120 degrees
+                    fov_angle = np.radians(210)  # 210 degrees (matches Julia params)
 
                     # FOV color modulated by self-haze (if available)
-                    self_haze = agent.get("self_haze", 0.0)
-                    # High haze → red tint, low haze → blue tint
-                    # Clamp values to [0, 255] to avoid invalid color errors
-                    haze_intensity = int(self_haze * 255)
-                    r = min(255, max(0, 100 + haze_intensity))
-                    g = min(255, max(0, 200 - haze_intensity))
-                    b = min(255, max(0, 200 - haze_intensity))
-                    fov_color = (r, g, b, 30)
+                    self_haze = agent.get("self_haze", 0.7)  # Default to isolated state
+
+                    # Color mapping:
+                    # High self-haze (0.7-0.8, isolated) → Red/Pink
+                    # Low self-haze (0.0-0.2, with neighbors) → Blue/Cyan
+
+                    # Normalize self-haze to [0, 1] range for color calculation
+                    # Assume h_max = 0.8
+                    haze_normalized = min(1.0, self_haze / 0.8)
+
+                    # Color interpolation: Blue (isolated=low haze) → Red (with neighbors=high haze)
+                    # Wait, this is backwards. Let me fix it:
+                    # High self-haze (isolated) → Red
+                    # Low self-haze (with neighbors) → Blue
+
+                    r = int(100 + haze_normalized * 155)  # 100 → 255
+                    g = int(200 - haze_normalized * 200)  # 200 → 0
+                    b = int(200 - haze_normalized * 200)  # 200 → 0
+
+                    # Clamp to valid range
+                    r = min(255, max(0, r))
+                    g = min(255, max(0, g))
+                    b = min(255, max(0, b))
+
+                    fov_color = (r, g, b, 40)  # Slightly more opaque for visibility
 
                     draw_fov(screen, x, y, orientation, fov_radius, fov_angle, color=fov_color)
 

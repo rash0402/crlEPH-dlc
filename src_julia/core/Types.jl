@@ -26,8 +26,11 @@ mutable struct Agent
     function Agent(id::Int, x::Float64, y::Float64;
                    theta::Float64=0.0, radius::Float64=10.0,
                    color::Tuple{Int, Int, Int}=(100, 150, 255))
+        # Initialize with high self-haze (isolated state)
+        # Will be updated to actual value in first step
+        initial_self_haze = 0.7  # Corresponds to isolated state (low occupancy)
         new(id, [x, y], [0.0, 0.0], theta, radius, 50.0, 20.0, color, nothing,
-            nothing, nothing, 0.0, Int[])
+            nothing, nothing, initial_self_haze, Int[])
     end
 end
 

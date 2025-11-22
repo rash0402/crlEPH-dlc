@@ -51,9 +51,10 @@ function initialize_simulation(;width=800.0, height=600.0, n_agents=6)
     for i in 1:n_agents
         region = regions[i]
 
-        # Add jitter to position (±50px)
-        x = region.x + (rand() - 0.5) * 100.0
-        y = region.y + (rand() - 0.5) * 100.0
+        # Add small jitter to position (±20px)
+        # Smaller jitter ensures agents start well outside each other's FOV
+        x = region.x + (rand() - 0.5) * 40.0
+        y = region.y + (rand() - 0.5) * 40.0
 
         # Random initial orientation
         theta = rand() * 2π - π
