@@ -108,6 +108,30 @@ def main():
         fig_spm, axes_spm = plt.subplots(1, 3, figsize=(12, 4))
         fig_spm.suptitle('Agent 1 (Red) - SPM Heatmaps (Log-Polar)', fontsize=14)
 
+        # Initialize SPM heatmap images (will be updated with real data later)
+        # Use dummy data for initialization
+        dummy_spm = np.zeros((6, 8))  # Nr=6, Ntheta=8 (typical SPM dimensions)
+
+        im_spm_occ = axes_spm[0].imshow(dummy_spm, cmap='hot', aspect='auto', interpolation='nearest')
+        axes_spm[0].set_title('Occupancy Channel')
+        axes_spm[0].set_xlabel('θ (angular bins)')
+        axes_spm[0].set_ylabel('r (radial bins)')
+        cbar_occ = fig_spm.colorbar(im_spm_occ, ax=axes_spm[0], fraction=0.046, pad=0.04)
+
+        im_spm_rad = axes_spm[1].imshow(dummy_spm, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-1, vmax=1)
+        axes_spm[1].set_title('Radial Velocity')
+        axes_spm[1].set_xlabel('θ (angular bins)')
+        axes_spm[1].set_ylabel('r (radial bins)')
+        cbar_rad = fig_spm.colorbar(im_spm_rad, ax=axes_spm[1], fraction=0.046, pad=0.04)
+
+        im_spm_tan = axes_spm[2].imshow(dummy_spm, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-1, vmax=1)
+        axes_spm[2].set_title('Tangential Velocity')
+        axes_spm[2].set_xlabel('θ (angular bins)')
+        axes_spm[2].set_ylabel('r (radial bins)')
+        cbar_tan = fig_spm.colorbar(im_spm_tan, ax=axes_spm[2], fraction=0.046, pad=0.04)
+
+        fig_spm.tight_layout()
+
         # Data buffers (keep last 200 frames)
         max_history = 200
         history = {
@@ -343,29 +367,18 @@ def main():
                                 spm_rad_array = np.array(spm_rad) if spm_rad is not None else np.zeros_like(spm_occ_array)
                                 spm_tan_array = np.array(spm_tan) if spm_tan is not None else np.zeros_like(spm_occ_array)
 
-                                # Clear and plot heatmaps
-                                axes_spm[0].clear()
-                                im0 = axes_spm[0].imshow(spm_occ_array, cmap='hot', aspect='auto', interpolation='nearest')
-                                axes_spm[0].set_title('Occupancy Channel')
-                                axes_spm[0].set_xlabel('θ (angular bins)')
-                                axes_spm[0].set_ylabel('r (radial bins)')
-                                fig_spm.colorbar(im0, ax=axes_spm[0], fraction=0.046, pad=0.04)
+                                # Update heatmap data (no clear/colorbar needed)
+                                im_spm_occ.set_data(spm_occ_array)
+                                im_spm_occ.set_clim(vmin=spm_occ_array.min(), vmax=spm_occ_array.max())
 
-                                axes_spm[1].clear()
-                                im1 = axes_spm[1].imshow(spm_rad_array, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-1, vmax=1)
-                                axes_spm[1].set_title('Radial Velocity')
-                                axes_spm[1].set_xlabel('θ (angular bins)')
-                                axes_spm[1].set_ylabel('r (radial bins)')
-                                fig_spm.colorbar(im1, ax=axes_spm[1], fraction=0.046, pad=0.04)
+                                im_spm_rad.set_data(spm_rad_array)
+                                # Keep fixed range for velocity channels
+                                # im_spm_rad.set_clim(vmin=-1, vmax=1)  # Already set in initialization
 
-                                axes_spm[2].clear()
-                                im2 = axes_spm[2].imshow(spm_tan_array, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-1, vmax=1)
-                                axes_spm[2].set_title('Tangential Velocity')
-                                axes_spm[2].set_xlabel('θ (angular bins)')
-                                axes_spm[2].set_ylabel('r (radial bins)')
-                                fig_spm.colorbar(im2, ax=axes_spm[2], fraction=0.046, pad=0.04)
+                                im_spm_tan.set_data(spm_tan_array)
+                                # im_spm_tan.set_clim(vmin=-1, vmax=1)  # Already set in initialization
 
-                                fig_spm.tight_layout()
+                                fig_spm.canvas.draw_idle()
                                 plt.pause(0.001)
         
         except Exception as e:
