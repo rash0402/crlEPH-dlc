@@ -45,7 +45,7 @@ function main()
     )
 
     # Initialize Sparse Foraging Environment (smaller for more interactions)
-    env = Simulation.initialize_simulation(width=600.0, height=600.0, n_agents=10)
+    env = Simulation.initialize_simulation(width=400.0, height=400.0, n_agents=10)
     println("Simulation initialized with $(length(env.agents)) agents.")
     println("World size: $(env.width) × $(env.height)")
     println("FOV: $(params.fov_angle * 180 / π)° × $(params.fov_range)px")

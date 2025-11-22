@@ -86,7 +86,7 @@ def main():
     # Initialize Pygame
     pygame.init()
     width, height = 800, 800  # Window size (display)
-    sim_width, sim_height = 600, 600  # Simulation world size
+    sim_width, sim_height = 400, 400  # Simulation world size
     scale_x = width / sim_width
     scale_y = height / sim_height
 
