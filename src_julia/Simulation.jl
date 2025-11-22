@@ -91,8 +91,8 @@ function initialize_simulation(;width=400.0, height=400.0, n_agents=10)
         # No explicit goals (epistemic foraging only)
         agent.goal = nothing
 
-        # Moderate personal space for collision avoidance
-        agent.personal_space = 20.0
+        # Moderate personal space for collision avoidance (increased for more spacing)
+        agent.personal_space = 30.0
 
         push!(env.agents, agent)
     end
@@ -119,6 +119,9 @@ function step!(env::Environment, params::EPHParams)
 
     # --- 1. Perception & Action Selection ---
     for agent in env.agents
+        # Store previous SPM for prediction-based surprise
+        agent.previous_spm = agent.current_spm
+        
         # Compute SPM (Saliency Polar Map)
         spm = SPM.compute_spm(agent, env, spm_params)
 

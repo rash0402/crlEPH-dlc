@@ -15,6 +15,7 @@ using .SelfHaze
 using .EPH
 using ZMQ
 using JSON
+using Statistics  # For var() function
 
 function main()
     println("Starting Julia EPH Server (Sparse Foraging Task)...")
@@ -45,7 +46,7 @@ function main()
     )
 
     # Initialize Sparse Foraging Environment (smaller for more interactions)
-    env = Simulation.initialize_simulation(width=400.0, height=400.0, n_agents=10)
+    env = Simulation.initialize_simulation(width=300.0, height=300.0, n_agents=10)
     println("Simulation initialized with $(length(env.agents)) agents.")
     println("World size: $(env.width) × $(env.height)")
     println("FOV: $(params.fov_angle * 180 / π)° × $(params.fov_range)px")
@@ -84,13 +85,80 @@ function main()
             # Special tracking data for Agent 1 (red agent)
             tracked_agent = env.agents[1]
             tracked_data = if tracked_agent.current_spm !== nothing && tracked_agent.current_precision !== nothing
-                # Compute EFE and entropy for tracking
-                H_belief = SelfHaze.compute_belief_entropy(tracked_agent.current_precision)
+                # Compute Belief Entropy (Combined: Spatial + Temporal Uncertainty)
+                
+                # 1. Spatial Uncertainty: Entropy of Precision Matrix
+                H_spatial = SelfHaze.compute_belief_entropy(tracked_agent.current_precision)
+                
+                # 2. Temporal Uncertainty: Prediction error variance
+                H_temporal = if tracked_agent.previous_spm !== nothing
+                    # Compute prediction error
+                    prediction_error = tracked_agent.current_spm .- tracked_agent.previous_spm
+                    
+                    # Variance of prediction error (focus on occupancy channel)
+                    error_variance = var(prediction_error[1, :, :])
+                    
+                    # Convert variance to entropy-like measure
+                    # H = -log(1/σ²) = log(σ²)
+                    # Add small epsilon to avoid log(0)
+                    log(error_variance + 1e-6)
+                else
+                    # First frame: no temporal uncertainty
+                    0.0
+                end
+                
+                # Combined Belief Entropy
+                H_belief = H_spatial + H_temporal
 
                 # Compute current EFE (with zero action for reference)
                 zero_action = [0.0, 0.0]
                 efe_current = EPH.expected_free_energy(zero_action, tracked_agent,
                                                        tracked_agent.current_spm, nothing, params)
+
+                # Compute Surprise (Prediction Error) using previous SPM
+                # Surprise = sum of precision-weighted squared prediction errors
+                # High surprise = observations differ significantly from predictions
+                
+                if tracked_agent.previous_spm !== nothing
+                    # Prediction error: difference between current and previous SPM
+                    prediction_error = tracked_agent.current_spm .- tracked_agent.previous_spm
+                    
+                    # Compute precision matrix
+                    h_self = SelfHaze.compute_self_haze(tracked_agent.current_spm, params)
+                    Π = SelfHaze.compute_precision_matrix(tracked_agent.current_spm, h_self, params)
+                    
+                    # Precision-weighted squared prediction error (Multi-Channel)
+                    # Include all three SPM channels with appropriate weighting
+                    Nr, Nθ = size(tracked_agent.current_spm, 2), size(tracked_agent.current_spm, 3)
+                    
+                    # Channel weights (importance of each channel for surprise)
+                    w_occ = 1.0   # Occupancy (most important)
+                    w_rad = 0.5   # Radial velocity (approaching/receding)
+                    w_tan = 0.3   # Tangential velocity (lateral motion)
+                    
+                    surprise = sum(
+                        let
+                            # Squared prediction errors for all channels
+                            error_occ = prediction_error[1, r, t]^2
+                            error_rad = prediction_error[2, r, t]^2
+                            error_tan = prediction_error[3, r, t]^2
+                            
+                            # Combined weighted error
+                            weighted_error = w_occ * error_occ + w_rad * error_rad + w_tan * error_tan
+                            
+                            # Weight by precision (high precision = high surprise for errors)
+                            prec = Π[r, t]
+                            # Distance weighting (closer bins matter more)
+                            dist_weight = 1.0 / (r + 0.1)
+                            
+                            prec * weighted_error * dist_weight
+                        end
+                        for r in 1:Nr, t in 1:Nθ
+                    )
+                else
+                    # First frame: no previous SPM, surprise = 0
+                    surprise = 0.0
+                end
 
                 # SPM occupancy statistics
                 spm_occupancy = tracked_agent.current_spm[1, :, :]
@@ -105,20 +173,22 @@ function main()
                 # Send full SPM for visualization
                 Dict(
                     "efe" => efe_current,
+                    "surprise" => surprise,  # Prediction error-based surprise
                     "self_haze" => tracked_agent.self_haze,
-                    "belief_entropy" => H_belief,
+                    "entropy" => H_belief,  # Combined belief entropy
+                    "entropy_spatial" => H_spatial,  # Spatial component
+                    "entropy_temporal" => H_temporal,  # Temporal component
                     "num_visible" => length(tracked_agent.visible_agents),
                     "spm_total_occupancy" => spm_total,
                     "spm_max_occupancy" => spm_max,
                     "speed" => sqrt(tracked_agent.velocity[1]^2 + tracked_agent.velocity[2]^2),
-                    # Gradient visualization
-                    "gradient_x" => grad_x,
-                    "gradient_y" => grad_y,
+                    # Gradient visualization (as array for Python)
+                    "gradient" => [grad_x, grad_y],
                     "gradient_norm" => grad_norm,
                     # Full SPM channels for heatmap visualization
                     "spm_occupancy" => collect(tracked_agent.current_spm[1, :, :]),  # Occupancy channel
-                    "spm_radial_vel" => collect(tracked_agent.current_spm[2, :, :]), # Radial velocity
-                    "spm_tangential_vel" => collect(tracked_agent.current_spm[3, :, :]) # Tangential velocity
+                    "spm_radial" => collect(tracked_agent.current_spm[2, :, :]), # Radial velocity
+                    "spm_tangential" => collect(tracked_agent.current_spm[3, :, :]) # Tangential velocity
                 )
             else
                 nothing

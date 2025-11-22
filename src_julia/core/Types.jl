@@ -18,6 +18,7 @@ mutable struct Agent
     # SPM state (stored for visualization/debugging)
     current_spm::Union{Array{Float64, 3}, Nothing}
     current_precision::Union{Matrix{Float64}, Nothing}
+    previous_spm::Union{Array{Float64, 3}, Nothing}  # For prediction-based surprise
 
     # Active Inference state
     self_haze::Float64  # Current self-haze level
@@ -31,7 +32,7 @@ mutable struct Agent
         # Will be updated to actual value in first step
         initial_self_haze = 0.7  # Corresponds to isolated state (low occupancy)
         new(id, [x, y], [0.0, 0.0], theta, radius, 50.0, 20.0, color, nothing,
-            nothing, nothing, initial_self_haze, Int[], nothing)
+            nothing, nothing, nothing, initial_self_haze, Int[], nothing)
     end
 end
 
