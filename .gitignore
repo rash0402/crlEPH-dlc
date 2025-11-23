@@ -71,3 +71,10 @@ tmp/
 
 # Serena MCP server cache
 .serena/
+
+# Experimental data and logs
+data/logs/*.jld2
+data/logs/*.png
+data/training/*.csv
+data/models/*.jld2
+src_julia/data/

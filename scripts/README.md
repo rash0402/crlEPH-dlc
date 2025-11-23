@@ -75,6 +75,28 @@ Julia EPHサーバー + Python viewerを起動します。
 
 ---
 
+## 🧠 GRU予測器関連（Phase 2用）
+
+GRU予測器の学習・更新スクリプトは `scripts/gru/` にあります。
+
+### `gru/update_gru.sh`
+**GRU予測モデルの更新（推奨）**
+
+```bash
+./scripts/gru/update_gru.sh
+```
+
+データ収集→学習→モデル保存を自動実行します。
+
+### その他のGRUスクリプト
+- `pretrain_gru.jl` - GRU事前学習
+- `train_gru.jl` - GRU学習
+- `train_predictor.jl` - 予測器学習
+- `update_gru_model.jl` - モデル更新
+- `update_gru_weighted.jl` - 重み付き学習
+
+---
+
 ## 📁 出力ファイル
 
 すべてのログは以下に保存されます：
