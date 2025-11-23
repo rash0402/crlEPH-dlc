@@ -3,15 +3,21 @@ Pkg.activate(@__DIR__)
 Pkg.instantiate()
 
 include("utils/MathUtils.jl")
+include("utils/DataCollector.jl")
+include("utils/ExperimentLogger.jl")
 include("core/Types.jl")
 include("perception/SPM.jl")
+include("prediction/SPMPredictor.jl")
 include("control/SelfHaze.jl")
 include("control/EPH.jl")
 include("Simulation.jl")
 
 using .Simulation
 using .Types
+using .DataCollector
+using .ExperimentLogger
 using .SelfHaze
+using .SPMPredictor
 using .EPH
 using ZMQ
 using JSON
@@ -42,27 +48,99 @@ function main()
         max_accel=100.0,
         # FOV
         fov_angle=210.0 * π / 180.0,  # 210 degrees
-        fov_range=100.0
+        fov_range=100.0,
+        # Data Collection (Phase 2)
+        collect_data=true
     )
 
     # Initialize Sparse Foraging Environment (smaller for more interactions)
     env = Simulation.initialize_simulation(width=300.0, height=300.0, n_agents=10)
     println("Simulation initialized with $(length(env.agents)) agents.")
     println("World size: $(env.width) × $(env.height)")
+    println("World size: $(env.width) × $(env.height)")
     println("FOV: $(params.fov_angle * 180 / π)° × $(params.fov_range)px")
 
-    # Initialize ZeroMQ
-    context = Context()
-    socket = Socket(context, PUB)
-    bind(socket, "tcp://*:5555")
+    # Initialize Predictor for visualization
+    predictor = if params.predictor_type == :neural
+        # Load trained GRU model
+        model_path = joinpath(@__DIR__, "../data/models/predictor_model.jld2")
+        if isfile(model_path)
+            println("Loading neural predictor from: $model_path")
+            SPMPredictor.load_predictor(model_path)
+        else
+            println("Warning: Neural model not found. Falling back to Linear.")
+            SPMPredictor.LinearPredictor(params.prediction_dt)
+        end
+    else
+        SPMPredictor.LinearPredictor(params.prediction_dt)
+    end
+    println("Initialized predictor: $(typeof(predictor))")
+
+    # Initialize ZMQ Context
+    ctx = Context()
+    socket = Socket(ctx, PUB)
+    ZMQ.bind(socket, "tcp://*:5555")
     println("ZMQ Server bound to tcp://*:5555")
 
-    # Main Loop
+    # Disable default SIGINT handling to ensure we catch InterruptException
+    Base.exit_on_sigint(false)
+
+    # Initialize Experiment Logger
+    logger = ExperimentLogger.Logger("eph_experiment")
+    log_interval = 10  # Log every N steps (approx 0.16s) for high resolution
+
+    # State tracking for diagnostic metrics
+    prev_positions = nothing
+    prev_velocities = nothing
+    prev_actions = nothing
+    prev_self_haze = nothing
+    efe_before = nothing
+    efe_after = nothing
+
+    frame_count = 0
+
     try
         while true
-            # Step Simulation with EPH Parameters
-            Simulation.step!(env, params)
+            # Capture state before simulation step
+            if frame_count > 0 && frame_count % log_interval == 0
+                prev_positions = [(a.position[1], a.position[2]) for a in env.agents]
+                prev_velocities = [sqrt(a.velocity[1]^2 + a.velocity[2]^2) for a in env.agents]
+                prev_actions = [copy(a.velocity) for a in env.agents]
+                prev_self_haze = [a.self_haze for a in env.agents]
+            end
 
+            # Run simulation step
+            Simulation.step!(env, params, predictor)
+            frame_count += 1
+
+            # Periodic logging
+            if frame_count % log_interval == 0
+                # Basic logging
+                ExperimentLogger.log_step(logger, frame_count, frame_count * 0.1, env.agents, env)
+
+                # System metrics
+                coverage = Simulation.compute_coverage(env)
+                total_haze = sum(env.haze_grid)
+                avg_sep = mean([sqrt((a.position[1] - b.position[1])^2 + (a.position[2] - b.position[2])^2)
+                               for a in env.agents for b in env.agents if a.id != b.id])
+                ExperimentLogger.log_system_metrics(logger, coverage, total_haze, avg_sep, 0)
+
+                # Phase 1: System Health Diagnostics
+                ExperimentLogger.log_health_metrics(logger, env.agents, env, prev_positions, prev_velocities)
+
+                # Phase 2: GRU Prediction Performance
+                # Note: SPMParams needs to be accessible - assuming it's defined in SPM module
+                spm_params = SPM.SPMParams()
+                ExperimentLogger.log_prediction_metrics(logger, env.agents, predictor, env, spm_params)
+
+                # Phase 3: Gradient-Driven System
+                # Note: EFE before/after would need to be tracked during simulation
+                ExperimentLogger.log_gradient_metrics(logger, env.agents, prev_actions, efe_before, efe_after)
+
+                # Phase 4: Self-Haze Dynamics
+                ExperimentLogger.log_selfhaze_metrics(logger, env.agents, prev_self_haze)
+            end
+            
             # Prepare Data for Visualization
             agents_data = []
             for agent in env.agents
@@ -113,7 +191,7 @@ function main()
                 # Compute current EFE (with zero action for reference)
                 zero_action = [0.0, 0.0]
                 efe_current = EPH.expected_free_energy(zero_action, tracked_agent,
-                                                       tracked_agent.current_spm, nothing, params)
+                                                       tracked_agent.current_spm, env, nothing, params, predictor)
 
                 # Compute Surprise (Prediction Error) using previous SPM
                 # Surprise = sum of precision-weighted squared prediction errors
@@ -205,9 +283,13 @@ function main()
             # Send Data
             ZMQ.send(socket, JSON.json(message))
 
-            if env.frame_count % 100 == 0
+            if env.frame_count % 10 == 0
                 coverage_pct = 100.0 * sum(env.coverage_map) / length(env.coverage_map)
                 println("Frame: $(env.frame_count) | Coverage: $(round(coverage_pct, digits=1))%")
+                flush(stdout)
+                
+                # Periodic save to ensure we get data even if crashed
+                ExperimentLogger.save_log(logger)
             end
 
             # Sleep to limit FPS (approx 60 FPS)
@@ -218,12 +300,15 @@ function main()
             println("\nServer stopped by user.")
             coverage_pct = 100.0 * sum(env.coverage_map) / length(env.coverage_map)
             println("Final coverage: $(round(coverage_pct, digits=1))%")
+            
+            # Save experiment log
+            ExperimentLogger.save_log(logger)
         else
             rethrow(e)
         end
     finally
         close(socket)
-        close(context)
+        close(ctx)
     end
 end
 

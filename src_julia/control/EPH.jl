@@ -3,6 +3,8 @@ module EPH
 using ..Types
 using ..SelfHaze
 using ..MathUtils
+using ..SPM
+using ..SPMPredictor
 using Zygote
 using LinearAlgebra
 using Statistics
@@ -22,9 +24,10 @@ Where:
 """
 struct GradientEPHController
     params::EPHParams
+    predictor::Predictor
 
-    function GradientEPHController(params::EPHParams)
-        new(params)
+    function GradientEPHController(params::EPHParams, predictor::Predictor)
+        new(params, predictor)
     end
 end
 
@@ -37,6 +40,7 @@ Compute optimal action by minimizing Expected Free Energy G(a).
 - `controller::GradientEPHController`: Controller with EPHParams
 - `agent::Agent`: Agent making the decision
 - `spm_tensor::Array{Float64, 3}`: Current SPM observation (3, Nr, Nθ)
+- `env::Environment`: Environment state (for prediction)
 - `preferred_velocity::Union{Vector{Float64}, Nothing}`: Goal direction (if any)
 
 # Returns
@@ -44,6 +48,7 @@ Compute optimal action by minimizing Expected Free Energy G(a).
 """
 function decide_action(controller::GradientEPHController, agent::Agent,
                       spm_tensor::Array{Float64, 3},
+                      env::Environment,
                       preferred_velocity::Union{Vector{Float64}, Nothing})
 
     # Initial guess: current velocity (for continuity)
@@ -58,9 +63,10 @@ function decide_action(controller::GradientEPHController, agent::Agent,
     final_grad = nothing
     for i in 1:controller.params.max_iter
         # Compute gradient: ∇_a G(a)
-        grads = Zygote.gradient(a -> expected_free_energy(a, agent, spm_tensor,
+        grads = Zygote.gradient(a -> expected_free_energy(a, agent, spm_tensor, env,
                                                          preferred_velocity,
-                                                         controller.params),
+                                                         controller.params,
+                                                         controller.predictor),
                                current_action)
         grad = grads[1]
 
@@ -118,17 +124,34 @@ No agents visible → Low occupancy Ω → High self-haze h_self → Low precisi
 """
 function expected_free_energy(action::Vector{Float64}, agent::Agent,
                                spm_tensor::Array{Float64, 3},
+                               env::Environment,
                                preferred_velocity::Union{Vector{Float64}, Nothing},
-                               params::EPHParams)::Float64
+                               params::EPHParams,
+                               predictor::Predictor)::Float64
 
     # --- 1. Compute Self-Haze from SPM ---
     h_self = SelfHaze.compute_self_haze(spm_tensor, params)
 
-    # --- 2. Compute Haze-Modulated Precision Matrix ---
-    Π = SelfHaze.compute_precision_matrix(spm_tensor, h_self, params)
+    # --- 2. Compute Haze-Modulated Precision Matrix (Current) ---
+    Π_current = SelfHaze.compute_precision_matrix(spm_tensor, h_self, params)
 
-    # --- 3. Compute Belief Entropy H[q(s)] ---
-    H_belief = SelfHaze.compute_belief_entropy(Π)
+    # --- 3. Compute Future Belief Entropy & Information Gain ---
+    # Predict future SPM based on action
+    spm_params = SPM.SPMParams(d_max=params.fov_range)
+    # Predict future SPM based on action
+    spm_params = SPM.SPMParams(d_max=params.fov_range)
+    # Predict SPM (differentiable for NeuralPredictor, ignored for LinearPredictor)
+    spm_pred = SPMPredictor.predict_spm(predictor, agent, action, env, spm_params)
+    
+    # Compute future entropy H[q(s_{t+1}|a)]
+    h_self_pred = SelfHaze.compute_self_haze(spm_pred, params)
+    Π_pred = SelfHaze.compute_precision_matrix(spm_pred, h_self_pred, params)
+    H_future = SelfHaze.compute_belief_entropy(Π_pred)
+    
+    # Compute Information Gain I(o; s|a)
+    # Approximation: Variance of predicted SPM (occupancy channel)
+    # High variance = high information potential
+    I_gain = var(spm_pred[1, :, :])
 
     # --- 4. Perceptual Free Energy: F_percept(a, H) ---
     # Collision avoidance weighted by precision
@@ -138,36 +161,35 @@ function expected_free_energy(action::Vector{Float64}, agent::Agent,
 
     Nr, Nθ = size(spm_tensor, 2), size(spm_tensor, 3)
 
-    f_percept = sum(
-        let
-            # Bin angle in agent-relative coordinates
-            bin_angle = ((t - 1) / Nθ) * 2π - π
-
-            # Global angle (agent's orientation + relative angle)
-            global_bin_angle = bin_angle + agent.orientation
-            bin_dir_x = cos(global_bin_angle)
-            bin_dir_y = sin(global_bin_angle)
-
-            # Alignment: how much action points towards this bin
-            alignment = dir_x * bin_dir_x + dir_y * bin_dir_y
-
-            # Only penalize moving towards occupied bins (alignment > 0)
-            align_factor = max(0.0, alignment)
-
-            # Occupancy from SPM
-            occ = spm_tensor[1, r, t]
-
-            # Precision weight (high precision → high cost for collision)
-            prec = Π[r, t]
-
-            # Distance decay (closer bins have higher cost)
-            dist_factor = 1.0 / (r + 0.1)  # Avoid division by zero
-
-            # Collision cost: occupancy × precision × alignment × distance × speed
-            occ * prec * align_factor * dist_factor * speed * 10.0
-        end
-        for r in 1:min(3, Nr), t in 1:Nθ  # Focus on nearby bins (r ≤ 3)
-    )
+    # Vectorized f_percept calculation
+    # 1. Compute alignment for all angles (t dimension)
+    t_indices = collect(1:Nθ)
+    bin_angles = ((t_indices .- 1) ./ Nθ) .* 2π .- π
+    global_bin_angles = bin_angles .+ agent.orientation
+    bin_dir_x = cos.(global_bin_angles)
+    bin_dir_y = sin.(global_bin_angles)
+    
+    alignment = dir_x .* bin_dir_x .+ dir_y .* bin_dir_y
+    align_factor = max.(0.0, alignment)  # (Nθ,) vector
+    
+    # 2. Extract relevant SPM and Precision data (r dimension: 1 to 3)
+    r_max_idx = min(3, Nr)
+    r_indices = collect(1:r_max_idx)
+    
+    occ_sub = spm_tensor[1, 1:r_max_idx, :]  # (r_max, Nθ)
+    prec_sub = Π_current[1:r_max_idx, :]     # (r_max, Nθ)
+    
+    # 3. Distance decay
+    dist_factor = 1.0 ./ (r_indices .+ 0.1)  # (r_max,) vector
+    
+    # 4. Compute cost
+    # Broadcast: (r, t) * (r, t) * (1, t) * (r, 1) * scalar
+    # align_factor is (Nθ,), reshape to (1, Nθ)
+    align_factor_row = reshape(align_factor, 1, Nθ)
+    
+    cost_grid = occ_sub .* prec_sub .* align_factor_row .* dist_factor .* speed .* 10.0
+    
+    f_percept = sum(cost_grid)
 
     # --- 5. Pragmatic Value: M_meta(a) ---
     m_meta = 0.0
@@ -182,10 +204,8 @@ function expected_free_energy(action::Vector{Float64}, agent::Agent,
     end
 
     # --- 6. Total Expected Free Energy ---
-    # G(a) = F_percept + β·H[q] + λ·M_meta
-    # When H[q] is high (uncertain), epistemic term dominates → exploration
-    # When H[q] is low (certain), perceptual and pragmatic terms dominate → exploitation
-    G = f_percept + params.β * H_belief + params.λ * m_meta
+    # G(a) = F_percept + β·H[q(s_{t+1}|a)] - γ·I(o;s|a) + λ·M_meta
+    G = f_percept + params.β * H_future - params.γ_info * I_gain + params.λ * m_meta
 
     return G
 end

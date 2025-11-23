@@ -5,6 +5,8 @@ using ..MathUtils
 using ..SPM
 using ..EPH
 using ..SelfHaze
+using ..DataCollector
+using ..SPMPredictor
 using LinearAlgebra
 using Random
 
@@ -101,7 +103,7 @@ function initialize_simulation(;width=400.0, height=400.0, n_agents=10)
 end
 
 """
-    step!(env::Environment, params::EPHParams)
+    step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Predictor)
 
 Execute one simulation timestep with Active Inference-based EPH control.
 
@@ -112,9 +114,7 @@ Execute one simulation timestep with Active Inference-based EPH control.
 4. Physics: Update positions and orientations
 5. Tracking: Update coverage map and detect information gain events
 """
-function step!(env::Environment, params::EPHParams)
-    # Initialize controller with EPH parameters
-    controller = EPH.GradientEPHController(params)
+function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Predictor)
     spm_params = SPM.SPMParams(d_max=params.fov_range)
 
     # --- 1. Perception & Action Selection ---
@@ -128,6 +128,29 @@ function step!(env::Environment, params::EPHParams)
         # Store SPM for visualization/debugging
         agent.current_spm = spm
 
+        # Data Collection (Phase 2 & 5)
+        if params.collect_data && agent.previous_spm !== nothing && agent.last_action !== nothing
+            # Record transition with FOV occupancy for importance weighting
+            visible_count = length(agent.visible_agents)
+            DataCollector.collect_transition(agent.id, agent.previous_spm, agent.last_action, 
+                                            agent.current_spm, visible_count)
+            
+            # Auto-save every 2000 samples (across all agents) to prevent memory overflow
+            total_samples = sum(length(b) for b in values(DataCollector.agent_buffers))
+            if total_samples >= 2000
+                DataCollector.save_data("spm_sequences")
+            end
+        end
+
+        # Update Predictor State (Phase 3)
+        # We use previous_spm and last_action because these correspond to the transition
+        # that just happened (or rather, the decision made at t resulted in state update).
+        # Wait, GRU needs (s_t, a_t) to update state h_t -> h_{t+1}.
+        # agent.previous_spm is s_t. agent.last_action is a_t.
+        if agent.previous_spm !== nothing && agent.last_action !== nothing
+            SPMPredictor.update_state!(predictor, agent, agent.previous_spm, agent.last_action)
+        end
+        
         # Compute self-haze from SPM occupancy
         agent.self_haze = SelfHaze.compute_self_haze(spm, params)
 
@@ -148,7 +171,11 @@ function step!(env::Environment, params::EPHParams)
         end
 
         # Decide action by minimizing Expected Free Energy
-        action = EPH.decide_action(controller, agent, spm, pref_vel)
+        controller = EPH.GradientEPHController(params, predictor)
+        action = EPH.decide_action(controller, agent, spm, env, pref_vel)
+        
+        # Store action for data collection in next step
+        agent.last_action = copy(action)
         agent.velocity = action
     end
 
@@ -235,6 +262,15 @@ function _update_coverage_map!(env::Environment, params::EPHParams)
             env.coverage_map[nx, ny] = true
         end
     end
+end
+
+"""
+    compute_coverage(env::Environment) -> Float64
+
+Compute the fraction of the environment covered by agents.
+"""
+function compute_coverage(env::Environment)::Float64
+    return sum(env.coverage_map) / length(env.coverage_map)
 end
 
 end
