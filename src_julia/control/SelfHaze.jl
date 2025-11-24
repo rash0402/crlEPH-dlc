@@ -14,7 +14,7 @@ module SelfHaze
 using ..Types
 using LinearAlgebra
 
-export compute_self_haze, compute_precision_matrix, compute_belief_entropy
+export compute_self_haze, compute_self_haze_matrix, compute_precision_matrix, compute_belief_entropy
 
 """
     compute_self_haze(spm::Array{Float64, 3}, params::EPHParams) -> Float64
@@ -49,6 +49,56 @@ function compute_self_haze(spm::Array{Float64, 3}, params::EPHParams)::Float64
     h_self = params.h_max / (1.0 + exp(-logit))
 
     return h_self
+end
+
+"""
+    compute_self_haze_matrix(spm::Array{Float64, 3}, params::EPHParams) -> Matrix{Float64}
+
+Compute 2D spatial self-haze matrix based on local occupancy per SPM bin.
+
+# Arguments
+- `spm::Array{Float64, 3}`: Saliency Polar Map (3, Nr, Nθ)
+- `params::EPHParams`: EPH parameters
+
+# Returns
+- `h_matrix::Matrix{Float64}`: Self-haze matrix (Nr, Nθ) ∈ [0, h_max]
+
+# Theory (Phase 2 Implementation)
+Spatial haze modulation based on local occupancy:
+    h_self(r, θ) = h_max · σ(-α(Ω(r,θ) - Ω_threshold))
+
+This allows directional and distance-dependent precision control:
+- High occupancy bins (obstacles present) → Low haze → High precision → Strong avoidance
+- Low occupancy bins (free space) → High haze → Low precision → Weak constraints
+
+# Notes
+- For Phase 1 compatibility, use mean(h_matrix) to get scalar haze
+- Currently uses same sigmoid for all bins; future: distance-dependent α, Ω_threshold
+"""
+function compute_self_haze_matrix(spm::Array{Float64, 3}, params::EPHParams)::Matrix{Float64}
+    Nr = size(spm, 2)
+    Nθ = size(spm, 3)
+
+    # Extract occupancy channel
+    occupancy = spm[1, :, :]  # (Nr, Nθ)
+
+    # Initialize haze matrix
+    h_matrix = zeros(Float64, Nr, Nθ)
+
+    # Compute haze for each SPM bin based on local occupancy
+    for r in 1:Nr
+        for θ in 1:Nθ
+            # Local occupancy value (already normalized in SPM computation)
+            Ω_local = occupancy[r, θ]
+
+            # Sigmoid function: h increases when occupancy is LOW
+            # (inverse relationship: low Ω → high h → low Π → exploration)
+            logit = -params.α * (Ω_local - params.Ω_threshold)
+            h_matrix[r, θ] = params.h_max / (1.0 + exp(-logit))
+        end
+    end
+
+    return h_matrix
 end
 
 """
@@ -93,6 +143,56 @@ function compute_precision_matrix(spm::Array{Float64, 3}, h_self::Float64,
     Π_base_mat = repeat(Π_base_vec, 1, Nθ)
     
     # Apply haze modulation and ensure numerical stability
+    Π = max.(Π_base_mat .* haze_factor, 1e-6)
+
+    return Π
+end
+
+"""
+    compute_precision_matrix(spm::Array{Float64, 3}, h_matrix::Matrix{Float64}, params::EPHParams) -> Matrix{Float64}
+
+Compute haze-modulated precision matrix using 2D spatial haze (Phase 2).
+
+# Arguments
+- `spm::Array{Float64, 3}`: Saliency Polar Map (3, Nr, Nθ)
+- `h_matrix::Matrix{Float64}`: Spatial self-haze matrix (Nr, Nθ)
+- `params::EPHParams`: EPH parameters
+
+# Returns
+- `Π::Matrix{Float64}`: Spatially-varying precision matrix (Nr, Nθ)
+
+# Theory
+Spatial precision modulation:
+    Π(r,θ) = Π_base(r,θ) · (1-h(r,θ))^γ
+
+Each SPM bin has independent precision based on local haze:
+- h(r,θ) high → Π(r,θ) low → ignore that direction (lubricant)
+- h(r,θ) low → Π(r,θ) high → pay attention (repellent)
+"""
+function compute_precision_matrix(spm::Array{Float64, 3}, h_matrix::Matrix{Float64},
+                                   params::EPHParams)::Matrix{Float64}
+    Nr = size(spm, 2)
+    Nθ = size(spm, 3)
+
+    # Check dimension consistency
+    if size(h_matrix) != (Nr, Nθ)
+        error("Haze matrix dimensions $(size(h_matrix)) do not match SPM dimensions ($Nr, $Nθ)")
+    end
+
+    # Haze modulation factor for each bin: (1-h)^γ
+    haze_factor = (1.0 .- h_matrix).^params.γ
+
+    # Create vector of normalized radii
+    r_indices = collect(0:(Nr-1))
+    r_norm = r_indices ./ max(Nr - 1, 1)
+
+    # Compute base precision for each radius (vector of length Nr)
+    Π_base_vec = params.Π_max .* exp.(-params.decay_rate .* r_norm)
+
+    # Expand to (Nr, Nθ) matrix
+    Π_base_mat = repeat(Π_base_vec, 1, Nθ)
+
+    # Apply spatially-varying haze modulation and ensure numerical stability
     Π = max.(Π_base_mat .* haze_factor, 1e-6)
 
     return Π

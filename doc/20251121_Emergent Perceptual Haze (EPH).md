@@ -2,554 +2,237 @@
 title: "Emergent Perceptual Haze (EPH): 空間的精度変調による群知能の能動的行動誘導"
 type: Research_Proposal
 status: 🟢 Final
-version: 1.1
+version: 1.2
 date_created: 2025-11-21
-date_modified: 2025-11-21
+date_modified: 2025-11-24
 author: "Hiroshi Igarashi"
 institution: "Tokyo Denki University"
 keywords:
-- Spatial Precision Modulation
-- Active Inference
-- Stigmergy
-- Saliency Polar Map
-- Differentiable Control
+  - Spatial Precision Modulation
+  - Active Inference
+  - Stigmergy
+  - Saliency Polar Map
+  - Differentiable Control
+  - Julia/Zygote
 ---
 
-# Emergent Perceptual Haze (EPH): 空間的精度変調による群知能の能動的行動誘導
-## Active Behavioral Guidance in Swarm Intelligence via Spatial Precision Modulation
-
+# Emergent Perceptual Haze (EPH): 空間的精度変調による群知能の能動的行動誘導
+**Active Behavioral Guidance in Swarm Intelligence via Spatial Precision Modulation**
 
 > [!ABSTRACT]
-> 
-> Purpose: 本ドキュメントは、AI-DLCにおけるEPHプロジェクトの研究プロポーザル完全版（v1.1）である。Hazeを「空間的精度の変調場」として再定義し、能動推論に基づく新しい群制御理論を確立することを目的とする。本版では、既存研究との比較検討を強化し、各参考文献の学術的貢献を明確化した。
+> **Purpose**: 本ドキュメントは、AI-DLCにおけるEPHプロジェクトの研究プロポーザル完全版（v1.2）である。Hazeを「汎用的な空間的精度の変調テンソル」として再定義し、Julia/Zygoteを用いた微分可能実装に基づく新しい群制御理論を確立する。
 
 ## 0. Abstract
 
 > [!INFO] 🎯 AI-DLC Review Guidance
-> 
-> Primary Reviewers: D-1（査読者）, C-1（制御工学）, B-2（数理）
-> 
-> Goal: 「ノイズを加える」という従来の発見的手法との決定的差分（認知的な行動誘導）を明確にする。
+> **Primary Reviewers**: D-1（査読者）, C-1（制御工学）, B-2（数理）
+> **Goal**: Hazeテンソルによる認知的な行動誘導（Lubricant/Repellent）と、Active Inferenceの理論的整合性を明確にする。
 
-**Background**: 群ロボットシステムにおいて、デッドロック回避や群流動性の向上は長年の課題である。従来手法はランダムノイズによる探索（$\epsilon$-greedy等）[[1]](https://www.google.com/search?q=%23ref1 "null") や明示的なポテンシャル場 [[2]](https://www.google.com/search?q=%23ref2 "null") に依存してきたが、これらは計算コストや非凸環境への適応性に限界があった。特に、生物が見せる「不確実性を能動的に利用した柔軟な振る舞い」[[3]](https://www.google.com/search?q=%23ref3 "null") の工学的再現は未達である。
+**Background**: 群ロボットシステムにおいて、デッドロック回避や群流動性の向上は長年の課題である。従来手法はランダムノイズによる探索（$\epsilon$-greedy等）[1] や明示的なポテンシャル場 [2] に依存してきたが、これらは計算コストや非凸環境への適応性に限界があった。特に、生物が見せる「不確実性を能動的に利用した柔軟な振る舞い」[3] の工学的再現は未達である。 
 
-**Objective**: 本研究は、Saliency Polar Map (SPM) [[4]](https://www.google.com/search?q=%23ref4 "null") 上で定義される「知覚の霧（Haze）」を、**空間的精度変調（Spatial Precision Modulation）**として再定義し、変分自由エネルギー原理（FEP）に基づく能動推論を通じて、エージェントの行動をソフトに誘導するフレームワーク「Emergent Perceptual Haze (EPH)」を提案する。
+**Objective**: 本研究は、Saliency Polar Map (SPM) [4] 上で定義されるHazeテンソル $\mathcal{H}$ を用いて、空間的な**知覚精度（Precision）**を動的に変調し、変分自由エネルギー原理（FEP）に基づく能動推論を通じてエージェントの行動をソフトに誘導するフレームワーク「Emergent Perceptual Haze (EPH)」を提案する。
 
-**Methods**: 我々は、(1) 行動を「Haze変調されたサプライズ最小化」と「メタ評価関数（Instrumental Value）最小化」の双対目的最適化として定式化し、(2) 予測SPMに基づく自動微分を用いた勾配法 [[5]](https://www.google.com/search?q=%23ref5 "null") により行動を決定する。さらに、(3) 環境自体にHazeを埋め込む「Haze Stigmergy」[[6]](https://www.google.com/search?q=%23ref6 "null") を導入し、群レベルの協調を実現する。
+**Methods**: 我々は、(1) Hazeテンソルにより衝突回避項と信念エントロピーを同時に操作するデュアル制御機構、(2) Julia言語とZygote.jlを用いた微分可能モデル予測制御（Differentiable MPC）による高速な勾配計算 [5]、(3) 環境自体にHazeを埋め込む「Haze Stigmergy」[6] を導入し、群レベルの協調を実現する。
 
-**Results**: シミュレーション検証において、提案手法は従来のランダムウォーク手法と比較して、デッドロック解消時間を40%短縮し、かつ群の凝集性を維持することを示す。また、環境Hazeによる誘導により、明示的な通信なしに複雑な経路形成が可能であることを実証する。
+**Results**: シミュレーション検証において、提案手法は従来のランダムウォーク手法と比較して、デッドロック解消時間を40%短縮し、かつ群の凝集性を維持することを示す。また、環境Hazeによる誘導（Lubricant/Repellent）により、明示的な通信なしに複雑な経路形成が可能であることを実証する。
 
 **Conclusion**: EPHは、不確実性を「除去すべきノイズ」から「行動制御のパラメータ」へと昇華させ、計算資源の限られたエージェント群におけるスケーラブルかつロバストな制御論理を提供する。
 
-**Keywords**: Spatial Precision Modulation, Active Inference, Stigmergy, Saliency Polar Map, Meta-evaluation
+**Keywords**: Spatial Precision Modulation, Active Inference, Stigmergy, Saliency Polar Map, Haze Tensor, Julia
 
 ## 1. Academic Core Identity (学術的核)
 
 ### 1.1 Academic Novelty & Comparative Discussion (学術的新規性と比較検討)
 
 > [!WARNING] D-1 Red Flags
-> 
 > ❌ 「ノイズを加えたら性能が上がった」 → 偶然性を排除し、メカニズムを説明せよ。
-> 
 > ❌ ACO（蟻コロニー）との違いは？ → 「価値」ではなく「精度」の伝播であることを強調せよ。
 
-**既存研究との決定的な差分（Delta）を定義する。**
+既存研究との決定的な差分（Delta）を定義する。
 
-#### A. From Output Perturbation to Perceptual Bias
+**A. From Output Perturbation to Perceptual Bias**
+強化学習における探索手法として代表的な Maximum Entropy RL (Soft Actor-Critic) [7] は、行動空間（Action Space）のエントロピーを最大化することで探索を促す。これに対しEPHは、Hazeテンソルを用いて知覚空間（Perceptual Space）の精度（Precision）を操作するアプローチを採る。Haarnojaら [7] が「行動の多様性」を目的としたのに対し、EPHはParrら [8] が提唱する**認識的探索（Epistemic Exploration）**を工学的に実装し、「情報の不確かさを解消しようとする動機」を行動生成の駆動力とする。これにより、ランダムな試行錯誤ではなく、不確実性の勾配に従った必然的な探索行動が創発される。
 
-強化学習における探索手法として代表的な Maximum Entropy RL (Soft Actor-Critic) [7] は、行動空間（Action Space）のエントロピーを最大化することで探索を促す。これに対しEPHは、知覚空間（Perceptual Space）の精度（Precision）を操作するアプローチを採る。
+**B. From Explicit Potential to Differentiable Surprise**
+従来の人工ポテンシャル法（Khatib [2]）は、障害物からの反発力を明示的に設計する必要があり、局所解（Local Minima）への対処が課題であった。EPHは、Amosら [5] が提案する**微分可能モデル予測制御（Differentiable MPC）**の枠組みをSPM上に展開し、Julia/Zygoteによる自動微分を用いて、Hazeによって変形された「サプライズの地形」を降下する。これにより、明示的なルールの設計なしに、滑らかかつ適応的な回避・誘導行動を生成する。 
 
-Haarnojaら [7] が「行動の多様性」を目的としたのに対し、EPHはParrら [8] が提唱する**認識的探索（Epistemic Exploration）**を工学的に実装し、「情報の不確かさを解消しようとする動機」を行動生成の駆動力とする。これにより、ランダムな試行錯誤ではなく、不確実性の勾配に従った必然的な探索行動が創発される。
+**C. From Pheromone Value to Precision Stigmergy**
+群知能におけるACO（Dorigoら [6]）は、フェロモンという「正の価値（Value）」を環境に蓄積させる。対してEPHの Environmental Haze は、「情報の信頼度（Precision）」を環境に埋め込む。
+* **Lubricant Haze (潤滑)**: 経路の精度を高め、追従をスムーズにする（低いHaze）。
+* **Repellent Haze (反発)**: 既探索領域の精度を下げ、探索を促す（高いHaze）。
 
-#### B. From Explicit Potential to Differentiable Surprise
-
-従来の人工ポテンシャル法（Khatib [[2]](https://www.google.com/search?q=%23ref2 "null")）は、障害物からの反発力を明示的に設計する必要があり、局所解（Local Minima）への対処が課題であった。EPHは、Amosら [[5]](https://www.google.com/search?q=%23ref5 "null") が提案する**微分可能モデル予測制御（Differentiable MPC）**の枠組みをSPM上に展開し、Hazeによって変形された「サプライズの地形」を降下する。これにより、明示的なルールの設計なしに、滑らかかつ適応的な回避・誘導行動を生成する。
-
-#### C. From Pheromone Value to Precision Stigmergy
-
-群知能におけるACO（Dorigoら [[6]](https://www.google.com/search?q=%23ref6 "null")）は、フェロモンという「正の価値（Value）」を環境に蓄積させる。対してEPHの **Environmental Haze** は、「情報の信頼度（Precision）」を環境に埋め込む。これは、「ここに行けば報酬がある」ではなく、「ここはよく見えない（から探索せよ/あるいは無視せよ）」という文脈依存の情報を共有するものであり、外乱に対してよりロバストな協調（Stigmergy）を実現する。
+これは文脈依存の情報を共有するものであり、外乱に対してよりロバストな協調（Stigmergy）を実現する。
 
 ### 1.2 Academic Reliability (学術的信頼性)
 
-理論的保証（B-2要求）:
-
+**理論的保証（B-2要求）**:
 行動決定プロセスを変分自由エネルギー $F$ の勾配流（Gradient Flow）として記述することで、リアプノフ安定性に準じた収束特性を議論可能にする。
 
-$$\dot{a} \propto -\nabla_a (F_{percept} + \lambda M_{meta})$$
+$$
+\dot{a} \propto -\nabla_a (F_{percept} + \lambda M_{meta})
+$$
 
 この定式化は、Fristonらが提唱する一般化フィルタリング（Generalized Filtering）[9] における勾配降下の定式化と数学的に整合しており、神経科学的にも妥当性が高い。
 
-生物学的妥当性（B-1要求）:
-
+**生物学的妥当性（B-1要求）**:
 生物の視覚注意（Visual Attention）モデル（Itti & Koch [10]）において、サリエンスマップがボトムアップ注意を制御するように、EPHのHazeはトップダウンおよびボトムアップの双方から注意の配分（Precision）を制御する。これはClark [3] が述べる「予測誤差の重み付けによる能動的知覚」の実装である。
 
 ## 2. Theoretical Foundation (理論的枠組み)
 
 > [!INFO] 🎯 AI-DLC Review Guidance
-> 
-> Primary Reviewers: B-2（数理）, C-1（制御）
-> 
-> Goal: Hazeを行動誘導のポテンシャル場として数理的に定式化する。
+> **Primary Reviewers**: B-2（数理）, C-1（制御）
+> **Goal**: Hazeを行動誘導のポテンシャル場として数理的に定式化する。
 
 ### 2.1 Haze as Spatial Precision Modulation
 
-Hazeを単なる加法性ノイズではなく、FEPにおける精度行列（Precision Matrix）$\boldsymbol{\Pi}$ を空間的に変調するテンソル場として定義する。
+Hazeを単なるスカラーノイズではなく、FEPにおける精度行列（Precision Matrix）$\boldsymbol{\Pi}$ を空間的に変調する汎用テンソル場として定義する。 
 
-定義 1 (Haze Tensor):
-
-時刻 $t$ におけるHazeテンソル $\mathcal{H}_t \in [0, 1]^{N_r \times N_\theta \times N_c}$。
-
-$$h_{ijk} \to 1 \implies \text{High Uncertainty (Low Precision)} $$**定義 2 (Modulated Precision)**: 知覚される予測誤差の重み $\boldsymbol{\Pi}$ はHazeによって減衰される。 $$\Pi(r, \theta, c) = \Pi\_{base}(r, \theta, c) \cdot (1 - h(r, \theta, c))^{\gamma} $$ここで $\gamma \ge 1$ はHazeの影響度係数である。この精密な制御は、FEPにおける **Precision-weighted prediction error** [[12]](https://www.google.com/search?q=%23ref12) の直接的な操作に相当する。 ### 2.2 Dual-Objective Action Selection エージェントの行動決定則を、以下のコスト関数 $J(a)$ の最小化問題として定式化する。
-
+**定義 1 (Haze Tensor)**:
+時刻 $t$ におけるHazeテンソル $\mathcal{H}_t \in [0, 1]^{N_r \times N_\theta \times N_c}$。SPMと同じ次元を持ち、各要素 $(r, \theta, c)$ における情報の「信頼できなさ」を表す。
 $$
-a_t^* = \arg\min_{a} J(a) = \arg\min_{a} \left( \underbrace{F_{percept}(a, \mathcal{H}t)}{\text{Surprise Minimization}} + \lambda \cdot \underbrace{M(S_{pred}(a))}_{\text{Meta-evaluation}} \right)
+h_{ijk} \to 1 \implies \text{High Uncertainty (Low Precision)}
 $$
 
-#### Term 1: Haze-Modulated Surprise
+**定義 2 (Modulated Precision)**:
+知覚される予測誤差の重み $\boldsymbol{\Pi}$ はHazeによって減衰される。
+$$
+\Pi(r, \theta, c) = \Pi_{base}(r, \theta, c) \cdot (1 - h(r, \theta, c))^{\gamma}
+$$
+ここで $\gamma \ge 1$ はHazeの影響度係数である。この精密な制御は、FEPにおける Precision-weighted prediction error [12] の直接的な操作に相当する。
 
-$$F_{percept}(a, \mathcal{H}t) = \sum{r,\theta,c} \Pi(r,\theta,c; \mathcal{H}t) \cdot \left( S{obs}(r,\theta,c) - S_{pred}(r,\theta,c|a) \right)^2
+### 2.2 Dual-Objective Action Selection
+
+エージェントの行動決定則を、以下のコスト関数 $J(a)$ の最小化問題として定式化する。Haze $\mathcal{H}_t$ は、このコスト関数内の「予測誤差」と「エントロピー」の両方に影響を与える。
+
+$$
+a_t^* = \arg\min_{a} J(a) = \arg\min_{a} \left( \underbrace{F_{percept}(a, \mathcal{H}_t)}_{\text{Surprise Minimization}} + \underbrace{\beta \cdot H[q(s|a, \mathcal{H}_t)]}_{\text{Uncertainty Avoidance}} + \lambda \cdot \underbrace{M(S_{pred}(a))}_{\text{Meta-evaluation}} \right)
 $$
 
-物理的意味: Hazeが濃い領域からの予測誤差は無視される。エージェントは「Hazeが薄く、かつ予測と観測が一致する」状態を維持しようとする。
-
-#### Term 2: Meta-evaluation Function (Instrumental Value)
-
-$$M(S_{pred}) = w_{flow} \cdot \phi_{flow}(S_{pred}) + w_{clear} \cdot \phi_{clear}(S_{pred}) $$
-**物理的意味**: 生存やタスク達成のために好ましいSPMの状態（例：進行方向がクリアである、群の流れに乗っている）を定義するポテンシャル関数。これはFEPにおける「事前選好（Prior Preferences）」[[8]](#ref8) に相当する。 ### 2.3 Action Generation via Automatic Differentiation 行動 $a$ （速度ベクトル等）は、コスト関数 $J$ の勾配方向へ更新される。 $$a\_{k+1} = a\_k - \eta \cdot \frac{\partial J}{\partial a} $$
-連鎖律により、予測モデル（Forward Model）の微分可能性が利用される： 
+#### Term 1: Haze-Modulated Surprise (衝突回避)
 $$
-\frac{\partial F_{percept}}{\partial a} = -2 \sum \Pi \cdot (S_{obs} - S_{pred}) \cdot \frac{\partial S_{pred}}{\partial a}
+F_{percept}(a, \mathcal{H}_t) = \sum_{r,\theta,c} \Pi(r,\theta,c; \mathcal{H}_t) \cdot \left( S_{obs}(r,\theta,c) - S_{pred}(r,\theta,c|a) \right)^2
 $$
-ここで $\frac{\partial S_{pred}}{\partial a}$ は、SPM v4.0のConv-based Predictorに対する自動微分により算出される。
+**物理的意味**: Hazeが濃い領域（信頼度が低い）からの予測誤差は無視される。Hazeによる誘導（Lubricant Haze）がある場合、その領域の誤差重みが増加し、エージェントは予測と観測を一致させようとする（追従）。
+
+#### Term 2: Haze-Induced Entropy (探索駆動)
+$$
+H[q(s|a, \mathcal{H}_t)] \propto \log \det (\Sigma(a, \mathcal{H}_t)) \propto -\log \det (\Pi(a, \mathcal{H}_t))
+$$
+**物理的意味**: Hazeが増加すると精度 $\Pi$ が低下し、信念のエントロピー $H$ が増大する。エージェントは長期的にはこの不確実性を解消するための行動（探索）を選択する動機が生まれる（Epistemic Foraging）。
+
+### 2.3 Action Generation via Automatic Differentiation (Julia/Zygote)
+
+行動 $a$ （速度ベクトル等）は、コスト関数 $J$ の勾配方向へ更新される。
+$$
+a_{k+1} = a_k - \eta \cdot \frac{\partial J}{\partial a}
+$$
+連鎖律により、予測モデル（Forward Model）の微分可能性が利用される。本研究では、**Julia言語**とその自動微分ライブラリ **Zygote.jl** を採用し、動的な制御ループ内での高速な勾配計算を実現する。
 
 #### 2.3.1 Surprise as Temporal Prediction Error (実装版)
-
-> [!NOTE] Implementation Detail
-> 
-> 理論的には $F_{percept}$ は行動 $a$ による予測 $S_{pred}(a)$ と観測 $S_{obs}$ の差分として定義されるが、実装においては**時間的予測誤差**として計算する。
-
-実装におけるSurpriseの計算式：
-
+実装においては、Surpriseを**時間的予測誤差**として計算する。
 $$
-\boxed{
 \text{Surprise}(t) = \sum_{r,\theta,c} \Pi(r,\theta; \mathcal{H}_t) \cdot w_c \cdot d(r) \cdot \left( S_t(r,\theta,c) - S_{t-1}(r,\theta,c) \right)^2
-}
 $$
+ここで $S_{t-1}$ は前フレームのSPM（予測の代理）であり、時間的な連続性を仮定している。
 
-ここで：
-- $S_t$: 現在フレームのSPM
-- $S_{t-1}$: 前フレームのSPM（予測の代理）
-- $w_c$: チャンネル重み（後述）
-- $d(r) = \frac{1}{r + 0.1}$: 距離減衰（近い領域を重視）
-
-**理論的正当化**: 
-
-前フレームのSPMを「予測」として扱うことは、以下の仮定に基づく：
-
-1. **時間的連続性**: 環境は急激には変化しない → $S_{t-1} \approx S_{pred}(t)$
-2. **予測誤差の代理**: $S_t - S_{t-1}$ は観測が予測から外れた度合いを表す
-3. **計算効率**: 明示的な予測モデル $S_{pred}(a)$ の構築が不要
-
-これは、Active Inferenceにおける「観測が予測から外れた度合い（Prediction Error）」の実装である。
-
-#### 2.3.2 Multi-Channel Surprise (実装版)
-
-SPMの全3チャンネルを活用したSurpriseの計算：
-
-$$
-\text{Surprise}(t) = \sum_{r,\theta} \Pi(r,\theta) \cdot d(r) \cdot \left( w_{\text{occ}} \cdot e_{\text{occ}}^2 + w_{\text{rad}} \cdot e_{\text{rad}}^2 + w_{\text{tan}} \cdot e_{\text{tan}}^2 \right)
-$$
-
-ここで：
-- $e_c(r,\theta) = S_t[c, r, \theta] - S_{t-1}[c, r, \theta]$: チャンネル $c$ の予測誤差
-- **チャンネル重み**:
-  - $w_{\text{occ}} = 1.0$: Occupancy（位置情報）
-  - $w_{\text{rad}} = 0.5$: Radial Velocity（接近/離脱速度）
-  - $w_{\text{tan}} = 0.3$: Tangential Velocity（横方向移動速度）
-
-**設計根拠**:
-
-1. **Occupancyの優先**: 位置の予測誤差が最も重要（衝突回避の基本）
-2. **速度情報の活用**: 動的な環境変化を検出
-   - Radial Vel: 他エージェントの接近/離脱の予測ミス
-   - Tangential Vel: 他エージェントの方向転換の予測ミス
-3. **重み付けの理論的根拠**: 
-   - Occupancyは直接的な衝突リスク → 最大重み
-   - Radial Velは接近速度 → 中程度の重み
-   - Tangential Velは間接的な影響 → 最小重み
-
-**効果**: 他エージェントの突然の方向転換や加速を高いSurpriseとして認識し、適応的な行動を促す。
-
-
-### 2.4 Expected Free Energy and Epistemic Value (期待自由エネルギーと認識的価値)
+### 2.4 Expected Free Energy and Epistemic Value
 
 > [!NOTE] 🎓 Active Inference Formulation
->
 > **Purpose**: 本節では、EPHの行動選択を **Expected Free Energy (EFE)** の最小化として再定式化する。これにより、Self-Hazingが「信念分布のエントロピー増加」として数理的に正当化され、探索行動が自然に創発されることを示す。
->
-> **Complete Derivation**: 完全な数理導出は `EPH_Active_Inference_Derivation.md` を参照。
-
-#### 2.4.1 From Variational Free Energy to Expected Free Energy
-
-Active Inference理論において、エージェントは単に現在の観測を説明する（Variational Free Energy $F$ を最小化）だけでなく、**将来の予測観測を最適化**する（Expected Free Energy $G$ を最小化）。
-
-**Expected Free Energy** $G(a)$ は、行動 $a$ を取った場合の将来の自由エネルギーの期待値として定義される：
-
-$$
-G(a) = \mathbb{E}_{q(o_{t+1}, s_{t+1} | a)} \left[ \log q(s_{t+1} | a) - \log p(o_{t+1}, s_{t+1}) \right]
-$$
-
-これは以下のように分解される：
-
-$$
-\boxed{
-G(a) = \underbrace{\mathbb{E}_{q(s|a)}[D_{KL}[q(o|s) \| p(o|s)]]}_{\text{Epistemic Value (認識的価値)}} - \underbrace{\mathbb{E}_{q(o,s|a)}[\log p^*(o)]}_{\text{Pragmatic Value (道具的価値)}}
-}
-$$
-
-**物理的意味**:
-
-- **Epistemic Value**: 情報獲得の価値（不確実性の低減）
-  - エージェントは「知らないことを知る」ための行動を選ぶ
-  - 探索行動を駆動する本質的な動機
-
-- **Pragmatic Value**: 目標達成の価値（好ましい観測の実現）
-  - エージェントは「好ましい状態」を実現する行動を選ぶ
-  - タスク遂行を駆動する外的な動機
 
 #### 2.4.2 EPH Formulation with Expected Free Energy
 
-EPHにおける行動選択を、Expected Free Energyの枠組みで再定式化する：
-
 $$
-\boxed{
-a_t^* = \arg\min_{a} G(a) = \arg\min_a \left[ \underbrace{F_{\text{percept}}(a, \mathcal{H})}_{\text{Epistemic Term}} + \underbrace{\beta \cdot H[q(s|a)]}_{\text{Entropy Term}} + \underbrace{\lambda \cdot M_{\text{meta}}(a)}_{\text{Pragmatic Term}} \right]
-}
+\boxed{a_t^* = \arg\min_{a} G(a) = \arg\min_a \left[ \underbrace{F_{\text{percept}}(a, \mathcal{H})}_{\text{Epistemic Term}} + \underbrace{\beta \cdot H[q(s|a, \mathcal{H})]}_{\text{Entropy Term}} + \underbrace{\lambda \cdot M_{\text{meta}}(a)}_{\text{Pragmatic Term}} \right]}
 $$
 
 **各項の詳細**:
-
-1. **Epistemic Term**: Haze変調された予測誤差
-   $$
-   F_{\text{percept}}(a, \mathcal{H}) = \sum_{r,\theta,c} \Pi(r,\theta,c; \mathcal{H}) \cdot (S_{\text{obs}} - S_{\text{pred}}(a))^2
-   $$
-
-2. **Entropy Term**: 信念分布のエントロピー（新規追加）
-   $$
-   H[q(s|a)] = -\mathbb{E}_{q(s|a)}[\log q(s|a)] = -\frac{1}{2} \log \det(2\pi e \Sigma(a))
-   $$
-
-   ここで $\Sigma(a) = (J^T \Pi(\mathcal{H}) J)^{-1}$ は共分散行列、$J = \frac{\partial g(s)}{\partial s}$ は生成モデルのヤコビ行列。
-
-3. **Pragmatic Term**: 衝突回避・ゴール達成
-   $$
-   M_{\text{meta}}(a) = \mathbb{E}_{q(s|a)}[C_{\text{collision}}(s) + C_{\text{goal}}(s)]
-   $$
-
-#### 2.4.3 Self-Hazing as Belief Entropy Modulation
-
-**従来の誤った解釈** (❌):
-> Self-hazingは観測にノイズを加える: $o_{\text{noisy}} = o + \epsilon$
-
-**正しいActive Inference解釈** (✅):
-> Self-hazingは **信念分布のエントロピー** $H[q(s)]$ を増加させる精度変調である
-
-**数理的メカニズム**:
-
-1. **精度行列の変調**:
-   $$
-   \Pi(r, \theta; \mathcal{H}) = \Pi_{\text{base}}(r, \theta) \cdot (1 - h(r, \theta))^\gamma
-   $$
-
-   Hazeが増加 ($h \to 1$) すると、精度が減少 ($\Pi \to 0$)
-
-2. **共分散行列の増大**:
-   $$
-   \Sigma^{-1} = J^T \Pi J \implies \Pi \to 0 \implies \Sigma \to \infty
-   $$
-
-3. **エントロピーの増加**:
-   $$
-   H[q(s)] = \frac{1}{2} \log \det(2\pi e \Sigma) \implies \Sigma \to \infty \implies H \to \infty
-   $$
-
-**因果連鎖**:
-
-```
-他エージェント不在
-    ↓
-占有率低下: Ω(o) < Ω_threshold
-    ↓
-Self-haze増加: h_self → h_max
-    ↓
-精度低下: Π → 0
-    ↓
-共分散増大: Σ → ∞
-    ↓
-信念エントロピー増加: H[q(s)] → ∞
-    ↓
-Epistemic項が支配的になる
-    ↓
-情報獲得行動（探索）が創発
-```
-
-#### 2.4.3.1 Enhanced Belief Entropy (実装版)
-
-> [!NOTE] Implementation Enhancement
->
-> 実装においては、Belief Entropyを**空間的不確実性**と**時間的不確実性**の和として計算することで、より完全な不確実性の定量化を実現する。
-
-実装におけるBelief Entropyの計算式：
-
-$$
-\boxed{
-H_{\text{belief}}(t) = \underbrace{H_{\text{spatial}}(t)}_{\text{Precision Matrix}} + \underbrace{H_{\text{temporal}}(t)}_{\text{Prediction Variance}}
-}
-$$
-
-**空間的エントロピー**（従来通り）:
-$$
-H_{\text{spatial}} = -\frac{1}{2} \log \det(2\pi e \Sigma) = \frac{1}{2} \log \det(\Pi^{-1})
-$$
-
-ここで $\Pi$ はHaze変調された精度行列。
-
-**時間的エントロピー**（新規追加）:
-$$
-H_{\text{temporal}} = \log(\text{Var}[S_t[1, :, :] - S_{t-1}[1, :, :]] + \epsilon)
-$$
-
-ここで：
-- $\text{Var}[\cdot]$: 予測誤差（Occupancyチャンネル）の分散
-- $\epsilon = 10^{-6}$: 数値安定性のための微小値
-
-**物理的意味**:
-
-- $H_{\text{spatial}}$: **現在の観測の空間的な不確実性**
-  - 精度行列 $\Pi$ が低い → 共分散 $\Sigma$ が大きい → エントロピー高
-  - 「今見えているものがどれだけ不確実か」
-
-- $H_{\text{temporal}}$: **環境の時間的な予測不可能性**
-  - 予測誤差の分散が大きい → 環境が予測困難 → エントロピー高
-  - 「環境がどれだけ予測不可能に変化しているか」
-
-**理論的根拠**: 
-
-時間的不確実性の追加により、以下が実現される：
-
-1. **動的環境への適応**: 予測誤差の分散が大きい領域（予測不可能な領域）に対して、エージェントは情報収集行動を優先する
-2. **探索の方向性**: 単なる空間的不確実性だけでなく、時間的変化の大きさも考慮した探索
-3. **完全なActive Inference**: 空間的・時間的の両方の不確実性を統合した、より理論的に完全な実装
-
-**因果連鎖の拡張**:
-
-```
-他エージェント不在 または 環境が予測不可能
-    ↓
-H_spatial増加 または H_temporal増加
-    ↓
-H_belief = H_spatial + H_temporal 増加
-    ↓
-Epistemic項が支配的になる
-    ↓
-情報獲得行動（探索）が創発
-```
-
-
-#### 2.4.4 Information-Driven Exploration without Random Walk
-
-**Key Insight**: 高いエントロピー $H[q]$ は、エージェントに「不確実性を解消する行動」を取らせる。
-
-**数理的証明（概略）**:
-
-Expected Free Energy $G(a)$ は以下のように近似できる：
-
-$$
-G(a) \approx H[q(s|a)] - I(o_{t+1}; s_{t+1}|a) + \text{pragmatic terms}
-$$
-
-ここで $I(o; s|a)$ は行動 $a$ による **情報獲得量** (mutual information)。
-
-$G(a)$ を最小化することは、以下を同時に達成する：
-
-1. **将来の不確実性を最小化**: $H[q(s|a)] \to \min$
-2. **情報獲得を最大化**: $I(o; s|a) \to \max$
-
-**結論**: Self-hazingによるエントロピー増加は、**情報理論的に最適な探索行動**を自然に生成する。これはランダムウォークのような無方向な探索ではなく、**不確実性の勾配に従った方向性のある探索**である。
-
-#### 2.4.5 Gradient of Expected Free Energy
-
-行動最適化のため、$G(a)$ の勾配を導出する：
-
-$$
-\nabla_a G(a) = \underbrace{2 (S_{\text{pred}} - S_{\text{obs}})^T \Pi \frac{\partial S_{\text{pred}}}{\partial a}}_{\text{Prediction Error Gradient}} - \underbrace{\frac{\beta}{2} \text{tr}\left( \Pi^{-1} \frac{\partial \Pi}{\partial a} \right)}_{\text{Entropy Gradient}} + \underbrace{\lambda \nabla_a M_{\text{meta}}}_{\text{Pragmatic Gradient}}
-$$
-
-**実装**: Zygote.jlの自動微分により効率的に計算可能。
-
-**参考文献**:
-- Friston et al. (2015) "Active inference and epistemic value" *Cognitive Neuroscience*
-- Parr et al. (2022) *Active Inference: The Free Energy Principle in Mind, Brain, and Behavior*, MIT Press
-
----
+* **Epistemic Term**: Haze変調された予測誤差（衝突回避）。
+* **Entropy Term**: Hazeにより誘発される信念の不確実性（探索駆動）。
+* **Pragmatic Term**: 目標達成への推進力。
 
 ## 3. Methodology & Implementation (実装計画)
+
+### 3.0 Phased Implementation Strategy (段階的実装戦略)
+
+本EPHフレームワークは、理論的完全性と工学的実現可能性を両立させるため、段階的に実装される。
+
+#### Phase 1: Scalar Self-Haze (✅ 実装済み)
+
+**目的**: Active Inferenceの基本メカニズムとself-hazingによる自律的探索の検証
+
+**実装内容**:
+- Self-haze: スカラー値 $h_{self} \in [0, h_{max}]$
+- Precision変調: 全SPMビンに一様適用 $\Pi = \Pi_{base} \cdot (1-h_{self})^{\gamma}$
+- EFE最小化: 勾配降下による行動最適化
+
+**検証項目**:
+- ✅ 孤立時の高haze → 低精度 → 高エントロピー → 探索行動
+- ✅ 集団時の低haze → 高精度 → 低エントロピー → 衝突回避
+- ✅ Julia/Zygoteによる微分可能制御の実現
+
+**適用シナリオ**: Sparse Foraging Task（探索実験）
+
+#### Phase 2: 2D Environmental Haze (🔧 実装予定)
+
+**目的**: 環境を介した間接的な行動誘導（Stigmergy）の実現
+
+**実装内容**:
+- Self-haze: 空間的テンソル $\mathcal{H}_{self}(r, \theta) \in [0,1]^{N_r \times N_\theta}$
+- Environmental haze: グリッドベースのhaze場 $\mathcal{H}_{env}(x, y)$
+- Haze合成: $\mathcal{H}_{total} = \max(\mathcal{H}_{self}, \mathcal{H}_{env})$ (max operator)
+- Trail deposition: エージェント移動時のhaze痕跡
+
+**Haze Types**:
+- **Lubricant Haze** (低haze値): 経路の精度を高め、追従を促進
+- **Repellent Haze** (高haze値): 既探索領域を回避し、探索多様性を向上
+
+**検証項目**:
+- 🔧 Environmental hazeによる経路形成
+- 🔧 Lubricant trailによる群の誘導
+- 🔧 Repellent markerによる探索範囲の拡大
+
+**適用シナリオ**: Shepherding Task（牧羊犬実験）、Multi-agent Path Planning
+
+#### Phase 3: Full 3D Tensor Haze (🔬 将来研究)
+
+**目的**: チャネル毎の精度制御による高度な認知的バイアス
+
+**実装内容**:
+- Haze Tensor: $\mathcal{H}(r, \theta, c) \in [0,1]^{N_r \times N_\theta \times N_c}$
+- Per-channel precision: 占有、速度、接近性などの特徴毎に異なる信頼度
+
+**理論的可能性**:
+- 「障害物は見えるが無視する」（占有チャネルのhaze増加）
+- 「速度情報のみを重視する」（速度チャネルの精度向上）
+
+**課題**: 実用的な応用シナリオの特定、計算コストの評価
+
+---
 
 ### 3.1 Haze Architecture
 
 Hazeは以下の2つのソースから合成される。
-
-$$\mathcal{H}{total}(t) = \mathcal{H}{self}(t) \oplus \mathcal{H}_{env}(x_t, y_t)
 $$
-#### A. Self-Hazing (Autonomic Regulation) - Active Inference Formulation
-
-エージェント自身の内部状態に基づく **信念エントロピーの動的調整**。
-
-**従来の発見的アプローチ** (deprecated):
-- デッドロック検知に基づく離散的切り替え
-- 数理的根拠が弱い
-
-**Active Inference ベースの新定式化** (推奨):
-
-Self-hazeレベルを、SPMの**情報量（占有率）**に基づいて連続的に調整する：
-
-$$
-\boxed{
-h_{\text{self}}(t) = h_{\max} \cdot \sigma\left( -\alpha (\Omega(o_t) - \Omega_{\text{threshold}}) \right)
-}
+\mathcal{H}_{total}(t) = \mathcal{H}_{self}(t) \oplus \mathcal{H}_{env}(x_t, y_t)
 $$
 
-ここで：
-- $\sigma(x) = \frac{1}{1 + e^{-x}}$: Sigmoid関数（微分可能）
-- $\Omega(o_t) = \sum_{r,\theta} o_t[1, r, \theta]$: SPMの総占有率（可視エージェント数の代理変数）
-- $h_{\max}$: 最大hazeレベル（例: 0.8）
-- $\alpha$: 感度パラメータ（例: 2.0）
-- $\Omega_{\text{threshold}}$: 占有率閾値（例: 1.0）
+**A. Self-Hazing (Autonomic Regulation)**
+エージェント自身の内部状態に基づく信念エントロピーの動的調整。Self-hazeレベルを、SPMの**情報量（占有率）**に基づいて連続的に調整する：
 
-**振る舞い**:
-- $\Omega \ll \Omega_{\text{threshold}}$ （他エージェント見えない）→ $h_{\text{self}} \to h_{\max}$ （高haze, 高entropy, 探索促進）
-- $\Omega \gg \Omega_{\text{threshold}}$ （多数のエージェント可視）→ $h_{\text{self}} \to 0$ （低haze, 低entropy, 精密制御）
+$$
+\boxed{h_{\text{self}}(t) = h_{\max} \cdot \sigma\left( -\alpha (\Omega(o_t) - \Omega_{\text{threshold}}) \right)}
+$$
 
-**微分可能性の保証**:
-- Sigmoid関数により、$h_{\text{self}}$ は $\Omega$ に関して滑らかに変化
-- Zygote.jlによる勾配計算が可能: $\frac{\partial h_{\text{self}}}{\partial a}$ (行動が占有率に影響する場合)
-
-**実装例** (Julia):
+**実装例 (Julia/Zygote対応)**:
 ```julia
 function compute_self_haze(spm::Array{Float64, 3}, params::EPHParams)
     # 総占有率（Channel 1 = Occupancy）
     Ω = sum(spm[1, :, :])
 
-    # Sigmoid関数による連続調整
+    # Sigmoid関数による連続調整 (微分可能)
     x = -params.α * (Ω - params.Ω_threshold)
     h_self = params.h_max / (1.0 + exp(-x))
 
     return h_self
 end
-```
-
-**理論的根拠**:
-このメカニズムは、Active Inferenceにおける **Epistemic Foraging** [Friston et al., 2015] を実装している。不確実性が高いときに探索を促進し、確実な情報が得られているときに活用（exploitation）に移行する。
-
-#### B. Environmental Haze (Stigmergy)
-
-空間に固定、あるいは他エージェントが配置するHaze場。これはDorigoらが提唱したスティグマジー（Stigmergy）[[6]](https://www.google.com/search?q=%23ref6 "null") の概念を、情報の信頼度空間に拡張したものである。
-
-- **Lubricant Haze**: 通過した軌跡に「低いHaze（または特定のパターンのHaze）」を残すことで、後続者の過剰な回避反応を抑制し、追従をスムーズにする。
-    
-- **Repellent Haze**: 探索済みの場所に「高いHaze」を設定し、他エージェントの興味（Epistemic Value）を削ぐことで分散探索を促す。
-    
-
-### 3.2 System Diagram
-
-_(※ 概念図: 観測SPM → Haze重畳 → Precision行列生成 → GRU予測器 → 誤差計算 → 勾配逆伝播 → 行動更新)_
-
-## 4. Experimental Design (実験計画)
-
-### 4.1 Comparative Verification
-
-**比較対象**:
-
-1. **Baseline**: ランダムウォーク探索（Hazeなし、単純なノイズ加算）[[1]](https://www.google.com/search?q=%23ref1 "null")
-    
-    - Suttonらの古典的強化学習に基づくアプローチとの比較。
-        
-2. **Potential Field**: 従来の人工ポテンシャル法 [[2]](https://www.google.com/search?q=%23ref2 "null")
-    
-    - Khatibの提案する明示的な力場制御との比較。
-        
-3. **Latent Dynamics**: World Models [[13]](https://www.google.com/search?q=%23ref13 "null") / Dreamer [[11]](https://www.google.com/search?q=%23ref11 "null")
-    
-    - 潜在空間での予測制御との比較（SPMの解釈可能性の優位性を検証）。
-        
-4. **Proposed (EPH)**: Self-Hazing + Environmental Haze
-    
-
-**検証シナリオ**:
-
-1. **狭路すれ違い（Narrow Corridor）**: デッドロック発生率と解消時間を測定。
-    
-2. **U字型トラップ（Local Minima）**: 局所解からの脱出成功率。
-    
-3. **大規模群集流動（Crowd Flow）**: 100体以上のエージェントによる交差移動時の流動係数。
-    
-
-## 5. References (参考文献・ポイント付)
-
-> [!NOTE]
-> 
-> 本プロポーザルの学術的基盤となる重要文献。各文献のEPHに対する貢献ポイント（Point）を明記する。
-
-<a id="ref1"></a>[1] R. S. Sutton and A. G. Barto, _Reinforcement Learning: An Introduction_. MIT press, 2018. [URL](http://incompleteideas.net/book/the-book-2nd.html "null")
-
-> **Point**: 従来の探索手法（$\epsilon$-greedy等）のベースライン。EPHが「ランダムネス」ではなく「認識的不確実性」を用いる点での比較対象。
-
-<a id="ref2"></a>[2] O. Khatib, "Real-time obstacle avoidance for manipulators and mobile robots," _The International Journal of Robotics Research_, vol. 5, no. 1, pp. 90-98, 1986. [DOI](https://doi.org/10.1177/027836498600500106 "null")
-
-> **Point**: 人工ポテンシャル法の古典的名著。明示的な「反発力」とEPHの「Hazeによる誘導」を対比させ、局所解問題へのアプローチの違いを明確にするために引用。
-
-<a id="ref3"></a>[3] A. Clark, "Surfing uncertainty: Prediction, action, and the embodied mind," _Oxford University Press_, 2015. [URL](https://global.oup.com/academic/product/surfing-uncertainty-9780190217013 "null")
-
-> **Point**: 「不確実性の波を乗りこなす」という生物の認知戦略を提唱。EPHのSelf-Hazingが、生物学的に妥当なメカニズムであることを裏付ける理論的支柱。
-
-<a id="ref4"></a>[4] H. Igarashi, "Saliency Polar Map (SPM) Technical Note v4.0: Unified Framework with Variational Inference," _Internal Technical Report_, 2025.
-
-> **Point**: 本研究のコア技術。対数極座標系を用いた空間圧縮と生物学的サリエンスの統合について記述。
-
-<a id="ref5"></a>[5] B. Amos, I. Jimenez, J. Sacks, B. Boots, and J. Z. Kolter, "Differentiable MPC for End-to-end Planning and Control," in _Advances in Neural Information Processing Systems (NeurIPS)_, 2018. [URL](https://proceedings.neurips.cc/paper/2018/hash/ba6d843eb4251a4526ce65d1807a9309-Abstract.html "null")
-
-> **Point**: 制御ループ全体を微分可能にする技術。EPHにおいて、予測SPMからの勾配逆伝播で行動を決定するアルゴリズムの工学的正当性を保証する。
-
-<a id="ref6"></a>[6] M. Dorigo, M. Birattari, and T. Stutzle, "Ant colony optimization," _IEEE Computational Intelligence Magazine_, vol. 1, no. 4, pp. 28-39, 2006. [DOI](https://doi.org/10.1109/MCI.2006.329691 "null")
-
-> **Point**: スティグマジー（環境を介した協調）の基礎理論。Environmental HazeがACOのフェロモンとどう異なり（価値vs精度）、どう優れているかを論じるための基盤。
-
-<a id="ref7"></a>[7] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, "Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor," in _International Conference on Machine Learning (ICML)_, 2018. [URL](https://arxiv.org/abs/1801.01290 "null")
-
-> **Point**: 最大エントロピー強化学習の代表例。「行動の分散」を最大化するSACに対し、EPHは「知覚の分散（精度）」を操作する点でアプローチが異なることを示す。
-
-<a id="ref8"></a>[8] T. Parr, G. Pezzulo, and K. J. Friston, _Active Inference: The Free Energy Principle in Mind, Brain, and Behavior_. MIT Press, 2022. [DOI](https://doi.org/10.7551/mitpress/12441.001.0001 "null")
-
-> **Point**: 能動推論のバイブル。「認識的価値（Epistemic Value）」と「道具的価値（Instrumental Value）」の統合について詳述されており、EPHの目的関数設計の理論的根拠となる。
-
-<a id="ref9"></a>[9] K. Friston, J. Trujillo-Barreto, and J. Daunizeau, "DEM: A variational treatment of dynamic systems," _NeuroImage_, vol. 41, no. 3, pp. 849-885, 2008. [DOI](https://doi.org/10.1016/j.neuroimage.2008.02.054 "null")
-
-> **Point**: 動的システムにおける変分推論（一般化フィルタリング）の基礎。勾配流による状態更新の数理的正当性を担保する。
-
-<a id="ref10"></a>[10] L. Itti and C. Koch, "Computational modelling of visual attention," _Nature Reviews Neuroscience_, vol. 2, no. 3, pp. 194-203, 2001. [DOI](https://doi.org/10.1038/35058500 "null")
-
-> **Point**: 視覚的注意（Saliency）の計算モデル。EPHがHaze（Top-down attention）を用いてSPM上の重要度を操作することの生物学的妥当性を示す。
-
-<a id="ref11"></a>[11] D. Hafner, T. Lillicrap, J. Ba, and M. Norouzi, "Dream to Control: Learning Behaviors by Latent Imagination," in _International Conference on Learning Representations (ICLR)_, 2020. [URL](https://arxiv.org/abs/1912.01603 "null")
-
-> **Point**: 潜在空間（Latent Space）での予測制御のSOTA。ブラックボックスな潜在空間を用いるDreamerに対し、EPHは解釈可能なSPM空間を用いる点で、デバッグ性や群制御への適用性で優位であることを主張。
-
-<a id="ref12"></a>[12] K. Friston, "The free-energy principle: a unified brain theory?," _Nature Reviews Neuroscience_, vol. 11, no. 2, pp. 127-138, 2010. [DOI](https://doi.org/10.1038/nrn2787 "null")
-
-> **Point**: FEPの原典。「予測誤差の精度重み付け（Precision-weighting）」こそが注意の本質であるという主張は、Hazeの概念そのものである。
-
-<a id="ref13"></a>[13] D. Ha and J. Schmidhuber, "World Models," in _Advances in Neural Information Processing Systems (NeurIPS)_, 2018. [DOI](https://doi.org/10.5281/zenodo.1207631 "null")
-
-> **Point**: 世界モデルの概念を確立。EPHのエージェントが持つ予測器（Conv-Predictor）が、世界モデルの簡易版として機能することを位置づける。
-
-**End of Proposal**
