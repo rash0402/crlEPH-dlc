@@ -77,9 +77,13 @@ echo "    2. Path Smoothness (total jerk)"
 echo "    3. Final Distance to target (meters)"
 echo ""
 
-# Confirm before running
-echo -e "${YELLOW}Press Enter to start the experiment (or Ctrl+C to cancel)${NC}"
-read -r
+# Confirm before running (skip if non-interactive mode)
+if [ -z "$EPH_NON_INTERACTIVE" ]; then
+    echo -e "${YELLOW}Press Enter to start the experiment (or Ctrl+C to cancel)${NC}"
+    read -r
+else
+    echo -e "${GREEN}Running in non-interactive mode...${NC}"
+fi
 
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

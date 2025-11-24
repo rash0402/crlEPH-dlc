@@ -64,9 +64,10 @@ class SystemChecker:
 
     def _check_data_dirs(self) -> Tuple[bool, str]:
         """データディレクトリ存在確認"""
-        data_root = self.project_root / "src_julia" / "data"
+        data_root = self.project_root / "data"
         logs_dir = data_root / "logs"
         training_dir = data_root / "training"
+        models_dir = data_root / "models"
 
         missing = []
         if not data_root.exists():
@@ -75,15 +76,18 @@ class SystemChecker:
             missing.append("data/logs/")
         if not training_dir.exists():
             missing.append("data/training/")
+        if not models_dir.exists():
+            missing.append("data/models/")
 
         if missing:
             return False, f"Missing: {', '.join(missing)}"
 
-        # ログファイル数をカウント
+        # ファイル数をカウント
         log_count = len(list(logs_dir.glob("*.jld2")))
         training_count = len(list(training_dir.glob("*.jld2")))
+        model_count = len(list(models_dir.glob("*.jld2")))
 
-        return True, f"Logs: {log_count}, Training: {training_count}"
+        return True, f"Logs: {log_count}, Training: {training_count}, Models: {model_count}"
 
     def _check_scripts(self) -> Tuple[bool, str]:
         """重要なスクリプト存在確認"""

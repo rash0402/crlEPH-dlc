@@ -23,34 +23,54 @@ end
 const agent_buffers = Dict{Int, Vector{Transition}}()
 const saved_episodes = Vector{Vector{Transition}}()
 
+# Target agent IDs for data collection (nothing = collect all agents)
+const target_agent_ids = Ref{Union{Vector{Int}, Nothing}}(nothing)
+
 """
-    init_collector()
+    init_collector(target_ids::Union{Int, Vector{Int}, Nothing} = nothing)
 
 Initialize/clear the data collector.
+
+Args:
+    target_ids: If specified, only collect data from these agent IDs.
+                Can be a single Int, a Vector{Int}, or nothing (collect all agents).
 """
-function init_collector()
+function init_collector(target_ids::Union{Int, Vector{Int}, Nothing} = nothing)
     empty!(agent_buffers)
     empty!(saved_episodes)
+
+    # Convert single Int to Vector{Int}
+    if target_ids isa Int
+        target_agent_ids[] = [target_ids]
+    else
+        target_agent_ids[] = target_ids
+    end
 end
 
 """
     collect_transition(agent_id, spm, action, next_spm, visible_agents_count)
 
 Record a single transition for an agent with importance weight based on FOV occupancy.
+Only collects data if agent_id matches target_agent_ids (or if target_agent_ids is nothing).
 """
-function collect_transition(agent_id::Int, 
+function collect_transition(agent_id::Int,
                            spm::Union{Array{Float64, 3}, Nothing},
                            action::Union{Vector{Float64}, Nothing},
                            next_spm::Union{Array{Float64, 3}, Nothing},
                            visible_agents_count::Int=0)
-    
+
+    # Filter by target agent IDs
+    if target_agent_ids[] !== nothing && !(agent_id in target_agent_ids[])
+        return
+    end
+
     if spm === nothing || action === nothing || next_spm === nothing
         return
     end
-    
+
     # Create transition with importance weight
     transition = Transition(spm, action, next_spm, visible_agents_count)
-    
+
     # Add to agent's buffer
     if !haskey(agent_buffers, agent_id)
         agent_buffers[agent_id] = Transition[]
@@ -74,12 +94,14 @@ function save_data(filename_prefix::String="spm_sequences")
 
     if isempty(saved_episodes)
         println("No data to save.")
-        return
+        return nothing
     end
     
     timestamp = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
-    filename = joinpath("data", "training", "$(filename_prefix)_$(timestamp).jld2")
-    
+    # Use absolute path relative to project root (parent of src_julia/)
+    project_root = dirname(dirname(@__DIR__))
+    filename = joinpath(project_root, "data", "training", "$(filename_prefix)_$(timestamp).jld2")
+
     mkpath(dirname(filename))
     
     # Save as Vector of Vectors (Sequences)
@@ -120,9 +142,11 @@ function save_data(filename_prefix::String="spm_sequences")
     end
     
     save(filename, Dict("episodes" => formatted_data))
-    
+
     println("Saved $(length(formatted_data)) episodes to $(filename)")
     empty!(saved_episodes)
+
+    return filename
 end
 
 end

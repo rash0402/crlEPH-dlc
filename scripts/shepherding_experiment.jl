@@ -21,6 +21,7 @@ Pkg.instantiate()
 
 # Load project modules
 include("../src_julia/utils/MathUtils.jl")
+include("../src_julia/utils/ExperimentParams.jl")
 include("../src_julia/core/Types.jl")
 include("../src_julia/perception/SPM.jl")
 include("../src_julia/prediction/SPMPredictor.jl")
@@ -37,6 +38,7 @@ using .SPMPredictor
 using .BoidsAgent
 using .ShepherdingEPH
 using .MathUtils
+using .ExperimentParams
 
 using LinearAlgebra
 using Statistics
@@ -45,21 +47,22 @@ using Dates
 using JLD2
 
 # ========================================
-# Configuration
+# Configuration (環境変数からパラメータ読み取り対応)
 # ========================================
 
-const N_SHEEP = 15
-const N_DOGS = 2
-const N_STEPS = 2000  # 200s @ 0.1s per step
+# 環境変数からパラメータを取得（未設定の場合はデフォルト値を使用）
+const N_SHEEP = get_n_agents(10)  # 15 → 10 (より管理しやすい数)
+const N_DOGS = 3  # 2 → 3 (羊:犬比率を3.3:1に改善)
+const N_STEPS = get_n_steps(200.0)  # シミュレーション時間から自動計算
 
-# Phase timings
-const PHASE_F1_END = 1000   # 0-100s: convergence
-const PHASE_F2_END = 1200   # 100-120s: escape induction
-const PHASE_F3_END = 2000   # 120-200s: recovery
+# Phase timings (シミュレーション時間に応じて比例配分)
+const PHASE_F1_END = round(Int, N_STEPS * 0.5)   # 0-50%: convergence
+const PHASE_F2_END = round(Int, N_STEPS * 0.6)   # 50-60%: escape induction
+const PHASE_F3_END = N_STEPS                     # 60-100%: recovery
 
-const WORLD_SIZE = 500.0
+const WORLD_SIZE = get_world_size(500.0)
 const TARGET_POSITION = [WORLD_SIZE / 2, WORLD_SIZE / 2]
-const TARGET_RADIUS = 50.0
+const TARGET_RADIUS = WORLD_SIZE / 10.0  # ワールドサイズの10%
 
 const LOG_DIR = joinpath(@__DIR__, "../src_julia/data/logs")
 mkpath(LOG_DIR)
@@ -230,17 +233,21 @@ println("╔══════════════════════�
 println("║  Shepherding Experiment: EPH Dogs vs Boids Sheep            ║")
 println("╚══════════════════════════════════════════════════════════════╝")
 println()
-println("Configuration:")
+
+# 環境変数から読み込んだパラメータを表示
+print_experiment_config()
+
+println("Scenario Configuration:")
 println("  Sheep: $N_SHEEP agents (Boids model)")
 println("  Dogs: $N_DOGS agents (ShepherdingEPH)")
 println("  World size: $(WORLD_SIZE)×$(WORLD_SIZE)")
 println("  Target: $TARGET_POSITION (radius: $TARGET_RADIUS)")
-println("  Total steps: $N_STEPS (200s)")
+println("  Total steps: $N_STEPS")
 println()
-println("Phases:")
-println("  F1 (0-100s): Convergence")
-println("  F2 (100-120s): Escape induction (2× sheep repulsion)")
-println("  F3 (120-200s): Recovery")
+println("Phase Timing:")
+println("  F1 (0-$(PHASE_F1_END÷10)s): Convergence")
+println("  F2 ($(PHASE_F1_END÷10)-$(PHASE_F2_END÷10)s): Escape induction (2× sheep repulsion)")
+println("  F3 ($(PHASE_F2_END÷10)-$(PHASE_F3_END÷10)s): Recovery")
 println()
 
 # EPH parameters for dogs

@@ -52,12 +52,19 @@ EXISTING_FILES=$(find "${PROJECT_DIR}/data/training" -name "spm_sequences_*.jld2
 if [ "$EXISTING_FILES" -gt 0 ]; then
     echo "  Found ${EXISTING_FILES} existing training data files"
     echo ""
-    echo -e "${YELLOW}Options:${NC}"
-    echo "  1) Keep existing data and add new data"
-    echo "  2) Clear existing data and start fresh"
-    echo "  3) Cancel"
-    echo ""
-    read -p "Choose option [1-3]: " choice
+
+    # Check for non-interactive mode (e.g., when called from GUI)
+    if [ "${EPH_NON_INTERACTIVE:-0}" = "1" ]; then
+        echo "  → Non-interactive mode: Keeping existing data and adding new data"
+        choice=1
+    else
+        echo -e "${YELLOW}Options:${NC}"
+        echo "  1) Keep existing data and add new data"
+        echo "  2) Clear existing data and start fresh"
+        echo "  3) Cancel"
+        echo ""
+        read -p "Choose option [1-3]: " choice
+    fi
 
     case $choice in
         1)

@@ -5,10 +5,12 @@ using ..MathUtils
 using ..SPM
 using ..EPH
 using ..SelfHaze
+using ..EnvironmentalHaze
 using ..DataCollector
 using ..SPMPredictor
 using LinearAlgebra
 using Random
+using Statistics
 
 export initialize_simulation, step!
 
@@ -135,9 +137,13 @@ function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Pred
             DataCollector.collect_transition(agent.id, agent.previous_spm, agent.last_action, 
                                             agent.current_spm, visible_count)
             
-            # Auto-save every 2000 samples (across all agents) to prevent memory overflow
-            total_samples = sum(length(b) for b in values(DataCollector.agent_buffers))
-            if total_samples >= 2000
+            # Auto-save every N samples to prevent memory overflow
+            # Note: When collecting single-agent data, this threshold should be high
+            # to allow long continuous sequences
+            total_samples = sum(length(b) for b in values(DataCollector.agent_buffers); init=0)
+            auto_save_threshold = 50000  # High threshold for single-agent collection
+            if total_samples >= auto_save_threshold
+                println("\n[Auto-save] Reached $total_samples samples, saving...")
                 DataCollector.save_data("spm_sequences")
             end
         end
@@ -151,14 +157,33 @@ function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Pred
             SPMPredictor.update_state!(predictor, agent, agent.previous_spm, agent.last_action)
         end
         
-        # Compute self-haze from SPM occupancy
-        agent.self_haze = SelfHaze.compute_self_haze(spm, params)
+        # Compute self-haze and environmental haze (Phase 2)
+        if params.enable_env_haze
+            # Phase 2: Spatial haze (h_matrix) + Environmental haze
+            h_self_matrix = SelfHaze.compute_self_haze_matrix(spm, params)
+
+            # Sample environmental haze at SPM locations
+            Nr, Nθ = size(spm, 2), size(spm, 3)
+            h_env_matrix = EnvironmentalHaze.sample_environmental_haze(agent, env, Nr, Nθ, params.fov_range)
+
+            # Compose total haze: H_total = max(H_self, H_env)
+            h_total_matrix = EnvironmentalHaze.compose_haze(h_self_matrix, h_env_matrix)
+
+            # Store scalar haze for backward compatibility (mean of matrix)
+            agent.self_haze = mean(h_total_matrix)
+
+            # Compute precision matrix with spatial haze
+            Π = SelfHaze.compute_precision_matrix(spm, h_total_matrix, params)
+        else
+            # Phase 1: Scalar haze (backward compatible)
+            agent.self_haze = SelfHaze.compute_self_haze(spm, params)
+            Π = SelfHaze.compute_precision_matrix(spm, agent.self_haze, params)
+        end
 
         # Track visible agents (for analysis)
         agent.visible_agents = _get_visible_agent_ids(agent, env, params)
 
-        # Compute precision matrix (will be computed inside EFE, but store for viz)
-        Π = SelfHaze.compute_precision_matrix(spm, agent.self_haze, params)
+        # Store precision matrix for visualization
         agent.current_precision = Π
 
         # Preferred velocity (no goals in sparse foraging)
@@ -196,7 +221,18 @@ function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Pred
         end
     end
 
-    # --- 3. Coverage Map Update ---
+    # --- 3. Environmental Haze Update (Phase 2) ---
+    if params.enable_env_haze
+        # Deposit haze trails at agent positions (stigmergy)
+        for agent in env.agents
+            EnvironmentalHaze.deposit_haze_trail!(env, agent, params.haze_deposit_type, params.haze_deposit_amount)
+        end
+
+        # Global haze decay (temporal forgetting)
+        EnvironmentalHaze.decay_haze_grid!(env, params.haze_decay_rate)
+    end
+
+    # --- 4. Coverage Map Update ---
     _update_coverage_map!(env, params)
 
     # --- 4. Frame Counter ---

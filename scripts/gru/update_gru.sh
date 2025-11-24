@@ -7,7 +7,7 @@ export PATH="$HOME/.juliaup/bin:$PATH"
 
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 echo "============================================================"
 echo "GRU Model Update"
@@ -23,7 +23,7 @@ fi
 
 # Run the Julia update script
 cd "$PROJECT_DIR"
-julia scripts/update_gru_model.jl
+julia scripts/gru/update_gru_model.jl
 
 exit_code=$?
 

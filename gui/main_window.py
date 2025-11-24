@@ -9,6 +9,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 
 from .tabs.validation_tab import ValidationTab
+from .tabs.gru_training_tab import GRUTrainingTab
+from .tabs.experiments_tab import ExperimentsTab
 from .tabs.placeholder_tab import PlaceholderTab
 from .widgets.system_status import SystemStatusWidget
 from .utils.system_checker import SystemChecker
@@ -38,20 +40,12 @@ class MainWindow(QMainWindow):
         self.validation_tab = ValidationTab(self.system_checker)
         self.tabs.addTab(self.validation_tab, "✅ Validation")
 
-        # GRU Trainingタブ（プレースホルダー）
-        self.gru_tab = PlaceholderTab(
-            "GRU Training",
-            "Train GRU predictor for Phase 2 EPH. Collect training data, "
-            "configure hyperparameters, and monitor training progress."
-        )
+        # GRU Trainingタブ
+        self.gru_tab = GRUTrainingTab(self.system_checker)
         self.tabs.addTab(self.gru_tab, "🧠 GRU Training")
 
-        # Experimentsタブ（プレースホルダー）
-        self.experiments_tab = PlaceholderTab(
-            "Experiments",
-            "Run experiments (Baseline Comparison, Shepherding, etc.). "
-            "Configure parameters, execute simulations, and view real-time results."
-        )
+        # Experimentsタブ
+        self.experiments_tab = ExperimentsTab(self.system_checker)
         self.tabs.addTab(self.experiments_tab, "🧪 Experiments")
 
         # Analysisタブ（プレースホルダー）
@@ -78,12 +72,27 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """ウィンドウクローズ処理"""
+        from PySide6.QtCore import QProcess
+
         # 定期更新停止
-        self.status_widget.stop_updates()
+        if hasattr(self, 'status_widget'):
+            self.status_widget.stop_updates()
 
         # 実行中プロセスがあれば停止
-        if hasattr(self.validation_tab, 'process') and self.validation_tab.process:
-            if self.validation_tab.process.state() == self.validation_tab.process.Running:
-                self.validation_tab.process.kill()
+        for tab in [self.validation_tab, self.gru_tab, self.experiments_tab]:
+            if hasattr(tab, 'process') and tab.process:
+                try:
+                    if tab.process.state() == QProcess.Running:
+                        tab.process.kill()
+                        tab.process.waitForFinished(3000)  # Wait up to 3 seconds
+                except Exception as e:
+                    print(f"Warning: Error stopping process in tab: {e}")
+
+        # GRU Training タブのタイマー停止
+        if hasattr(self, 'gru_tab') and hasattr(self.gru_tab, 'refresh_timer'):
+            try:
+                self.gru_tab.refresh_timer.stop()
+            except Exception as e:
+                print(f"Warning: Error stopping timer: {e}")
 
         event.accept()

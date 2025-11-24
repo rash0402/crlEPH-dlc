@@ -22,8 +22,13 @@ Located in `src_julia/`, this is the current active implementation optimized for
 **Module Structure:**
 - `core/Types.jl` - Agent and Environment data structures
 - `perception/SPM.jl` - Saliency Polar Map computation with Gaussian splatting
+- `control/SelfHaze.jl` - Self-haze computation and precision modulation (Phase 1)
+- `control/EnvironmentalHaze.jl` - Environmental haze sampling, composition, deposition (Phase 2)
 - `control/EPH.jl` - Gradient-based action selection using Zygote automatic differentiation
+- `prediction/SPMPredictor.jl` - GRU neural network for SPM prediction
 - `utils/MathUtils.jl` - Toroidal geometry utilities
+- `utils/DataCollector.jl` - Training data collection for GRU
+- `utils/ExperimentLogger.jl` - Diagnostic logging and analysis
 - `Simulation.jl` - Main simulation loop and agent management
 - `main.jl` - ZeroMQ server entry point
 
@@ -153,14 +158,29 @@ zmq
 - **State Transitions**: Expected ~0.13-0.17 transitions per timestep with Ω_threshold=0.12
 - **Effect**: `Π(r,θ; h) = Π_base(r,θ) · (1-h)^γ` - High haze reduces precision, enabling exploration
 
-#### Phase 2: Environmental Haze (Spatial)
-- **Environmental haze**: 2D grid (`haze_grid`) updated each timestep
-  - Agents deposit haze at their position (value += 0.2, capped at 1.0)
-  - Decays globally by 0.99 each timestep
-- **Haze effects in cost function**:
-  - Adds noise to SPM: `spm_noisy = spm + haze * 0.05`
-  - Reduces effective precision: `uncertainty_factor = 1.0 - haze * 0.8`
-  - Net effect: Agents ignore obstacles more in high-haze areas
+#### Phase 2: Environmental Haze (Spatial + Stigmergy) - **Integrated 2025-11-24**
+- **Implementation**: `control/EnvironmentalHaze.jl` - Fully integrated in `Simulation.jl`
+- **Spatial Self-Haze**: `h_self_matrix(r,θ)` computed per SPM bin instead of scalar
+  - Formula: `h_self(r,θ) = h_max · σ(-α(Ω(r,θ) - Ω_threshold))`
+  - Enables directional precision modulation
+- **Environmental Haze**: 2D grid (`haze_grid`) for stigmergic communication
+  - Agents sample `h_env` at SPM bin locations using bilinear interpolation
+  - Haze composition: `H_total(r,θ) = max(H_self(r,θ), H_env(r,θ))`
+- **Haze Deposition**: Agents deposit trails at their positions each timestep
+  - **Lubricant** (`:lubricant`): Decreases haze → increases precision → guides followers
+  - **Repellent** (`:repellent`): Increases haze → decreases precision → promotes exploration
+  - Default: Repellent with amount=0.2, deposited in 3×3 neighborhood
+- **Haze Decay**: Global decay factor 0.99 (1% per timestep) prevents accumulation
+- **Parameters** (EPHParams):
+  - `enable_env_haze::Bool = false` - Phase 2 activation flag
+  - `haze_deposit_amount::Float64 = 0.2` - Deposition magnitude
+  - `haze_decay_rate::Float64 = 0.99` - Temporal forgetting rate
+  - `haze_deposit_type::Symbol = :repellent` - Lubricant or Repellent
+- **Experimental Results** (500 steps, 5 agents):
+  - ✓ Environmental haze trails formed (avg 103.7 total haze)
+  - ↓ Coverage reduced by 10.5% (agents avoid repellent trails)
+  - ↑ Self-haze increased (+0.181) due to environmental haze influence
+  - ≈ Separation distance similar (±3.8px)
 
 ### Communication Protocol (Julia ↔ Python)
 **ZeroMQ PUB-SUB pattern**

@@ -1,47 +1,47 @@
 /*
-Material Design Dark Theme for EPH Dashboard
+Material Design Light Theme for EPH Dashboard
 */
 
 /* メインウィンドウ */
 QMainWindow {
-    background-color: #212121;
-    color: #E0E0E0;
+    background-color: #E8E8E8;
+    color: #212121;
 }
 
 QWidget {
-    background-color: #212121;
-    color: #E0E0E0;
+    background-color: #E8E8E8;
+    color: #212121;
     font-family: "Segoe UI", "Roboto", "Arial", sans-serif;
     font-size: 11pt;
 }
 
 /* タブウィジェット */
 QTabWidget::pane {
-    border: 1px solid #424242;
-    background-color: #2C2C2C;
+    border: 1px solid #BDBDBD;
+    background-color: #F5F5F5;
     border-radius: 4px;
 }
 
 QTabBar::tab {
-    background-color: #2C2C2C;
-    color: #9E9E9E;
+    background-color: #F5F5F5;
+    color: #616161;
     padding: 10px 20px;
     margin-right: 2px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
-    border: 1px solid #424242;
+    border: 1px solid #BDBDBD;
     border-bottom: none;
 }
 
 QTabBar::tab:selected {
-    background-color: #424242;
-    color: #FFFFFF;
+    background-color: #FFFFFF;
+    color: #212121;
     border-bottom: 2px solid #2196F3;
 }
 
 QTabBar::tab:hover {
-    background-color: #3C3C3C;
-    color: #FFFFFF;
+    background-color: #FAFAFA;
+    color: #212121;
 }
 
 /* ボタン */
@@ -63,15 +63,15 @@ QPushButton:pressed {
 }
 
 QPushButton:disabled {
-    background-color: #424242;
-    color: #757575;
+    background-color: #BDBDBD;
+    color: #9E9E9E;
 }
 
 /* コンボボックス */
 QComboBox {
-    background-color: #2C2C2C;
-    color: #E0E0E0;
-    border: 1px solid #424242;
+    background-color: #FFFFFF;
+    color: #212121;
+    border: 1px solid #BDBDBD;
     border-radius: 4px;
     padding: 6px 12px;
 }
@@ -89,22 +89,22 @@ QComboBox::down-arrow {
     image: url(none);
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
-    border-top: 5px solid #E0E0E0;
+    border-top: 5px solid #424242;
     margin-right: 5px;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #2C2C2C;
-    color: #E0E0E0;
+    background-color: #FFFFFF;
+    color: #212121;
     selection-background-color: #2196F3;
-    border: 1px solid #424242;
+    border: 1px solid #BDBDBD;
 }
 
 /* テキストエディット */
 QTextEdit {
-    background-color: #1E1E1E;
-    color: #D4D4D4;
-    border: 1px solid #424242;
+    background-color: #FFFFFF;
+    color: #212121;
+    border: 1px solid #BDBDBD;
     border-radius: 4px;
     padding: 8px;
 }
@@ -112,13 +112,13 @@ QTextEdit {
 /* ラベル */
 QLabel {
     background-color: transparent;
-    color: #E0E0E0;
+    color: #212121;
 }
 
 /* グループボックス */
 QGroupBox {
-    background-color: #2C2C2C;
-    border: 1px solid #424242;
+    background-color: #F5F5F5;
+    border: 1px solid #BDBDBD;
     border-radius: 4px;
     margin-top: 12px;
     padding-top: 12px;
@@ -134,11 +134,11 @@ QGroupBox::title {
 
 /* プログレスバー */
 QProgressBar {
-    background-color: #2C2C2C;
-    border: 1px solid #424242;
+    background-color: #F5F5F5;
+    border: 1px solid #BDBDBD;
     border-radius: 4px;
     text-align: center;
-    color: #E0E0E0;
+    color: #212121;
     height: 20px;
 }
 
@@ -149,19 +149,19 @@ QProgressBar::chunk {
 
 /* スクロールバー */
 QScrollBar:vertical {
-    background-color: #2C2C2C;
+    background-color: #F5F5F5;
     width: 12px;
     border-radius: 6px;
 }
 
 QScrollBar::handle:vertical {
-    background-color: #424242;
+    background-color: #BDBDBD;
     min-height: 20px;
     border-radius: 6px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background-color: #616161;
+    background-color: #9E9E9E;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -169,19 +169,19 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 }
 
 QScrollBar:horizontal {
-    background-color: #2C2C2C;
+    background-color: #F5F5F5;
     height: 12px;
     border-radius: 6px;
 }
 
 QScrollBar::handle:horizontal {
-    background-color: #424242;
+    background-color: #BDBDBD;
     min-width: 20px;
     border-radius: 6px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background-color: #616161;
+    background-color: #9E9E9E;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -190,26 +190,26 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 
 /* ステータスバー */
 QStatusBar {
-    background-color: #2C2C2C;
-    color: #E0E0E0;
-    border-top: 1px solid #424242;
+    background-color: #F5F5F5;
+    color: #212121;
+    border-top: 1px solid #BDBDBD;
 }
 
 /* メニューバー */
 QMenuBar {
-    background-color: #2C2C2C;
-    color: #E0E0E0;
-    border-bottom: 1px solid #424242;
+    background-color: #F5F5F5;
+    color: #212121;
+    border-bottom: 1px solid #BDBDBD;
 }
 
 QMenuBar::item:selected {
-    background-color: #424242;
+    background-color: #E0E0E0;
 }
 
 QMenu {
-    background-color: #2C2C2C;
-    color: #E0E0E0;
-    border: 1px solid #424242;
+    background-color: #FFFFFF;
+    color: #212121;
+    border: 1px solid #BDBDBD;
 }
 
 QMenu::item:selected {
