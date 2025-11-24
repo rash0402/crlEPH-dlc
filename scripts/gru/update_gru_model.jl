@@ -5,7 +5,7 @@ Quick script to retrain and update the GRU predictor model.
 """
 
 using Pkg
-Pkg.activate(joinpath(@__DIR__, "../src_julia"))
+Pkg.activate(joinpath(@__DIR__, "../../src_julia"))
 Pkg.instantiate()
 
 using JLD2
@@ -20,8 +20,8 @@ println("GRU Model Update Script")
 println("="^60)
 
 # Configuration
-const DATA_DIR = joinpath(@__DIR__, "../data/training")
-const MODEL_DIR = joinpath(@__DIR__, "../data/models")
+const DATA_DIR = joinpath(@__DIR__, "../../data/training")
+const MODEL_DIR = joinpath(@__DIR__, "../../data/models")
 const HIDDEN_SIZE = 128
 const LEARNING_RATE = 0.001
 const EPOCHS = 50

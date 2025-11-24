@@ -9,7 +9,7 @@ Implements comprehensive training strategy with:
 """
 
 using Pkg
-Pkg.activate(joinpath(@__DIR__, "../src_julia"))
+Pkg.activate(joinpath(@__DIR__, "../../src_julia"))
 Pkg.instantiate()
 
 using JLD2
@@ -21,7 +21,7 @@ using Dates
 using LinearAlgebra
 
 # Add project modules to path
-push!(LOAD_PATH, joinpath(@__DIR__, "../src_julia"))
+push!(LOAD_PATH, joinpath(@__DIR__, "../../src_julia"))
 include("../src_julia/utils/DataAugmentation.jl")
 using .DataAugmentation
 

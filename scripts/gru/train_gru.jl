@@ -1,5 +1,5 @@
 using Pkg
-Pkg.activate(joinpath(@__DIR__, "../src_julia"))
+Pkg.activate(joinpath(@__DIR__, "../../src_julia"))
 Pkg.instantiate()
 
 using Flux

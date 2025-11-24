@@ -5,7 +5,7 @@ Training script that uses FOV occupancy for importance weighting.
 """
 
 using Pkg
-Pkg.activate(joinpath(@__DIR__, "../src_julia"))
+Pkg.activate(joinpath(@__DIR__, "../../src_julia"))
 Pkg.instantiate()
 
 using JLD2
