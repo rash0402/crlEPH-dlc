@@ -91,6 +91,19 @@ function decide_action(controller::GradientEPHController, agent::Agent,
     # Store gradient in agent for visualization
     agent.current_gradient = final_grad
 
+    # Store final EFE value in agent for diagnostics
+    final_efe = expected_free_energy(current_action, agent, spm_tensor, env,
+                                     preferred_velocity, controller.params, controller.predictor)
+    agent.current_efe = final_efe
+
+    # Store final Belief Entropy in agent for Active Inference diagnostics
+    # Predict future SPM and compute entropy
+    spm_params = SPM.SPMParams(d_max=controller.params.fov_range)
+    spm_pred = SPMPredictor.predict_spm(controller.predictor, agent, current_action, env, spm_params)
+    h_self_pred = SelfHaze.compute_self_haze(spm_pred, controller.params)
+    Π_pred = SelfHaze.compute_precision_matrix(spm_pred, h_self_pred, controller.params)
+    agent.belief_entropy = SelfHaze.compute_belief_entropy(Π_pred)
+
     # Smooth transition: blend with previous velocity for continuity
     smoothing = 0.7  # 70% new action, 30% old velocity
     smoothed_action = smoothing * current_action + (1.0 - smoothing) * agent.velocity

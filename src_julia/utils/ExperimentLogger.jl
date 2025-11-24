@@ -65,6 +65,9 @@ mutable struct Logger
 
     # Correlation analysis
     self_haze_vs_velocity::Vector{Vector{Tuple{Float64, Float64}}}  # (h_self, speed)
+
+    # === Phase 5: Active Inference Belief Entropy ===
+    agent_belief_entropy::Vector{Vector{Float64}}          # H[q(s|a)] per agent
 end
 
 function Logger(experiment_name::String="experiment")
@@ -109,7 +112,9 @@ function Logger(experiment_name::String="experiment")
         Vector{Float64}[],       # agent_self_haze_values
         Vector{Float64}[],       # agent_occupancy_measures
         Vector{Int}[],           # self_haze_transitions
-        Vector{Tuple{Float64, Float64}}[]  # self_haze_vs_velocity
+        Vector{Tuple{Float64, Float64}}[],  # self_haze_vs_velocity
+        # Phase 5: Belief Entropy
+        Vector{Float64}[]        # agent_belief_entropy
     )
 end
 
@@ -126,10 +131,12 @@ function log_step(logger::Logger, step::Int, time::Float64, agents, env)
     positions = [(a.position[1], a.position[2]) for a in agents]
     velocities = [sqrt(a.velocity[1]^2 + a.velocity[2]^2) for a in agents]
     visible_counts = [length(a.visible_agents) for a in agents]
-    
+    belief_entropies = [a.belief_entropy for a in agents]
+
     push!(logger.agent_positions, positions)
     push!(logger.agent_velocities, velocities)
     push!(logger.agent_visible_counts, visible_counts)
+    push!(logger.agent_belief_entropy, belief_entropies)
     
     # Haze exposure (sample haze at agent positions)
     haze_values = Float64[]
@@ -434,7 +441,9 @@ function save_log(logger::Logger)
         "agent_self_haze_values" => logger.agent_self_haze_values,
         "agent_occupancy_measures" => logger.agent_occupancy_measures,
         "self_haze_transitions" => logger.self_haze_transitions,
-        "self_haze_vs_velocity" => logger.self_haze_vs_velocity
+        "self_haze_vs_velocity" => logger.self_haze_vs_velocity,
+        # Phase 5: Active Inference Belief Entropy
+        "agent_belief_entropy" => logger.agent_belief_entropy
     ))
 
     println("✓ Comprehensive experiment log saved to: $filename")
