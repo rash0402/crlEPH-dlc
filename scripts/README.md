@@ -2,6 +2,18 @@
 
 実験実行・検証・分析のためのスクリプト集
 
+## 📚 Phase実装について
+
+EPHフレームワークは段階的に実装されています。詳細は以下を参照してください：
+
+**[Phase Implementation Guide](../doc/implementation/Phase_Implementation_Guide.md)**
+
+- **Phase 1**: Scalar Self-Haze（スカラー自己ヘイズ） - ✅ 実装済み・統合済み
+- **Phase 2**: 2D Environmental Haze（2次元環境ヘイズ） - 🔧 実装済み（未統合）
+- **Phase 3**: Full Tensor Haze（完全テンソルヘイズ） - 📋 計画段階
+
+---
+
 ## ✅ 基礎検証スクリプト（推奨）
 
 ### `run_basic_validation.sh`
