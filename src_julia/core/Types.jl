@@ -52,11 +52,18 @@ mutable struct Environment
     coverage_map::Matrix{Bool}  # Coverage tracking
     frame_count::Int
 
-    function Environment(width::Float64, height::Float64; grid_size::Int=20, dt::Float64=0.1)
+    # Scenario-specific fields (optional, nothing for exploration)
+    scenario_type::Symbol  # :exploration or :shepherding
+    target_position::Union{Vector{Float64}, Nothing}  # Target for shepherding
+    sheep_agents::Union{Vector{Agent}, Nothing}  # Separate sheep agents for shepherding
+
+    function Environment(width::Float64, height::Float64;
+                        grid_size::Int=20, dt::Float64=0.1, scenario_type::Symbol=:exploration)
         grid_w = ceil(Int, width / grid_size)
         grid_h = ceil(Int, height / grid_size)
         coverage_map = falses(grid_w, grid_h)
-        new(width, height, Agent[], grid_size, zeros(grid_w, grid_h), dt, coverage_map, 0)
+        new(width, height, Agent[], grid_size, zeros(grid_w, grid_h), dt, coverage_map, 0,
+            scenario_type, nothing, nothing)
     end
 end
 
@@ -67,7 +74,7 @@ Base.@kwdef mutable struct EPHParams
     # Self-hazing parameters
     h_max::Float64 = 0.8          # Maximum self-haze level
     α::Float64 = 10.0              # Sigmoid sensitivity (higher = more responsive)
-    Ω_threshold::Float64 = 0.05    # Occupancy threshold (typical range: 0.0-0.15)
+    Ω_threshold::Float64 = 0.12    # Occupancy threshold (optimized for 50:50 state distribution)
     γ::Float64 = 2.0               # Haze attenuation exponent
 
     # Expected Free Energy weights

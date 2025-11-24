@@ -32,7 +32,7 @@ function main()
         # Self-hazing parameters
         h_max=0.8,
         α=10.0,              # Increased sensitivity (was 2.0)
-        Ω_threshold=0.05,    # Lowered threshold (was 1.0) - typical occupancy is 0.0-0.15
+        Ω_threshold=0.12,    # Optimized for Isolated↔Grouped transitions (was 0.05)
         γ=2.0,
         # EFE weights
         β=1.0,   # Increased entropy term weight (was 0.5) for stronger exploration drive

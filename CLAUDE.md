@@ -120,6 +120,21 @@ zmq
 - **Action smoothing**: 70% new action + 30% previous velocity for continuity
 
 ### Haze Mechanics
+
+#### Phase 1: Self-Haze (Scalar)
+- **Formula**: `h_self(Ω) = h_max · σ(-α(Ω - Ω_threshold))` where `σ(x) = 1/(1 + exp(-x))`
+- **Parameters** (optimized 2025-11-24):
+  - `h_max = 0.8`: Maximum self-haze level
+  - `α = 10.0`: Sigmoid sensitivity
+  - **`Ω_threshold = 0.12`**: Occupancy threshold (**optimized for 50:50 state distribution**)
+  - `γ = 2.0`: Haze attenuation exponent
+- **Cognitive States**:
+  - **Isolated** (h > 0.5): Low occupancy → High haze → Low precision → **Exploration mode**
+  - **Grouped** (h ≤ 0.5): High occupancy → Low haze → High precision → **Collision avoidance mode**
+- **State Transitions**: Expected ~0.13-0.17 transitions per timestep with Ω_threshold=0.12
+- **Effect**: `Π(r,θ; h) = Π_base(r,θ) · (1-h)^γ` - High haze reduces precision, enabling exploration
+
+#### Phase 2: Environmental Haze (Spatial)
 - **Environmental haze**: 2D grid (`haze_grid`) updated each timestep
   - Agents deposit haze at their position (value += 0.2, capped at 1.0)
   - Decays globally by 0.99 each timestep
@@ -164,6 +179,53 @@ The current simulation demonstrates:
   - Self-haze transitions: Isolated (red FOV) ↔ With neighbors (blue FOV)
   - Gradient visualization (red arrow shows -∇G direction)
   - Real-time plots (EFE, self-haze, gradient norm, SPM heatmaps)
+
+## Task Tracking and Workflow
+
+### Current Task Documentation
+**IMPORTANT**: Always maintain `CURRENT_TASK.md` in the project root to track ongoing work.
+
+**Purpose:**
+- Document the current task being worked on
+- Track progress and blockers
+- Provide context for resuming work after interruptions
+- Enable better collaboration and handoffs
+
+**When to Update:**
+1. **Starting a new task**: Document objectives, approach, and expected outcomes
+2. **Making progress**: Update completed steps and next actions
+3. **Encountering blockers**: Document issues and potential solutions
+4. **Completing tasks**: Mark as complete and create new task entry if needed
+5. **Before switching tasks**: Ensure current state is documented
+
+**Workflow Integration:**
+```
+1. Read CURRENT_TASK.md to understand current work
+   ↓
+2. Work on the task (code, test, document)
+   ↓
+3. Update CURRENT_TASK.md with progress
+   ↓
+4. Run validation if code changed
+   ./scripts/run_basic_validation.sh all
+   ↓
+5. Commit changes (including CURRENT_TASK.md updates)
+   ↓
+6. If task complete: Update CURRENT_TASK.md status to COMPLETED
+```
+
+**File Location:** `CURRENT_TASK.md` (project root)
+
+**Template Structure:** See `CURRENT_TASK.md` for the standard template.
+
+### Validation Workflow
+**CRITICAL**: Before any Git commit, run validation tests:
+
+```bash
+./scripts/run_basic_validation.sh all
+```
+
+All tests must PASS before committing code changes. See `doc/VALIDATION_PHILOSOPHY.md` for detailed explanation.
 
 ## Development Notes
 
