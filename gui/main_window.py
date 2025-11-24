@@ -11,7 +11,7 @@ from PySide6.QtGui import QIcon
 from .tabs.validation_tab import ValidationTab
 from .tabs.gru_training_tab import GRUTrainingTab
 from .tabs.experiments_tab import ExperimentsTab
-from .tabs.placeholder_tab import PlaceholderTab
+from .tabs.analysis_tab import AnalysisTab
 from .widgets.system_status import SystemStatusWidget
 from .utils.system_checker import SystemChecker
 
@@ -48,12 +48,8 @@ class MainWindow(QMainWindow):
         self.experiments_tab = ExperimentsTab(self.system_checker)
         self.tabs.addTab(self.experiments_tab, "🧪 Experiments")
 
-        # Analysisタブ（プレースホルダー）
-        self.analysis_tab = PlaceholderTab(
-            "Analysis & Reports",
-            "Analyze experimental logs (.jld2), generate plots (EFE, haze, entropy), "
-            "and export reports (PDF/Markdown)."
-        )
+        # Analysisタブ
+        self.analysis_tab = AnalysisTab(self.system_checker)
         self.tabs.addTab(self.analysis_tab, "📊 Analysis")
 
         self.setCentralWidget(self.tabs)

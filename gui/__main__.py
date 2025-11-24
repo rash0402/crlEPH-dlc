@@ -1,22 +1,22 @@
-#!/usr/bin/env python3
 """
 EPH Dashboard - Entry Point
-
-Usage:
-    python -m gui
-    python3 -m gui
 """
 
 import sys
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from PySide6.QtWidgets import QApplication
-from .main_window import MainWindow
+from gui.main_window import MainWindow
 
 
 def main():
-    """EPH Dashboard メインエントリーポイント"""
+    """Main entry point for EPH Dashboard"""
     app = QApplication(sys.argv)
     app.setApplicationName("EPH Dashboard")
-    app.setOrganizationName("EPH Research")
 
     window = MainWindow()
     window.show()

@@ -105,11 +105,11 @@ Base.@kwdef mutable struct EPHParams
     online_lr_min_agents::Int = 2         # Minimum visible agents for full learning rate
     online_update_interval::Int = 10      # Update model every N steps
 
-    # Environmental Haze parameters (Phase 2)
+    # Environmental Haze parameters (Phase 2) - Optimized 2025-11-24
     enable_env_haze::Bool = false         # Enable environmental haze (stigmergy)
-    haze_deposit_amount::Float64 = 0.2    # Haze deposition magnitude per step
-    haze_decay_rate::Float64 = 0.99       # Global haze decay factor (0.99 = 1% decay/step)
-    haze_deposit_type::Symbol = :repellent # :lubricant (decrease haze) or :repellent (increase haze)
+    haze_deposit_amount::Float64 = 0.3    # Haze deposition magnitude per step (optimized: 0.3)
+    haze_decay_rate::Float64 = 0.97       # Global haze decay factor (optimized: 0.97 = 3% decay/step)
+    haze_deposit_type::Symbol = :lubricant # :lubricant (decrease haze, RECOMMENDED) or :repellent (increase haze)
 
     # FOV parameters
     fov_angle::Float64 = 120.0 * π / 180.0  # 120 degrees in radians

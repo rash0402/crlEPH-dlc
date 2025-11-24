@@ -238,3 +238,52 @@ println()
 println("═══════════════════════════════════════════════════════════")
 println("  Experiment Complete!")
 println("═══════════════════════════════════════════════════════════")
+
+# ========== Save Results to JSON ==========
+using JSON
+using Dates
+
+output_dir = joinpath(@__DIR__, "../data/analysis")
+mkpath(output_dir)
+
+timestamp = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
+output_file = joinpath(output_dir, "phase_comparison_$(timestamp).json")
+
+results = Dict(
+    "metadata" => Dict(
+        "timestamp" => timestamp,
+        "num_steps" => num_steps,
+        "num_agents" => num_agents,
+        "experiment_type" => "phase1_vs_phase2"
+    ),
+    "phase1" => Dict(
+        "final_coverage" => final_coverage_phase1,
+        "avg_separation" => final_sep_phase1,
+        "avg_self_haze" => final_haze_phase1,
+        "coverage_history" => coverage_history_phase1,
+        "separation_history" => separation_history_phase1,
+        "self_haze_history" => self_haze_history_phase1
+    ),
+    "phase2" => Dict(
+        "final_coverage" => final_coverage_phase2,
+        "avg_separation" => final_sep_phase2,
+        "avg_self_haze" => final_haze_phase2,
+        "avg_env_haze" => final_env_haze_phase2,
+        "coverage_history" => coverage_history_phase2,
+        "separation_history" => separation_history_phase2,
+        "self_haze_history" => self_haze_history_phase2,
+        "env_haze_history" => env_haze_history_phase2
+    ),
+    "comparison" => Dict(
+        "coverage_diff" => coverage_diff,
+        "separation_diff" => sep_diff,
+        "self_haze_diff" => haze_diff
+    )
+)
+
+open(output_file, "w") do io
+    JSON.print(io, results, 2)
+end
+
+println()
+println("Results saved to: $output_file")

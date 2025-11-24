@@ -171,16 +171,21 @@ zmq
   - **Repellent** (`:repellent`): Increases haze → decreases precision → promotes exploration
   - Default: Repellent with amount=0.2, deposited in 3×3 neighborhood
 - **Haze Decay**: Global decay factor 0.99 (1% per timestep) prevents accumulation
-- **Parameters** (EPHParams):
+- **Parameters** (EPHParams) - **Optimized 2025-11-24**:
   - `enable_env_haze::Bool = false` - Phase 2 activation flag
-  - `haze_deposit_amount::Float64 = 0.2` - Deposition magnitude
-  - `haze_decay_rate::Float64 = 0.99` - Temporal forgetting rate
-  - `haze_deposit_type::Symbol = :repellent` - Lubricant or Repellent
-- **Experimental Results** (500 steps, 5 agents):
-  - ✓ Environmental haze trails formed (avg 103.7 total haze)
-  - ↓ Coverage reduced by 10.5% (agents avoid repellent trails)
-  - ↑ Self-haze increased (+0.181) due to environmental haze influence
-  - ≈ Separation distance similar (±3.8px)
+  - `haze_deposit_amount::Float64 = 0.3` - Deposition magnitude (**optimized: 0.3**)
+  - `haze_decay_rate::Float64 = 0.97` - Temporal forgetting rate (**optimized: 0.97 = 3%/step**)
+  - `haze_deposit_type::Symbol = :lubricant` - **Lubricant (RECOMMENDED)** or Repellent
+- **Parameter Sensitivity Analysis** (24 experiments, 500 steps, 5 agents):
+  - **Best Configuration**: Lubricant, deposit=0.3, decay=0.97
+  - ✓ Coverage: **93.2%** (Phase 1: 89.2%, **+4.0% improvement**)
+  - ✓ Lubricant haze outperforms Repellent haze
+  - ✓ Optimal deposit amount: 0.3 (higher deposition = better coordination)
+  - ✓ Optimal decay rate: 0.97 (faster decay = fresher trails)
+- **Lubricant vs Repellent Comparison**:
+  - **Lubricant**: Decreases haze → increases precision → improves exploration
+  - **Repellent**: Increases haze → decreases precision → reduces coverage
+  - Lubricant achieves higher maximum coverage (93.2% vs 92.5%)
 
 ### Communication Protocol (Julia ↔ Python)
 **ZeroMQ PUB-SUB pattern**
