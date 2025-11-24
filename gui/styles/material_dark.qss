@@ -1,0 +1,217 @@
+/*
+Material Design Dark Theme for EPH Dashboard
+*/
+
+/* メインウィンドウ */
+QMainWindow {
+    background-color: #212121;
+    color: #E0E0E0;
+}
+
+QWidget {
+    background-color: #212121;
+    color: #E0E0E0;
+    font-family: "Segoe UI", "Roboto", "Arial", sans-serif;
+    font-size: 11pt;
+}
+
+/* タブウィジェット */
+QTabWidget::pane {
+    border: 1px solid #424242;
+    background-color: #2C2C2C;
+    border-radius: 4px;
+}
+
+QTabBar::tab {
+    background-color: #2C2C2C;
+    color: #9E9E9E;
+    padding: 10px 20px;
+    margin-right: 2px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border: 1px solid #424242;
+    border-bottom: none;
+}
+
+QTabBar::tab:selected {
+    background-color: #424242;
+    color: #FFFFFF;
+    border-bottom: 2px solid #2196F3;
+}
+
+QTabBar::tab:hover {
+    background-color: #3C3C3C;
+    color: #FFFFFF;
+}
+
+/* ボタン */
+QPushButton {
+    background-color: #2196F3;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #1976D2;
+}
+
+QPushButton:pressed {
+    background-color: #1565C0;
+}
+
+QPushButton:disabled {
+    background-color: #424242;
+    color: #757575;
+}
+
+/* コンボボックス */
+QComboBox {
+    background-color: #2C2C2C;
+    color: #E0E0E0;
+    border: 1px solid #424242;
+    border-radius: 4px;
+    padding: 6px 12px;
+}
+
+QComboBox:hover {
+    border: 1px solid #2196F3;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+QComboBox::down-arrow {
+    image: url(none);
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid #E0E0E0;
+    margin-right: 5px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #2C2C2C;
+    color: #E0E0E0;
+    selection-background-color: #2196F3;
+    border: 1px solid #424242;
+}
+
+/* テキストエディット */
+QTextEdit {
+    background-color: #1E1E1E;
+    color: #D4D4D4;
+    border: 1px solid #424242;
+    border-radius: 4px;
+    padding: 8px;
+}
+
+/* ラベル */
+QLabel {
+    background-color: transparent;
+    color: #E0E0E0;
+}
+
+/* グループボックス */
+QGroupBox {
+    background-color: #2C2C2C;
+    border: 1px solid #424242;
+    border-radius: 4px;
+    margin-top: 12px;
+    padding-top: 12px;
+    font-weight: bold;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 8px;
+    color: #2196F3;
+}
+
+/* プログレスバー */
+QProgressBar {
+    background-color: #2C2C2C;
+    border: 1px solid #424242;
+    border-radius: 4px;
+    text-align: center;
+    color: #E0E0E0;
+    height: 20px;
+}
+
+QProgressBar::chunk {
+    background-color: #2196F3;
+    border-radius: 3px;
+}
+
+/* スクロールバー */
+QScrollBar:vertical {
+    background-color: #2C2C2C;
+    width: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #424242;
+    min-height: 20px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #616161;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    background-color: #2C2C2C;
+    height: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #424242;
+    min-width: 20px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #616161;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* ステータスバー */
+QStatusBar {
+    background-color: #2C2C2C;
+    color: #E0E0E0;
+    border-top: 1px solid #424242;
+}
+
+/* メニューバー */
+QMenuBar {
+    background-color: #2C2C2C;
+    color: #E0E0E0;
+    border-bottom: 1px solid #424242;
+}
+
+QMenuBar::item:selected {
+    background-color: #424242;
+}
+
+QMenu {
+    background-color: #2C2C2C;
+    color: #E0E0E0;
+    border: 1px solid #424242;
+}
+
+QMenu::item:selected {
+    background-color: #2196F3;
+}
