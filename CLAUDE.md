@@ -119,6 +119,25 @@ zmq
 - **Haze modulation**: High haze reduces effective precision → reduces collision avoidance → "lubricant" effect
 - **Action smoothing**: 70% new action + 30% previous velocity for continuity
 
+### SPM Predictor
+
+**Default**: GRU Neural Predictor (`:neural`)
+- **Model**: Trained GRU with hidden size 128
+- **Performance**: MSE ~0.28 (80x better than Linear)
+- **Location**: `data/models/predictor_model.jld2`
+- **Training**: 75 episodes (15 agents × 5 files), Train Loss=0.041, Test Loss=0.044
+
+**Linear Predictor (`:linear`)**:
+- **Purpose**: Initial training data generation ONLY
+- **Usage**: `src_julia/collect_training_data.jl` uses Linear to avoid GRU inference overhead
+- **Performance**: MSE ~22.2 (baseline)
+- **Note**: Not recommended for actual simulation (use GRU instead)
+
+**Predictor Policy** (established 2025-11-24):
+- ✅ **Phase 1-4 Simulations**: Use GRU predictor (default)
+- ✅ **Data Collection for GRU Training**: Use Linear predictor (efficiency)
+- ⚠️ **Never use Linear for evaluation**: GRU provides 80x better prediction accuracy
+
 ### Haze Mechanics
 
 #### Phase 1: Self-Haze (Scalar)

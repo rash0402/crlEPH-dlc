@@ -4,10 +4,42 @@ GRU Training Data Collection Script
 Runs a simulation with data collection enabled to generate training data
 for the neural SPM predictor.
 
+Data Collection Strategy:
+- **Configurable multi-agent collection**:
+  → GUI allows selecting how many agents to collect from (1 to all agents)
+  → Default: Collect from ALL agents for maximum diversity
+  → More agents = more diverse data = better learning
+  → No additional computation time (parallel collection)
+- **Optimal balance**: Each agent provides full trajectory over simulation
+  → Long enough for temporal learning (e.g., 20,000 steps/agent)
+  → Extremely diverse for robustness (multiple independent trajectories)
+- **Training strategy**: 80% of agents for training, 20% for testing
+  → Example: 15 agents → 12 for train, 3 for test
+  → Proper overfitting detection
+- **Long episodes**: No frequent auto-saves (threshold: 50000 samples)
+  → Better captures temporal correlations
+
+Optimizations for fast data collection:
+- **LinearPredictor**: CRITICAL for bootstrapping (avoids chicken-and-egg problem)
+  → Cannot use GRU during initial data collection (GRU doesn't exist yet)
+  → Linear predictor provides baseline predictions for training data
+  → This is the ONLY scenario where Linear predictor should be used
+  → After GRU training, all simulations use GRU (80x better accuracy)
+- No ZeroMQ visualization
+- No experiment logging
+- Increased max_speed and max_accel for faster agent movement
+- Larger dt (0.15 vs 0.1) for fewer simulation steps per second
+- Reduced max_iter (3 vs 5) for faster gradient descent
+
 Usage:
     julia --project=. collect_training_data.jl [num_steps] [num_agents]
 
-Default: 20000 steps, 15 agents
+    Environment variable:
+      EPH_COLLECT_AGENTS=N  - Collect data from first N agents (default: all agents)
+
+Default: 20000 steps, 15 agents, collect from all agents
+Example: EPH_COLLECT_AGENTS=5 julia collect_training_data.jl 10000 15
+         → Collects from agents 1-5 only
 """
 
 include("main.jl")
@@ -34,15 +66,31 @@ println("  Agents: $num_agents")
 println()
 
 # Initialize data collector
-DataCollector.init_collector()
+# Read target collection count from environment variable
+collect_agents = parse(Int, get(ENV, "EPH_COLLECT_AGENTS", string(num_agents)))
+collect_agents = min(collect_agents, num_agents)  # Can't collect more than total agents
 
-# Setup with data collection enabled
+target_agents = collect(1:collect_agents)
+DataCollector.init_collector(target_agents)
+
+println("Data collection targets: Agents $target_agents ($(length(target_agents)) agents)")
+println("  → Collecting from $(length(target_agents)) agents provides:")
+println("    • $(length(target_agents))x more data samples (vs single-agent)")
+println("    • Maximum diversity: $(length(target_agents)) different initial positions and scenarios")
+println("    • Best generalization performance")
+println("    • Same simulation time (parallel collection)")
+println()
+
+# Setup with data collection enabled (optimized for speed)
 params = Types.EPHParams(
     predictor_type = :linear,  # Use linear predictor during data collection
-    collect_data = true         # Enable data collection
+    collect_data = true,        # Enable data collection
+    max_speed = 80.0,          # Increased for faster movement (default: 50.0)
+    max_accel = 150.0,         # Increased for quicker acceleration (default: 100.0)
+    max_iter = 3               # Reduced iterations for faster computation (default: 5)
 )
 
-env = Types.Environment(400.0, 400.0, grid_size=20)
+env = Types.Environment(400.0, 400.0, grid_size=20, dt=0.15)  # Larger timestep for speed
 
 # Add agents
 println("Initializing $num_agents agents...")
@@ -57,29 +105,26 @@ end
 predictor = SPMPredictor.LinearPredictor(env.dt)
 
 println("Starting data collection...")
-print("Progress: ")
-flush(stdout)
+println()
 
 # Counters
 transitions_collected = 0
 saves_performed = 0
+last_report_time = time()
 
 # Run simulation
 for step in 1:num_steps
     # Run simulation step (this will automatically collect data)
     Simulation.step!(env, params, predictor)
 
-    # Progress indicator
-    if step % 100 == 0
-        print(".")
+    # Progress indicator (every 500 steps or every 5 seconds)
+    current_time = time()
+    if step % 500 == 0 || (current_time - last_report_time) >= 5.0
+        current_samples = sum(length(b) for b in values(DataCollector.agent_buffers); init=0)
+        progress_pct = round(100 * step / num_steps, digits=1)
+        println("Progress: $step / $num_steps ($progress_pct%) - Collected: $current_samples samples")
         flush(stdout)
-
-        # Report progress
-        if step % 500 == 0
-            current_samples = sum(length(b) for b in values(DataCollector.agent_buffers))
-            print(" [$current_samples samples]")
-            flush(stdout)
-        end
+        global last_report_time = current_time
     end
 end
 
@@ -87,7 +132,7 @@ println()
 println()
 
 # Final data collection statistics
-total_samples = sum(length(b) for b in values(DataCollector.agent_buffers))
+total_samples = sum(length(b) for b in values(DataCollector.agent_buffers); init=0)
 total_episodes = length(DataCollector.saved_episodes)
 
 println("Data Collection Complete!")

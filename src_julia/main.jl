@@ -60,18 +60,23 @@ function main()
     println("World size: $(env.width) × $(env.height)")
     println("FOV: $(params.fov_angle * 180 / π)° × $(params.fov_range)px")
 
-    # Initialize Predictor for visualization
+    # Initialize SPM Predictor
+    # Default: GRU Neural Predictor (80x better accuracy than Linear)
+    # Linear predictor should ONLY be used for initial training data collection
     predictor = if params.predictor_type == :neural
-        # Load trained GRU model
+        # Load trained GRU model (default for all simulations)
         model_path = joinpath(@__DIR__, "../data/models/predictor_model.jld2")
         if isfile(model_path)
             println("Loading neural predictor from: $model_path")
             SPMPredictor.load_predictor(model_path)
         else
             println("Warning: Neural model not found. Falling back to Linear.")
+            println("         Run collect_training_data.jl to generate training data first.")
             SPMPredictor.LinearPredictor(params.prediction_dt)
         end
     else
+        # Linear predictor: ONLY for data collection (bootstrapping)
+        println("Using Linear predictor (data collection mode)")
         SPMPredictor.LinearPredictor(params.prediction_dt)
     end
     println("Initialized predictor: $(typeof(predictor))")

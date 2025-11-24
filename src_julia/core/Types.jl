@@ -96,7 +96,7 @@ Base.@kwdef mutable struct EPHParams
     
     # Prediction parameters (Phase 1, 2, 3)
     prediction_dt::Float64 = 0.1   # Prediction time horizon (seconds)
-    predictor_type::Symbol = :neural  # :linear or :neural
+    predictor_type::Symbol = :neural  # :neural (GRU, default) or :linear (data collection only)
     collect_data::Bool = false     # Enable data collection for GRU training
     
     # Online learning parameters (Phase 5)

@@ -1,6 +1,21 @@
 """
 Single Comprehensive Diagnostic Experiment
 Runs one 1000-step experiment with default parameters
+
+Usage:
+    julia --project=. run_single_diagnostic.jl [num_steps] [predictor]
+
+Arguments:
+    num_steps:  Number of simulation steps (default: 1000)
+    predictor:  :linear or :gru (default: :linear for quick diagnostics)
+
+Note: While GRU is the default for actual simulations, this diagnostic
+      defaults to Linear for faster execution. Run with 'gru' argument
+      to test GRU predictor performance.
+
+Examples:
+    julia --project=. run_single_diagnostic.jl 1000 linear  # Fast baseline
+    julia --project=. run_single_diagnostic.jl 1000 gru     # Test GRU
 """
 
 include("main.jl")
@@ -15,7 +30,7 @@ using .ExperimentLogger
 
 # Parse command-line arguments
 num_steps = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1000
-predictor_arg = length(ARGS) >= 2 ? Symbol(ARGS[2]) : :linear
+predictor_arg = length(ARGS) >= 2 ? Symbol(ARGS[2]) : :linear  # Linear for fast diagnostics
 
 println("╔════════════════════════════════════════════════════════════╗")
 println("║  EPH Comprehensive Diagnostic Experiment                  ║")
