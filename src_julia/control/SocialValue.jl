@@ -20,9 +20,9 @@ module SocialValue
 
 using LinearAlgebra
 
-export compute_angular_compactness, compute_goal_pushing
+export compute_angular_compactness, compute_goal_pushing, compute_goal_pushing_soft
 export compute_radial_distribution, compute_velocity_coherence
-export compute_social_value_shepherding
+export compute_social_value_shepherding, compute_social_value_shepherding_soft
 
 """
 Angular Compactness from SPM Occupancy channel.
@@ -117,6 +117,70 @@ function compute_goal_pushing(
         # Minimize → wants high occupancy at θ_target
         # (negative sign: high occupancy at target → low cost)
         cost -= w * O_θ[θ]
+    end
+
+    return cost
+end
+
+"""
+Goal Pushing with soft-binning (Zygote-compatible).
+
+Uses Gaussian kernels to create smooth, differentiable angular weighting.
+This version avoids discrete operations (floor/round/Int) that break Zygote gradients.
+
+# Arguments
+- `spm::Array{Float64, 3}`: Predicted SPM tensor
+- `θ_goal::Float64`: Goal direction in radians (continuous)
+- `Nθ::Int`: Number of angular bins
+- `σ::Float64`: Gaussian kernel width (default: 0.5 radians ≈ 30°)
+
+# Returns
+- `Float64`: Goal pushing cost (minimize → sheep at θ_goal + π)
+
+# Mathematical Formulation
+Instead of discrete binning:
+```
+θ_idx = floor(Int, θ / (2π/Nθ)) + 1  # ✗ Not differentiable
+```
+
+Use soft-binning with Gaussian kernels:
+```
+w(θ_bin) = exp(-((θ_center - θ_target) / σ)²)  # ✓ Smooth, differentiable
+```
+"""
+function compute_goal_pushing_soft(
+    spm::Array{Float64, 3},
+    θ_goal::Float64,
+    Nθ::Int;
+    σ::Float64 = 0.5
+)::Float64
+
+    # Extract occupancy channel
+    occ = spm[1, :, :]  # Shape: (Nr, Nθ)
+
+    # Sum over radial bins to get angular distribution
+    O_θ = vec(sum(occ, dims=1))  # Shape: (Nθ,)
+
+    # Target direction: opposite to goal (dog should be behind sheep)
+    θ_target = mod(θ_goal + π, 2π)
+
+    # Compute soft-weighted cost
+    cost = 0.0
+    for θ_bin in 1:Nθ
+        # Bin center angle [0, 2π]
+        θ_center = (θ_bin - 0.5) * (2π / Nθ)
+
+        # Angular difference (shortest path on circle)
+        # Normalize to [-π, π] for proper distance
+        angle_diff = mod(θ_center - θ_target + π, 2π) - π
+
+        # Gaussian kernel (soft weight)
+        # High weight at θ_target, smoothly decreasing
+        w = exp(-(angle_diff / σ)^2)
+
+        # Minimize → wants high occupancy at θ_target
+        # (negative sign: high occupancy at target → low cost)
+        cost -= w * O_θ[θ_bin]
     end
 
     return cost
@@ -218,6 +282,43 @@ function compute_social_value_shepherding(
 
     # 2. Goal Pushing (cosine weighting)
     M_goal = compute_goal_pushing(spm_predicted, θ_goal_idx, Nθ)
+
+    # 3. Combined Social Value
+    M_social = λ_compact * M_compact + λ_goal * M_goal
+
+    return M_social
+end
+
+"""
+Compute Social Value for Shepherding task (soft-binning version).
+
+Uses compute_goal_pushing_soft() for full Zygote compatibility.
+
+# Arguments
+- `spm_predicted::Array{Float64, 3}`: Predicted SPM from action a
+- `θ_goal::Float64`: Goal direction in radians (continuous)
+- `Nθ::Int`: Number of angular bins
+- `λ_compact::Float64`: Weight for compactness term
+- `λ_goal::Float64`: Weight for goal pushing term
+- `σ::Float64`: Gaussian kernel width for soft-binning
+
+# Returns
+- `Float64`: Total social value (minimize)
+"""
+function compute_social_value_shepherding_soft(
+    spm_predicted::Array{Float64, 3},
+    θ_goal::Float64,
+    Nθ::Int;
+    λ_compact::Float64 = 1.0,
+    λ_goal::Float64 = 0.5,
+    σ::Float64 = 0.5
+)::Float64
+
+    # 1. Angular Compactness (entropy)
+    M_compact = compute_angular_compactness(spm_predicted)
+
+    # 2. Goal Pushing (soft-binning version)
+    M_goal = compute_goal_pushing_soft(spm_predicted, θ_goal, Nθ, σ=σ)
 
     # 3. Combined Social Value
     M_social = λ_compact * M_compact + λ_goal * M_goal
