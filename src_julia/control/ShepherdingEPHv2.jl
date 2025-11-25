@@ -307,19 +307,25 @@ function update_shepherding_dog!(
         )
         min_dist = dog.radius + sheep.radius
         # Emergency repulsion if too close
-        if dist < min_dist * 2.5 && dist > 1e-6
+        if dist < min_dist * 1.5 && dist > 1e-6
+            # Very strong emergency avoidance
             repulsion_dir = [-dx, -dy] / dist  # Away from sheep
-            repulsion_strength = 100.0 / (dist * dist)  # Strong inverse square
+            repulsion_strength = 200.0 / (dist * dist + 1.0)  # Strong inverse square
+            collision_avoidance += repulsion_dir * repulsion_strength
+        elseif dist < min_dist * 2.5 && dist > 1e-6
+            # Moderate avoidance
+            repulsion_dir = [-dx, -dy] / dist
+            repulsion_strength = 50.0 / dist
             collision_avoidance += repulsion_dir * repulsion_strength
         end
     end
 
     # === 7. Update velocity and position ===
-    # Combine action with collision avoidance
-    desired_action = action + collision_avoidance * 0.1
+    # Combine action with collision avoidance (higher weight for avoidance)
+    desired_action = action + collision_avoidance * 0.3
 
     # Smooth velocity transition
-    dog.velocity = 0.7 * desired_action + 0.3 * dog.velocity
+    dog.velocity = 0.8 * desired_action + 0.2 * dog.velocity
 
     # Speed limit
     if norm(dog.velocity) > params.max_speed
