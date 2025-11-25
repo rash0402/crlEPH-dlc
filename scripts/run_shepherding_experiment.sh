@@ -196,8 +196,9 @@ if ~/.juliaup/bin/julia --project=src_julia "$EXPERIMENT_SCRIPT"; then
 
     echo ""
     echo -e "${BLUE}Next steps:${NC}"
-    echo "  1. Scale up experiment:"
-    echo "     $0 --n-sheep 20 --steps 500"
+    echo "  1. Scale up experiment (recommended seeds for 20 sheep):"
+    echo "     $0 --n-sheep 20 --steps 500 --seed 300  # Best: goal dist ~27"
+    echo "     $0 --n-sheep 20 --steps 500 --seed 100  # Good: goal dist ~70"
     echo ""
     echo "  2. Test multiple dogs:"
     echo "     $0 --n-dogs 3 --n-sheep 15"
