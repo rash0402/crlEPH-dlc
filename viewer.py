@@ -113,8 +113,8 @@ class SimulationWidget(QWidget):
         agent_type = agent.get("type", "default")
         color = agent.get("color", [80, 120, 255])
 
-        # Agent 1 is red (tracked), others use provided color
-        is_tracked = (agent_id == 1)
+        # Agent 1 or magenta-colored agents are tracked
+        is_tracked = (agent_id == 1) or (agent_type in ["dog", "sheep"] and color == [255, 0, 255])
 
         # Draw FOV (Field of View) - only for non-shepherding agents
         if agent_type == "default":
@@ -130,14 +130,18 @@ class SimulationWidget(QWidget):
                             int(fov_start_angle), int(fov_span_angle))
 
         # Draw Body
-        if is_tracked and agent_type == "default":
-            # Tracked agent (EPH foraging): Red
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(255, 80, 80))
-        elif agent_type in ["dog", "sheep"]:
+        if agent_type in ["dog", "sheep"]:
             # Shepherding agents: Use provided color
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(color[0], color[1], color[2]))
+
+            # Add white outline for tracked agent
+            if is_tracked:
+                painter.setPen(QPen(Qt.white, 2))
+        elif is_tracked and agent_type == "default":
+            # Tracked agent (EPH foraging): Red
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 80, 80))
         else:
             # Default: Blue
             painter.setPen(Qt.NoPen)

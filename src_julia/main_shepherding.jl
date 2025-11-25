@@ -41,6 +41,10 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
 
     # Add all dogs
     for dog in dogs
+        # Dog 1 is marked with special color for tracking
+        is_tracked = (dog.id == 1)
+        color = is_tracked ? [255, 0, 255] : [255, 0, 0]  # Magenta for tracked, red for others
+
         push!(agents, Dict(
             "id" => dog.id,
             "x" => dog.position[1],
@@ -48,7 +52,7 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
             "vx" => dog.velocity[1],
             "vy" => dog.velocity[2],
             "radius" => dog.radius,  # Use actual physical radius (2.4)
-            "color" => [255, 0, 0],  # Red for dog
+            "color" => color,
             "orientation" => atan(dog.velocity[2], dog.velocity[1]),
             "has_goal" => true,
             "type" => "dog"
@@ -74,11 +78,26 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
     # No haze grid for shepherding (could add if needed)
     haze_grid = fill(0.0, 10, 10)
 
+    # Add tracked dog data (dog 1) for dashboard plots
+    tracked_dog = dogs[1]
+    tracked_data = Dict(
+        "id" => tracked_dog.id,
+        "self_haze" => tracked_dog.self_haze,
+        "efe" => 0.0,  # TODO: Store EFE in dog structure
+        "entropy" => 0.0,  # TODO: Compute from SPM
+        "surprise" => 0.0,  # TODO: Store surprise
+        "gradient" => [0.0, 0.0],  # TODO: Store gradient
+        "spm_occupancy" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[1, :, :] : zeros(5, 16),
+        "spm_radial" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[2, :, :] : zeros(5, 16),
+        "spm_tangential" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[3, :, :] : zeros(5, 16)
+    )
+
     return Dict(
         "frame" => frame,
         "agents" => agents,
         "haze_grid" => haze_grid,
-        "world_size" => [world_size, world_size]  # Add world size to message
+        "world_size" => [world_size, world_size],
+        "tracked_agent" => tracked_data
     )
 end
 
@@ -163,9 +182,9 @@ function run_shepherding_with_viz()
     println("  ✓ ZMQ Server bound to tcp://*:5555")
     println("  ✓ Ready for viewer connection")
 
-    # Wait for viewer to connect
-    println("\nWaiting for viewer to connect (3 seconds)...")
-    sleep(3)
+    # Wait for viewer to connect (reduced wait time)
+    println("\nWaiting for viewer to connect (1 second)...")
+    sleep(1)
 
     # === Simulation Loop ===
     println("\nStarting simulation ($n_steps steps)...")

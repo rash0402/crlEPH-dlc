@@ -137,9 +137,9 @@ echo -e "${GREEN}[1/2] Starting Julia Shepherding Server...${NC}"
 SERVER_PID=$!
 echo "  Server PID: $SERVER_PID"
 
-# Wait for server initialization
-echo "  Waiting for server to initialize (3 seconds)..."
-sleep 3
+# Wait for server initialization (reduced)
+echo "  Waiting for server to initialize (1 second)..."
+sleep 1
 
 # Start Python viewer
 echo ""
