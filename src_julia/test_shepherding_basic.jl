@@ -12,6 +12,7 @@ Minimal test: 1 dog + 5 sheep, 100 steps
 
 using Printf
 using LinearAlgebra
+using Random
 
 # Setup module path
 push!(LOAD_PATH, @__DIR__)
@@ -41,6 +42,10 @@ function run_shepherding_test()
     world_size = parse(Float64, get(ENV, "EPH_WORLD_SIZE", "400.0"))
     n_sheep = parse(Int, get(ENV, "EPH_N_SHEEP", "5"))
     n_steps = parse(Int, get(ENV, "EPH_STEPS", "100"))
+    seed = parse(Int, get(ENV, "EPH_SEED", "42"))
+
+    # Set random seed for reproducibility
+    Random.seed!(seed)
 
     # Goal position (top-right quadrant)
     goal_position = [0.75 * world_size, 0.75 * world_size]

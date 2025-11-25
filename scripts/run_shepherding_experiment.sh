@@ -11,6 +11,7 @@
 #   --n-dogs NUM        犬の数（デフォルト: 1）
 #   --steps NUM         シミュレーションステップ数（デフォルト: 100）
 #   --world-size NUM    ワールドサイズ（デフォルト: 400）
+#   --seed NUM          乱数シード（デフォルト: 42、再現性のため）
 #   --test              テストモード（短時間実行）
 #
 
@@ -21,6 +22,7 @@ N_SHEEP=5
 N_DOGS=1
 STEPS=100
 WORLD_SIZE=400
+SEED=42
 TEST_MODE=false
 
 # Parse arguments
@@ -42,6 +44,10 @@ while [[ $# -gt 0 ]]; do
             WORLD_SIZE="$2"
             shift 2
             ;;
+        --seed)
+            SEED="$2"
+            shift 2
+            ;;
         --test)
             TEST_MODE=true
             N_SHEEP=3
@@ -50,7 +56,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--n-sheep NUM] [--n-dogs NUM] [--steps NUM] [--world-size NUM] [--test]"
+            echo "Usage: $0 [--n-sheep NUM] [--n-dogs NUM] [--steps NUM] [--world-size NUM] [--seed NUM] [--test]"
             exit 1
             ;;
     esac
@@ -78,6 +84,7 @@ echo -e "  羊の数:           ${GREEN}${N_SHEEP}${NC}"
 echo -e "  犬の数:           ${GREEN}${N_DOGS}${NC}"
 echo -e "  シミュレーション:  ${GREEN}${STEPS}${NC} steps"
 echo -e "  ワールドサイズ:    ${GREEN}${WORLD_SIZE}${NC} × ${GREEN}${WORLD_SIZE}${NC}"
+echo -e "  乱数シード:        ${GREEN}${SEED}${NC}"
 if [ "$TEST_MODE" = true ]; then
     echo -e "  ${YELLOW}⚠ テストモード${NC}"
 fi
@@ -153,6 +160,7 @@ export EPH_N_SHEEP="$N_SHEEP"
 export EPH_N_DOGS="$N_DOGS"
 export EPH_STEPS="$STEPS"
 export EPH_WORLD_SIZE="$WORLD_SIZE"
+export EPH_SEED="$SEED"
 export EPH_NON_INTERACTIVE="1"
 
 # Run the experiment
