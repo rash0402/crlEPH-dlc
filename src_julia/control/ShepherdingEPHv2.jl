@@ -89,7 +89,7 @@ mutable struct ShepherdingDog
     λ_goal::Float64
 
     function ShepherdingDog(id::Int, x::Float64, y::Float64;
-                            radius::Float64=1.2,
+                            radius::Float64=2.4,
                             Nr::Int=5, Nθ::Int=16)
         new(id, [x, y], [0.0, 0.0], radius,
             nothing, [],
