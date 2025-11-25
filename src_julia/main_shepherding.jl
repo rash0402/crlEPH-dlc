@@ -46,7 +46,7 @@ function create_viz_message(frame::Int, dog, flock, world_size::Float64)
         "y" => dog.position[2],
         "vx" => dog.velocity[1],
         "vy" => dog.velocity[2],
-        "radius" => 15.0,  # Visual radius (physical radius is 10.0)
+        "radius" => dog.radius,  # Use actual physical radius (10.0)
         "color" => [255, 100, 0],  # Orange for dog
         "orientation" => atan(dog.velocity[2], dog.velocity[1]),
         "has_goal" => true,
@@ -61,7 +61,7 @@ function create_viz_message(frame::Int, dog, flock, world_size::Float64)
             "y" => sheep.position[2],
             "vx" => sheep.velocity[1],
             "vy" => sheep.velocity[2],
-            "radius" => 12.0,  # Visual radius (physical radius is 8.0)
+            "radius" => sheep.radius,  # Use actual physical radius (8.0)
             "color" => [200, 200, 200],  # Light gray for sheep
             "orientation" => atan(sheep.velocity[2], sheep.velocity[1]),
             "has_goal" => false,
