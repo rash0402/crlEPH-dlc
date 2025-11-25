@@ -106,32 +106,39 @@ class SimulationWidget(QWidget):
         orientation = agent["orientation"]
         agent_id = agent["id"]
         has_goal = agent.get("has_goal", False)
-        
-        # Agent 1 is red (tracked), others are blue
+        agent_type = agent.get("type", "default")
+        color = agent.get("color", [80, 120, 255])
+
+        # Agent 1 is red (tracked), others use provided color
         is_tracked = (agent_id == 1)
-        
-        # Draw FOV (Field of View)
-        fov_angle = np.radians(210)
-        fov_radius = 100
-        
-        fov_start_angle = -np.degrees(orientation + fov_angle/2) * 16
-        fov_span_angle = np.degrees(fov_angle) * 16
-        
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(200, 200, 200, 50))
-        painter.drawPie(QRectF(x - fov_radius, y - fov_radius, fov_radius*2, fov_radius*2), 
-                        int(fov_start_angle), int(fov_span_angle))
+
+        # Draw FOV (Field of View) - only for non-shepherding agents
+        if agent_type == "default":
+            fov_angle = np.radians(210)
+            fov_radius = 100
+
+            fov_start_angle = -np.degrees(orientation + fov_angle/2) * 16
+            fov_span_angle = np.degrees(fov_angle) * 16
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(200, 200, 200, 50))
+            painter.drawPie(QRectF(x - fov_radius, y - fov_radius, fov_radius*2, fov_radius*2),
+                            int(fov_start_angle), int(fov_span_angle))
 
         # Draw Body
-        if is_tracked:
-            # Tracked agent: Red
+        if is_tracked and agent_type == "default":
+            # Tracked agent (EPH foraging): Red
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(255, 80, 80))
+        elif agent_type in ["dog", "sheep"]:
+            # Shepherding agents: Use provided color
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(color[0], color[1], color[2]))
         else:
-            # All other agents: Blue (all are goal-less)
+            # Default: Blue
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(80, 120, 255))
-        
+
         painter.drawEllipse(QPointF(x, y), radius, radius)
 
         # Draw Direction Indicator
