@@ -37,13 +37,13 @@ function run_shepherding_test()
     println("Basic Shepherding Simulation Test")
     println("=" ^ 60)
 
-    # === Parameters ===
-    world_size = 400.0
-    n_sheep = 5
-    n_steps = 100
+    # === Parameters (from environment or defaults) ===
+    world_size = parse(Float64, get(ENV, "EPH_WORLD_SIZE", "400.0"))
+    n_sheep = parse(Int, get(ENV, "EPH_N_SHEEP", "5"))
+    n_steps = parse(Int, get(ENV, "EPH_STEPS", "100"))
 
     # Goal position (top-right quadrant)
-    goal_position = [300.0, 300.0]
+    goal_position = [0.75 * world_size, 0.75 * world_size]
 
     # === Initialize Agents ===
     println("\n[1/4] Initializing agents...")
@@ -55,8 +55,8 @@ function run_shepherding_test()
         initial_weights=[1.5, 1.0, 1.0]
     )
 
-    # Dog: spawn opposite side (bottom-left)
-    dog = ShepherdingDog(1, 100.0, 100.0)
+    # Dog: spawn opposite side (bottom-left quadrant)
+    dog = ShepherdingDog(1, 0.25 * world_size, 0.25 * world_size)
 
     # Shepherding parameters
     shep_params = ShepherdingParams(
@@ -78,9 +78,9 @@ function run_shepherding_test()
         dt=0.1
     )
 
-    println("  ✓ Dog initialized at [100, 100]")
+    @printf("  ✓ Dog initialized at [%.0f, %.0f]\n", dog.position...)
     println("  ✓ $n_sheep sheep spawned in center")
-    println("  ✓ Goal set to [300, 300]")
+    @printf("  ✓ Goal set to [%.0f, %.0f]\n", goal_position...)
 
     # === Initial State ===
     initial_com = compute_center_of_mass(flock)
@@ -134,8 +134,12 @@ function run_shepherding_test()
     moved_towards_goal = final_goal_dist < initial_goal_dist
     maintained_cohesion = final_compactness < 2.0 * initial_compactness
 
-    @printf("\nGoal reached (dist < 100):           %s\n",
-            goal_reached ? "✓" : "✗ (%.1f)" % final_goal_dist)
+    if goal_reached
+        println("\nGoal reached (dist < 100):           ✓")
+    else
+        @printf("\nGoal reached (dist < 100):           ✗ (%.1f)\n", final_goal_dist)
+    end
+
     @printf("Moved towards goal:                  %s\n",
             moved_towards_goal ? "✓" : "✗")
     @printf("Maintained cohesion (C < 2×init):    %s\n",
