@@ -16,7 +16,8 @@
 set -e  # Exit on error
 
 # Default parameters
-N_SHEEP=5
+N_SHEEP=25
+N_DOGS=5
 STEPS=1000
 WORLD_SIZE=400
 SEED=42
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --n-sheep)
             N_SHEEP="$2"
+            shift 2
+            ;;
+        --n-dogs)
+            N_DOGS="$2"
             shift 2
             ;;
         --steps)
@@ -42,7 +47,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--n-sheep NUM] [--steps NUM] [--world-size NUM] [--seed NUM]"
+            echo "Usage: $0 [--n-sheep NUM] [--n-dogs NUM] [--steps NUM] [--world-size NUM] [--seed NUM]"
             exit 1
             ;;
     esac
@@ -67,6 +72,7 @@ echo ""
 
 echo -e "${GREEN}設定:${NC}"
 echo -e "  羊の数:           ${GREEN}${N_SHEEP}${NC}"
+echo -e "  犬の数:           ${GREEN}${N_DOGS}${NC}"
 echo -e "  シミュレーション:  ${GREEN}${STEPS}${NC} steps"
 echo -e "  ワールドサイズ:    ${GREEN}${WORLD_SIZE}${NC} × ${GREEN}${WORLD_SIZE}${NC}"
 echo -e "  乱数シード:        ${GREEN}${SEED}${NC}"
@@ -117,6 +123,7 @@ echo ""
 
 # Set environment variables
 export EPH_N_SHEEP="$N_SHEEP"
+export EPH_N_DOGS="$N_DOGS"
 export EPH_STEPS="$STEPS"
 export EPH_WORLD_SIZE="$WORLD_SIZE"
 export EPH_SEED="$SEED"

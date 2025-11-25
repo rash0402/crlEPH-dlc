@@ -36,22 +36,24 @@ using .ShepherdingEPHv2
 """
 Create ZeroMQ visualization message
 """
-function create_viz_message(frame::Int, dog, flock, world_size::Float64)
+function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
     agents = []
 
-    # Add dog
-    push!(agents, Dict(
-        "id" => dog.id,
-        "x" => dog.position[1],
-        "y" => dog.position[2],
-        "vx" => dog.velocity[1],
-        "vy" => dog.velocity[2],
-        "radius" => dog.radius,  # Use actual physical radius (10.0)
-        "color" => [255, 100, 0],  # Orange for dog
-        "orientation" => atan(dog.velocity[2], dog.velocity[1]),
-        "has_goal" => true,
-        "type" => "dog"
-    ))
+    # Add all dogs
+    for dog in dogs
+        push!(agents, Dict(
+            "id" => dog.id,
+            "x" => dog.position[1],
+            "y" => dog.position[2],
+            "vx" => dog.velocity[1],
+            "vy" => dog.velocity[2],
+            "radius" => dog.radius,  # Use actual physical radius (2.4)
+            "color" => [255, 0, 0],  # Red for dog
+            "orientation" => atan(dog.velocity[2], dog.velocity[1]),
+            "has_goal" => true,
+            "type" => "dog"
+        ))
+    end
 
     # Add sheep
     for (i, sheep) in enumerate(flock)
@@ -61,8 +63,8 @@ function create_viz_message(frame::Int, dog, flock, world_size::Float64)
             "y" => sheep.position[2],
             "vx" => sheep.velocity[1],
             "vy" => sheep.velocity[2],
-            "radius" => sheep.radius,  # Use actual physical radius (8.0)
-            "color" => [200, 200, 200],  # Light gray for sheep
+            "radius" => sheep.radius,  # Use actual physical radius (2.0)
+            "color" => [0, 200, 0],  # Green for sheep
             "orientation" => atan(sheep.velocity[2], sheep.velocity[1]),
             "has_goal" => false,
             "type" => "sheep"
@@ -90,7 +92,8 @@ function run_shepherding_with_viz()
 
     # === Parameters (from environment or defaults) ===
     world_size = parse(Float64, get(ENV, "EPH_WORLD_SIZE", "400.0"))
-    n_sheep = parse(Int, get(ENV, "EPH_N_SHEEP", "5"))
+    n_sheep = parse(Int, get(ENV, "EPH_N_SHEEP", "25"))
+    n_dogs = parse(Int, get(ENV, "EPH_N_DOGS", "5"))
     n_steps = parse(Int, get(ENV, "EPH_STEPS", "1000"))
     seed = parse(Int, get(ENV, "EPH_SEED", "42"))
 
@@ -100,6 +103,7 @@ function run_shepherding_with_viz()
     println("\nConfiguration:")
     println("  World size:    $(world_size) × $(world_size)")
     println("  Sheep:         $n_sheep")
+    println("  Dogs:          $n_dogs")
     println("  Steps:         $n_steps")
     println("  Random seed:   $seed")
 
@@ -116,8 +120,16 @@ function run_shepherding_with_viz()
         initial_weights=[1.5, 1.0, 1.0]
     )
 
-    # Dog: spawn opposite side (bottom-left quadrant)
-    dog = ShepherdingDog(1, 0.25 * world_size, 0.25 * world_size)
+    # Dogs: spawn around the perimeter
+    dogs = ShepherdingDog[]
+    for i in 1:n_dogs
+        # Distribute dogs evenly around the perimeter
+        angle = 2π * (i - 1) / n_dogs
+        radius_spawn = 0.4 * world_size
+        x = world_size / 2 + radius_spawn * cos(angle)
+        y = world_size / 2 + radius_spawn * sin(angle)
+        push!(dogs, ShepherdingDog(i, x, y))
+    end
 
     # Shepherding parameters
     shep_params = ShepherdingParams(
@@ -139,7 +151,7 @@ function run_shepherding_with_viz()
         dt=0.1
     )
 
-    @printf("  ✓ Dog initialized at [%.0f, %.0f]\n", dog.position...)
+    println("  ✓ $n_dogs dogs initialized around perimeter")
     println("  ✓ $n_sheep sheep spawned in center")
     @printf("  ✓ Goal set to [%.0f, %.0f]\n", goal_position...)
 
@@ -165,17 +177,19 @@ function run_shepherding_with_viz()
 
     try
         for step in 1:n_steps
-            # Update dog (EPH controller)
-            update_shepherding_dog!(dog, flock, shep_params, world_size)
+            # Update all dogs (EPH controller)
+            for dog in dogs
+                update_shepherding_dog!(dog, flock, shep_params, world_size)
+            end
 
-            # Update sheep (BOIDS + flee)
-            dog_positions = [dog.position]
+            # Update sheep (BOIDS + flee from all dogs)
+            dog_positions = [dog.position for dog in dogs]
             for sheep in flock
                 update_sheep!(sheep, flock, dog_positions, sheep_params)
             end
 
-            # Send visualization message
-            msg = create_viz_message(step, dog, flock, world_size)
+            # Send visualization message (includes all dogs and sheep)
+            msg = create_viz_message(step, dogs, flock, world_size)
             ZMQ.send(socket, JSON.json(msg))
 
             # Progress indicator (every 100 steps)
