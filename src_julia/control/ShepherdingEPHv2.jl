@@ -259,9 +259,28 @@ function update_shepherding_dog!(
         world_size
     )
 
-    # === 6. Update velocity and position ===
+    # === 6. Collision avoidance with sheep ===
+    collision_avoidance = zeros(2)
+    for sheep in sheep_list
+        dx, dy, dist = MathUtils.toroidal_distance(
+            dog.position, sheep.position,
+            world_size, world_size
+        )
+        min_dist = dog.radius + sheep.radius
+        # Emergency repulsion if too close
+        if dist < min_dist * 2.5 && dist > 1e-6
+            repulsion_dir = [-dx, -dy] / dist  # Away from sheep
+            repulsion_strength = 100.0 / (dist * dist)  # Strong inverse square
+            collision_avoidance += repulsion_dir * repulsion_strength
+        end
+    end
+
+    # === 7. Update velocity and position ===
+    # Combine action with collision avoidance
+    desired_action = action + collision_avoidance * 0.1
+
     # Smooth velocity transition
-    dog.velocity = 0.7 * action + 0.3 * dog.velocity
+    dog.velocity = 0.7 * desired_action + 0.3 * dog.velocity
 
     # Speed limit
     if norm(dog.velocity) > params.max_speed

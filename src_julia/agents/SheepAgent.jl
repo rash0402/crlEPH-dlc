@@ -112,9 +112,18 @@ function compute_boids_forces(
         )
 
         # Separation: repel from nearby sheep
+        # Use sum of radii for collision threshold
+        min_dist = sheep.radius + other.radius
         if dist < params.separation_radius && dist > 1e-6
             repulsion_dir = [dx, dy] / dist
-            sep -= repulsion_dir / dist  # Stronger when closer
+            # Stronger repulsion when very close (potential collision)
+            if dist < min_dist * 2.0
+                # Emergency collision avoidance: very strong repulsion
+                sep -= repulsion_dir / (dist * dist) * 10.0
+            else
+                # Normal separation
+                sep -= repulsion_dir / dist
+            end
             n_sep += 1
         end
 
@@ -184,8 +193,15 @@ function compute_flee_force(
             # Direction away from dog
             flee_dir = [dx, dy] / dist
 
-            # Exponential decay
-            flee_magnitude = params.k_flee * exp(-dist / params.r_fear)
+            # Emergency collision avoidance with dog (assuming dog radius ~10)
+            min_dist = sheep.radius + 10.0
+            if dist < min_dist * 2.0
+                # Very strong repulsion to avoid collision
+                flee_magnitude = params.k_flee * 5.0 / (dist + 1.0)
+            else
+                # Normal exponential decay
+                flee_magnitude = params.k_flee * exp(-dist / params.r_fear)
+            end
 
             flee += flee_magnitude * flee_dir
         end
