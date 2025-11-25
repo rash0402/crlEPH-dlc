@@ -88,13 +88,20 @@ mutable struct ShepherdingDog
     λ_compact::Float64
     λ_goal::Float64
 
+    # Active Inference metrics (for visualization)
+    last_efe::Float64
+    last_entropy::Float64
+    last_surprise::Float64
+    last_gradient::Vector{Float64}
+
     function ShepherdingDog(id::Int, x::Float64, y::Float64;
                             radius::Float64=2.4,
                             Nr::Int=6, Nθ::Int=6)
         new(id, [x, y], [0.0, 0.0], radius,
             nothing, [],
             0.7, ones(Nr, Nθ),
-            1.0, 0.5)
+            1.0, 0.5,
+            0.0, 0.0, 0.0, [0.0, 0.0])
     end
 end
 
@@ -183,6 +190,35 @@ function compute_surprise_cost_with_haze(
 end
 
 """
+Compute entropy of SPM occupancy distribution.
+
+H = -Σ p(x) log p(x)
+
+where p(x) is the normalized occupancy probability.
+"""
+function compute_spm_entropy(spm::Array{Float64, 3})::Float64
+    occupancy = spm[1, :, :]
+    total = sum(occupancy)
+
+    if total < 1e-6
+        return 0.0  # No occupancy, no entropy
+    end
+
+    # Normalize to probability distribution
+    p = occupancy / total
+
+    # Compute entropy
+    H = 0.0
+    for prob in p
+        if prob > 1e-10
+            H -= prob * log(prob)
+        end
+    end
+
+    return H
+end
+
+"""
 Convert angle (radians) to SPM angular index.
 
 Note: Uses Int(round(...)) instead of floor for Zygote compatibility.
@@ -241,6 +277,9 @@ function update_shepherding_dog!(
         )
         dog.self_haze = SelfHaze.compute_self_haze(dog.current_spm, eph_params_temp)
     end
+
+    # === 2b. Compute entropy ===
+    dog.last_entropy = compute_spm_entropy(dog.current_spm)
 
     # === 3. Adjust Social Value weights (adaptive) ===
     adjust_social_value_weights!(dog, params)
@@ -403,6 +442,8 @@ end
 
 """
 Select action via gradient descent on EFE.
+
+Also stores EFE, gradient, and surprise in dog structure for visualization.
 """
 function select_action_gradient_descent(
     dog::ShepherdingDog,
@@ -414,10 +455,15 @@ function select_action_gradient_descent(
     # Initialize with current velocity + small noise
     a = copy(dog.velocity) + randn(2) * 2.0
 
+    # Store metrics for visualization
+    best_efe = Inf
+    best_grad = [0.0, 0.0]
+    best_surprise = 0.0
+
     # Gradient descent
     for iter in 1:params.max_iter
         # Compute gradient via Zygote
-        grad = gradient(a -> begin
+        grad_result = gradient(a -> begin
             # Predict future SPM
             # NOTE: Currently uses current SPM (no action dependency)
             # This means ∇_a G comes only from F_percept (haze modulation)
@@ -430,7 +476,25 @@ function select_action_gradient_descent(
             )
 
             return G
-        end, a)[1]
+        end, a)
+
+        grad = grad_result[1]
+
+        # Compute current EFE and surprise for tracking
+        spm_pred = predict_spm_simple(dog, a, params)
+        current_efe = compute_efe_shepherding(
+            a, dog, spm_pred, goal_position, params, world_size
+        )
+        current_surprise = compute_surprise_cost_with_haze(
+            spm_pred, dog.haze_matrix, params
+        )
+
+        # Update best metrics
+        if current_efe < best_efe
+            best_efe = current_efe
+            best_grad = grad !== nothing ? copy(grad) : [0.0, 0.0]
+            best_surprise = current_surprise
+        end
 
         # Handle zero gradient (can happen if SPM is independent of action)
         if grad === nothing || !all(isfinite.(grad))
@@ -448,6 +512,11 @@ function select_action_gradient_descent(
             a = params.max_speed * normalize(a)
         end
     end
+
+    # Store metrics in dog structure
+    dog.last_efe = best_efe
+    dog.last_gradient = best_grad
+    dog.last_surprise = best_surprise
 
     return a
 end

@@ -95,10 +95,10 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
     tracked_data = Dict(
         "id" => tracked_dog.id,
         "self_haze" => tracked_dog.self_haze,
-        "efe" => 0.0,  # TODO: Store EFE in dog structure
-        "entropy" => 0.0,  # TODO: Compute from SPM
-        "surprise" => 0.0,  # TODO: Store surprise
-        "gradient" => [0.0, 0.0],  # TODO: Store gradient
+        "efe" => tracked_dog.last_efe,
+        "entropy" => tracked_dog.last_entropy,
+        "surprise" => tracked_dog.last_surprise,
+        "gradient" => tracked_dog.last_gradient,
         "spm_occupancy" => [collect(row) for row in eachrow(spm_occ)],
         "spm_radial" => [collect(row) for row in eachrow(spm_rad)],
         "spm_tangential" => [collect(row) for row in eachrow(spm_tan)]
