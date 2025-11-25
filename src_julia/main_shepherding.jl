@@ -80,6 +80,18 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
 
     # Add tracked dog data (dog 1) for dashboard plots
     tracked_dog = dogs[1]
+
+    # Convert SPM to lists for JSON (transpose for Python row-major order)
+    spm_occ = tracked_dog.current_spm !== nothing ?
+              collect(transpose(tracked_dog.current_spm[1, :, :])) :
+              zeros(6, 6)
+    spm_rad = tracked_dog.current_spm !== nothing ?
+              collect(transpose(tracked_dog.current_spm[2, :, :])) :
+              zeros(6, 6)
+    spm_tan = tracked_dog.current_spm !== nothing ?
+              collect(transpose(tracked_dog.current_spm[3, :, :])) :
+              zeros(6, 6)
+
     tracked_data = Dict(
         "id" => tracked_dog.id,
         "self_haze" => tracked_dog.self_haze,
@@ -87,9 +99,9 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
         "entropy" => 0.0,  # TODO: Compute from SPM
         "surprise" => 0.0,  # TODO: Store surprise
         "gradient" => [0.0, 0.0],  # TODO: Store gradient
-        "spm_occupancy" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[1, :, :] : zeros(6, 6),
-        "spm_radial" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[2, :, :] : zeros(6, 6),
-        "spm_tangential" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[3, :, :] : zeros(6, 6)
+        "spm_occupancy" => [collect(row) for row in eachrow(spm_occ)],
+        "spm_radial" => [collect(row) for row in eachrow(spm_rad)],
+        "spm_tangential" => [collect(row) for row in eachrow(spm_tan)]
     )
 
     return Dict(
