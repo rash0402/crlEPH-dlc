@@ -42,6 +42,10 @@ class SimulationWidget(QWidget):
 
     def update_data(self, data):
         self.data = data
+        # Update world size from data if available
+        if data and "world_size" in data:
+            world_size = data["world_size"]
+            self.sim_world_size = (world_size[0], world_size[1])
         self.update() # Trigger repaint
 
     def paintEvent(self, event):

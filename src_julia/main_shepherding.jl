@@ -75,7 +75,8 @@ function create_viz_message(frame::Int, dog, flock, world_size::Float64)
     return Dict(
         "frame" => frame,
         "agents" => agents,
-        "haze_grid" => haze_grid
+        "haze_grid" => haze_grid,
+        "world_size" => [world_size, world_size]  # Add world size to message
     )
 end
 
