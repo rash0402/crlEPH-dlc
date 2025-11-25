@@ -29,8 +29,8 @@ Base.@kwdef mutable struct SheepParams
     alignment_radius::Float64 = 60.0
     cohesion_radius::Float64 = 100.0
 
-    # BOIDS weights (time-varying)
-    w_separation::Float64 = 1.5
+    # BOIDS weights (time-varying, separation prioritized)
+    w_separation::Float64 = 3.0
     w_alignment::Float64 = 1.0
     w_cohesion::Float64 = 1.0
 
@@ -117,13 +117,16 @@ function compute_boids_forces(
         if dist < params.separation_radius && dist > 1e-6
             repulsion_dir = [dx, dy] / dist
             # Stronger repulsion when very close (potential collision)
-            if dist < min_dist * 1.5
-                # Emergency collision avoidance: very strong repulsion
-                # Inverse square law with high multiplier
-                sep -= repulsion_dir * 50.0 / (dist * dist + 1.0)
-            elseif dist < min_dist * 2.5
+            if dist < min_dist * 1.2
+                # CRITICAL: Actual collision imminent
+                # Extremely strong inverse square
+                sep -= repulsion_dir * 200.0 / (dist * dist + 0.1)
+            elseif dist < min_dist * 2.0
+                # Emergency: very strong repulsion
+                sep -= repulsion_dir * 100.0 / (dist * dist + 1.0)
+            elseif dist < min_dist * 3.0
                 # Close proximity: strong repulsion
-                sep -= repulsion_dir * 20.0 / dist
+                sep -= repulsion_dir * 30.0 / dist
             else
                 # Normal separation
                 sep -= repulsion_dir / dist
@@ -199,10 +202,13 @@ function compute_flee_force(
 
             # Emergency collision avoidance with dog (assuming dog radius ~4.8)
             min_dist = sheep.radius + 4.8
-            if dist < min_dist * 1.5
-                # Emergency: inverse square with very high multiplier
+            if dist < min_dist * 1.2
+                # CRITICAL: collision imminent
+                flee_magnitude = params.k_flee * 20.0 / (dist * dist + 0.1)
+            elseif dist < min_dist * 2.0
+                # Emergency: very strong
                 flee_magnitude = params.k_flee * 10.0 / (dist * dist + 1.0)
-            elseif dist < min_dist * 3.0
+            elseif dist < min_dist * 3.5
                 # Close: strong exponential
                 flee_magnitude = params.k_flee * 2.0 * exp(-dist / (params.r_fear * 0.5))
             else
