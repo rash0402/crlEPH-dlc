@@ -57,8 +57,8 @@ Base.@kwdef mutable struct ShepherdingParams
     max_speed::Float64 = 50.0
 
     # SPM parameters
-    Nr::Int = 5
-    Nθ::Int = 16
+    Nr::Int = 6
+    Nθ::Int = 6
     Nc::Int = 3
 
     # Goal tracking
@@ -90,7 +90,7 @@ mutable struct ShepherdingDog
 
     function ShepherdingDog(id::Int, x::Float64, y::Float64;
                             radius::Float64=2.4,
-                            Nr::Int=5, Nθ::Int=16)
+                            Nr::Int=6, Nθ::Int=6)
         new(id, [x, y], [0.0, 0.0], radius,
             nothing, [],
             0.7, ones(Nr, Nθ),

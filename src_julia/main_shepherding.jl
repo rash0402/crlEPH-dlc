@@ -87,9 +87,9 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
         "entropy" => 0.0,  # TODO: Compute from SPM
         "surprise" => 0.0,  # TODO: Store surprise
         "gradient" => [0.0, 0.0],  # TODO: Store gradient
-        "spm_occupancy" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[1, :, :] : zeros(5, 16),
-        "spm_radial" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[2, :, :] : zeros(5, 16),
-        "spm_tangential" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[3, :, :] : zeros(5, 16)
+        "spm_occupancy" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[1, :, :] : zeros(6, 6),
+        "spm_radial" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[2, :, :] : zeros(6, 6),
+        "spm_tangential" => tracked_dog.current_spm !== nothing ? tracked_dog.current_spm[3, :, :] : zeros(6, 6)
     )
 
     return Dict(
