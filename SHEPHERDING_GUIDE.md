@@ -16,14 +16,19 @@ Shepherding タスクは、EPH コントローラーを持つ犬エージェン�
 ### クイックスタート
 
 ```bash
-# デフォルト設定（羊5匹、100ステップ）
+# デフォルト設定（羊5匹、100ステップ、ログのみ）
 ./scripts/run_shepherding_experiment.sh
+
+# リアルタイム可視化（推奨）
+./scripts/run_shepherding_viewer.sh
 
 # テストモード（短時間実行）
 ./scripts/run_shepherding_experiment.sh --test
 ```
 
 ### コマンドラインオプション
+
+#### ログ版（高速、ファイル出力のみ）
 
 ```bash
 ./scripts/run_shepherding_experiment.sh [OPTIONS]
@@ -36,6 +41,20 @@ Options:
   --seed NUM          乱数シード（デフォルト: 42）
   --test              テストモード（羊3匹、50ステップ）
 ```
+
+#### 可視化版（リアルタイムビューワー）
+
+```bash
+./scripts/run_shepherding_viewer.sh [OPTIONS]
+
+Options:
+  --n-sheep NUM       羊の数（デフォルト: 5）
+  --steps NUM         シミュレーションステップ数（デフォルト: 1000）
+  --world-size NUM    ワールドサイズ（デフォルト: 400）
+  --seed NUM          乱数シード（デフォルト: 42）
+```
+
+**注意**: ビューワー版はリアルタイム描画のため、ステップ数が多いほど実行時間が長くなります（1000ステップ ≈ 16秒 @ 60 FPS）。
 
 ## 推奨シード値
 
@@ -119,7 +138,24 @@ TEST PASSED ✓
 ============================================================
 ```
 
-### 例3: カスタム設定
+### 例3: リアルタイム可視化
+
+```bash
+# ビューワーでリアルタイム観察
+./scripts/run_shepherding_viewer.sh
+
+# より多くの羊で可視化
+./scripts/run_shepherding_viewer.sh --n-sheep 15 --seed 300
+```
+
+**動作:**
+- Juliaサーバー起動（ZeroMQ PUB on port 5555）
+- Pygameビューワー起動（ZeroMQ SUB）
+- リアルタイムで羊と犬の動きを可視化
+- 犬はオレンジ色、羊は灰色で表示
+- Ctrl+Cで両方のプロセスを停止
+
+### 例4: カスタム設定
 
 ```bash
 # より大きなワールドで長時間実験
@@ -167,6 +203,34 @@ initial_weights=[1.5, 1.0, 1.0]  # [separation, alignment, cohesion]
 # 再現可能な実行
 ./scripts/run_shepherding_experiment.sh --seed 42
 ```
+
+### ビューワーが起動しない
+
+**原因**: ポート5555が使用中、または依存関係の問題
+
+**解決策**:
+1. 既存プロセスを終了
+   ```bash
+   pkill -f "julia.*main"
+   lsof -i :5555  # ポート使用状況確認
+   ```
+
+2. Python依存関係を確認
+   ```bash
+   source ~/local/venv/bin/activate
+   pip install pygame zmq numpy
+   ```
+
+3. 手動で起動（デバッグ用）
+   ```bash
+   # Terminal 1: Juliaサーバー
+   ~/.juliaup/bin/julia --project=src_julia src_julia/main_shepherding.jl
+
+   # Terminal 2: ビューワー
+   source ~/local/venv/bin/activate
+   export PYTHONPATH=.
+   python viewer.py
+   ```
 
 ## 結果の保存場所
 
