@@ -1,7 +1,15 @@
 #!/bin/bash
+#
+# EPH Experiment Runner
+# Runs standard EPH foraging simulation (non-shepherding)
+#
+# Usage:
+#   ./scripts/run_experiment.sh
+#
+
 set -e
 
-echo "=== Starting AI-DLC Experiment ==="
+echo "=== Starting EPH Foraging Experiment ==="
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

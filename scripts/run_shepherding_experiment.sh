@@ -1,13 +1,60 @@
 #!/bin/bash
 #
-# Shepherding Experiment Runner
-# EPH-based dog agents herding Boids-based sheep agents
+# Shepherding Experiment Runner (Phase 4 - Updated)
+# ShepherdingEPHv2 (SPM-based Social Value) + Sheep BOIDS
 #
 # Usage:
-#   ./scripts/run_shepherding_experiment.sh
+#   ./scripts/run_shepherding_experiment.sh [OPTIONS]
+#
+# Options:
+#   --n-sheep NUM       羊の数（デフォルト: 5）
+#   --n-dogs NUM        犬の数（デフォルト: 1）
+#   --steps NUM         シミュレーションステップ数（デフォルト: 100）
+#   --world-size NUM    ワールドサイズ（デフォルト: 400）
+#   --test              テストモード（短時間実行）
 #
 
 set -e  # Exit on error
+
+# Default parameters
+N_SHEEP=5
+N_DOGS=1
+STEPS=100
+WORLD_SIZE=400
+TEST_MODE=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --n-sheep)
+            N_SHEEP="$2"
+            shift 2
+            ;;
+        --n-dogs)
+            N_DOGS="$2"
+            shift 2
+            ;;
+        --steps)
+            STEPS="$2"
+            shift 2
+            ;;
+        --world-size)
+            WORLD_SIZE="$2"
+            shift 2
+            ;;
+        --test)
+            TEST_MODE=true
+            N_SHEEP=3
+            STEPS=50
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--n-sheep NUM] [--n-dogs NUM] [--steps NUM] [--world-size NUM] [--test]"
+            exit 1
+            ;;
+    esac
+done
 
 # Colors for output
 RED='\033[0;31m'
@@ -21,9 +68,19 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║  Shepherding Experiment Runner                               ║${NC}"
-echo -e "${BLUE}║  EPH Dogs vs Boids Sheep                                     ║${NC}"
+echo -e "${BLUE}║  Phase 4 Shepherding Experiment                              ║${NC}"
+echo -e "${BLUE}║  ShepherdingEPHv2 (SPM-based Social Value)                   ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+echo -e "${CYAN}実験設定:${NC}"
+echo -e "  羊の数:           ${GREEN}${N_SHEEP}${NC}"
+echo -e "  犬の数:           ${GREEN}${N_DOGS}${NC}"
+echo -e "  シミュレーション:  ${GREEN}${STEPS}${NC} steps"
+echo -e "  ワールドサイズ:    ${GREEN}${WORLD_SIZE}${NC} × ${GREEN}${WORLD_SIZE}${NC}"
+if [ "$TEST_MODE" = true ]; then
+    echo -e "  ${YELLOW}⚠ テストモード${NC}"
+fi
 echo ""
 
 # Check if Julia is installed
@@ -36,15 +93,15 @@ fi
 echo -e "${GREEN}✓ Julia found: $(~/.juliaup/bin/julia --version)${NC}"
 echo ""
 
-# Check if experiment script exists
-EXPERIMENT_SCRIPT="$PROJECT_ROOT/scripts/shepherding_experiment.jl"
+# Use test script instead of old shepherding_experiment.jl
+EXPERIMENT_SCRIPT="$PROJECT_ROOT/src_julia/test_shepherding_basic.jl"
 if [ ! -f "$EXPERIMENT_SCRIPT" ]; then
-    echo -e "${RED}✗ Error: Experiment script not found${NC}"
+    echo -e "${RED}✗ Error: Phase 4 test script not found${NC}"
     echo "  Expected: $EXPERIMENT_SCRIPT"
     exit 1
 fi
 
-echo -e "${GREEN}✓ Experiment script found${NC}"
+echo -e "${GREEN}✓ Phase 4 shepherding script found${NC}"
 echo ""
 
 # Check if log directory exists
@@ -59,22 +116,22 @@ echo ""
 
 # Display experiment configuration
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}Experiment Configuration:${NC}"
+echo -e "${BLUE}Phase 4 Shepherding Configuration:${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "  Agents:"
-echo "    - Sheep: 15 agents (Boids model)"
-echo "    - Dogs: 2 agents (ShepherdingEPH)"
+echo "    - Sheep: ${N_SHEEP} agents (BOIDS + flee behavior)"
+echo "    - Dogs: ${N_DOGS} agent(s) (ShepherdingEPHv2)"
 echo ""
-echo "  Phases:"
-echo "    - F1 (0-100s): Convergence phase"
-echo "    - F2 (100-120s): Escape induction (2× repulsion)"
-echo "    - F3 (120-200s): Recovery phase"
+echo "  Features:"
+echo "    - SPM-based Social Value (Angular Compactness + Goal Pushing)"
+echo "    - Soft-binning for Zygote compatibility"
+echo "    - Adaptive Social Value weights"
 echo ""
 echo "  Evaluation Metrics:"
-echo "    1. Recovery Time (seconds)"
-echo "    2. Path Smoothness (total jerk)"
-echo "    3. Final Distance to target (meters)"
+echo "    1. Goal distance (target: < 100 units)"
+echo "    2. Sheep cohesion maintenance"
+echo "    3. Movement towards goal"
 echo ""
 
 # Confirm before running (skip if non-interactive mode)
@@ -91,10 +148,17 @@ echo -e "${BLUE}Running Shepherding Experiment...${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# Set environment variables for Julia script
+export EPH_N_SHEEP="$N_SHEEP"
+export EPH_N_DOGS="$N_DOGS"
+export EPH_STEPS="$STEPS"
+export EPH_WORLD_SIZE="$WORLD_SIZE"
+export EPH_NON_INTERACTIVE="1"
+
 # Run the experiment
 START_TIME=$(date +%s)
 
-if ~/.juliaup/bin/julia --project=src_julia scripts/shepherding_experiment.jl; then
+if ~/.juliaup/bin/julia --project=src_julia "$EXPERIMENT_SCRIPT"; then
     END_TIME=$(date +%s)
     ELAPSED=$((END_TIME - START_TIME))
 
@@ -124,12 +188,14 @@ if ~/.juliaup/bin/julia --project=src_julia scripts/shepherding_experiment.jl; t
 
     echo ""
     echo -e "${BLUE}Next steps:${NC}"
-    echo "  1. Analyze results with Julia:"
-    echo "     julia> using JLD2"
-    echo "     julia> data = load(\"$LATEST_LOG\")"
+    echo "  1. Scale up experiment:"
+    echo "     $0 --n-sheep 20 --steps 500"
     echo ""
-    echo "  2. Compare with baseline (Boids-only dogs)"
-    echo "  3. Optimize parameters (w_target, w_density, w_work)"
+    echo "  2. Test multiple dogs:"
+    echo "     $0 --n-dogs 3 --n-sheep 15"
+    echo ""
+    echo "  3. Run full validation:"
+    echo "     ./scripts/run_basic_validation.sh all"
     echo ""
 
 else
