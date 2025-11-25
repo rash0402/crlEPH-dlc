@@ -95,7 +95,7 @@ mutable struct ShepherdingDog
     last_gradient::Vector{Float64}
 
     function ShepherdingDog(id::Int, x::Float64, y::Float64;
-                            radius::Float64=2.4,
+                            radius::Float64=4.8,
                             Nr::Int=6, Nθ::Int=6)
         new(id, [x, y], [0.0, 0.0], radius,
             nothing, [],
