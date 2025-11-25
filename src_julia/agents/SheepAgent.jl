@@ -42,7 +42,7 @@ Base.@kwdef mutable struct SheepParams
     # Physical constraints
     max_speed::Float64 = 40.0
     max_acceleration::Float64 = 80.0
-    radius::Float64 = 8.0
+    radius::Float64 = 1.0
 
     # Environmental noise
     noise_strength::Float64 = 3.0
@@ -66,7 +66,7 @@ mutable struct Sheep
 
     function Sheep(id::Int, x::Float64, y::Float64;
                    vx::Float64=0.0, vy::Float64=0.0,
-                   radius::Float64=8.0,
+                   radius::Float64=1.0,
                    boids_weights::Vector{Float64}=[1.5, 1.0, 1.0])
         new(id, [x, y], [vx, vy], radius, boids_weights)
     end
@@ -193,8 +193,8 @@ function compute_flee_force(
             # Direction away from dog
             flee_dir = [dx, dy] / dist
 
-            # Emergency collision avoidance with dog (assuming dog radius ~10)
-            min_dist = sheep.radius + 10.0
+            # Emergency collision avoidance with dog (assuming dog radius ~1.2)
+            min_dist = sheep.radius + 1.2
             if dist < min_dist * 2.0
                 # Very strong repulsion to avoid collision
                 flee_magnitude = params.k_flee * 5.0 / (dist + 1.0)
