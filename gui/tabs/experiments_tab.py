@@ -58,9 +58,9 @@ class ExperimentsTab(QWidget):
         self.experiment_combo = QComboBox()
         self.experiment_combo.addItems([
             "Phase 1 - Scalar Self-Haze",
-            "Phase 2 - 2D Environmental Haze (Basic)",
-            "Phase 3 - GRU Predictor & Shepherding",
-            "Phase 4 - Full Tensor Haze",
+            "Phase 2 - Environmental Haze (Optimized)",
+            "Phase 3 - Full Tensor Haze (Per-Channel)",
+            "Phase 4 - Shepherding Task",
             "Baseline Comparison",
             "Custom Experiment"
         ])
@@ -203,7 +203,17 @@ class ExperimentsTab(QWidget):
                "• より複雑な集団行動パターンが創発<br><br>"
                "<b>用途:</b> 経路計画・群れ行動の基礎データ収集",
 
-            2: "🚀 <b>Phase 3 - GRU Predictor & Shepherding:</b><br>"
+            2: "🎯 <b>Phase 3 - Full Tensor Haze:</b><br>"
+               "<b>3次元ヘイズテンソル H(r, θ, c)</b> を用いた高度な精度制御実験を実行します。<br><br>"
+               "<b>特徴:</b><br>"
+               "• チャネル毎（占有、速度）に独立したヘイズ値<br>"
+               "• Per-channel precision modulation: Π = (1-h)^γ<br>"
+               "• Selective attention via channel masking<br>"
+               "• 「障害物は見えるが無視する」ような高度な認知的バイアス<br><br>"
+               "<b>評価指標:</b> チャネル選択的注意の効果、Coverage、探索効率<br>"
+               "<b>用途:</b> 最先端の認知制御研究・選択的注意の実現",
+
+            3: "🚀 <b>Phase 4 - Shepherding Task:</b><br>"
                "<b>GRU予測器</b>と<b>Shepherding機能</b>の高度な統合実験を実行します。<br><br>"
                "<b>実験内容:</b><br>"
                "• GRU予測器による将来SPM予測<br>"
@@ -211,17 +221,7 @@ class ExperimentsTab(QWidget):
                "• 犬: EPH制御、羊: Boids制御<br>"
                "• 予測的行動計画の効果を検証<br><br>"
                "<b>評価指標:</b> 収束時間、経路滑らかさ、タスク成功率<br>"
-               "<b>用途:</b> Phase 2の高度な応用研究",
-
-            3: "🎯 <b>Phase 4 - Full Tensor Haze:</b><br>"
-               "<b>3次元ヘイズテンソル H(r, θ, c)</b> を用いた最も高度な精度制御実験を実行します。<br><br>"
-               "<b>特徴:</b><br>"
-               "• チャネル毎（占有、速度）に独立したヘイズ値<br>"
-               "• Per-channel precision modulation: Π = (1-h)^γ<br>"
-               "• Selective attention via channel masking<br>"
-               "• 「障害物は見えるが無視する」ような高度な認知的バイアス<br><br>"
-               "<b>評価指標:</b> チャネル選択的注意の効果、障害物回避率<br>"
-               "<b>用途:</b> 最先端の認知制御研究",
+               "<b>用途:</b> 目標駆動型タスクでの応用研究",
 
             4: "📊 <b>Baseline Comparison:</b><br>"
                "EPHエージェントと<b>ベースラインコントローラー</b>を比較評価します。<br><br>"

@@ -14,7 +14,7 @@ module SelfHaze
 using ..Types
 using LinearAlgebra
 
-export compute_self_haze, compute_self_haze_matrix, compute_precision_matrix, compute_belief_entropy
+export compute_self_haze, compute_self_haze_matrix, compute_precision_matrix, compute_precision_matrix_exponential, compute_belief_entropy
 
 """
     compute_self_haze(spm::Array{Float64, 3}, params::EPHParams) -> Float64
@@ -193,6 +193,74 @@ function compute_precision_matrix(spm::Array{Float64, 3}, h_matrix::Matrix{Float
     Π_base_mat = repeat(Π_base_vec, 1, Nθ)
 
     # Apply spatially-varying haze modulation and ensure numerical stability
+    Π = max.(Π_base_mat .* haze_factor, 1e-6)
+
+    return Π
+end
+
+"""
+    compute_precision_matrix_exponential(spm::Array{Float64, 3}, h_matrix::Matrix{Float64},
+                                         params::EPHParams; α::Float64=2.0) -> Matrix{Float64}
+
+Compute haze-modulated precision matrix using EXPONENTIAL decay function (mathematically robust).
+
+# Arguments
+- `spm::Array{Float64, 3}`: Saliency Polar Map (3, Nr, Nθ)
+- `h_matrix::Matrix{Float64}`: Spatial self-haze matrix (Nr, Nθ)
+- `params::EPHParams`: EPH parameters
+- `α::Float64`: Decay rate parameter (default: 2.0)
+
+# Returns
+- `Π::Matrix{Float64}`: Spatially-varying precision matrix (Nr, Nθ)
+
+# Theory
+Exponential precision modulation (h ∈ [0, ∞) domain):
+    Π(r,θ) = Π_base(r,θ) · exp(-α·h(r,θ))
+
+Advantages over (1-h)^γ:
+- Valid for ANY h value (no h > 1.0 breakdown)
+- Smooth decay for h > 1.0
+- Theoretically consistent with Free Energy Principle
+
+Decay behavior:
+- h = 0.0 → exp(0) = 1.0 (no modulation)
+- h = 0.5 → exp(-1.0) = 0.368 (moderate reduction)
+- h = 1.0 → exp(-2.0) = 0.135 (strong reduction)
+- h = 5.0 → exp(-10.0) ≈ 0.0 (nearly zero)
+
+Each SPM bin has independent precision based on local haze:
+- h(r,θ) high → Π(r,θ) low → ignore that direction (lubricant)
+- h(r,θ) low → Π(r,θ) high → pay attention (repellent)
+"""
+function compute_precision_matrix_exponential(
+    spm::Array{Float64, 3},
+    h_matrix::Matrix{Float64},
+    params::EPHParams;
+    α::Float64=2.0
+)::Matrix{Float64}
+    Nr = size(spm, 2)
+    Nθ = size(spm, 3)
+
+    # Check dimension consistency
+    if size(h_matrix) != (Nr, Nθ)
+        error("Haze matrix dimensions $(size(h_matrix)) do not match SPM dimensions ($Nr, $Nθ)")
+    end
+
+    # Exponential haze modulation factor: exp(-α·h)
+    # This is valid for ANY h ∈ [0, ∞), unlike (1-h)^γ which breaks at h > 1.0
+    haze_factor = exp.(-α .* h_matrix)
+
+    # Create vector of normalized radii
+    r_indices = collect(0:(Nr-1))
+    r_norm = r_indices ./ max(Nr - 1, 1)
+
+    # Compute base precision for each radius (vector of length Nr)
+    Π_base_vec = params.Π_max .* exp.(-params.decay_rate .* r_norm)
+
+    # Expand to (Nr, Nθ) matrix
+    Π_base_mat = repeat(Π_base_vec, 1, Nθ)
+
+    # Apply exponential haze modulation and ensure numerical stability
     Π = max.(Π_base_mat .* haze_factor, 1e-6)
 
     return Π

@@ -6,6 +6,7 @@ using ..SPM
 using ..EPH
 using ..SelfHaze
 using ..EnvironmentalHaze
+using ..FullTensorHaze
 using ..DataCollector
 using ..SPMPredictor
 using LinearAlgebra
@@ -157,8 +158,49 @@ function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Pred
             SPMPredictor.update_state!(predictor, agent, agent.previous_spm, agent.last_action)
         end
         
-        # Compute self-haze and environmental haze (Phase 2)
-        if params.enable_env_haze
+        # Compute self-haze and precision (Phase 1/2/3)
+        if params.enable_full_tensor
+            # Phase 3: Full 3D Tensor Haze with per-channel control
+            # Create FullTensorHazeParams from EPHParams
+            fth_params = FullTensorHaze.FullTensorHazeParams(
+                w_occupancy = params.channel_weights[1],
+                w_radial_vel = params.channel_weights[2],
+                w_tangential_vel = params.channel_weights[3],
+                Ω_threshold_occ = params.Ω_threshold_occ,
+                Ω_threshold_rad = params.Ω_threshold_rad,
+                Ω_threshold_tan = params.Ω_threshold_tan,
+                α_occ = params.α_occ,
+                α_rad = params.α_rad,
+                α_tan = params.α_tan,
+                h_max_occ = params.h_max_occ,
+                h_max_rad = params.h_max_rad,
+                h_max_tan = params.h_max_tan,
+                γ = params.γ
+            )
+
+            # Compute 3D haze tensor H(c, r, θ)
+            haze_tensor = FullTensorHaze.compute_full_tensor_haze(spm, fth_params)
+
+            # Apply channel mask for selective attention
+            masked_haze = FullTensorHaze.apply_channel_mask(haze_tensor, params.channel_mask)
+
+            # Compute per-channel precision tensor Π(c, r, θ)
+            precision_tensor = FullTensorHaze.compute_channel_precision(spm, masked_haze, fth_params)
+
+            # Collapse 3D precision tensor to 2D using weighted average
+            # Π(r, θ) = Σ_c w_c * Π(c, r, θ)
+            Nc, Nr, Nθ = size(precision_tensor)
+            Π = zeros(Float64, Nr, Nθ)
+            for c in 1:Nc
+                Π .+= params.channel_weights[c] .* precision_tensor[c, :, :]
+            end
+            # Normalize by sum of weights
+            Π ./= sum(params.channel_weights)
+
+            # Store scalar haze for backward compatibility (weighted mean)
+            agent.self_haze = sum(params.channel_weights .* [mean(masked_haze[c, :, :]) for c in 1:Nc]) / sum(params.channel_weights)
+
+        elseif params.enable_env_haze
             # Phase 2: Spatial haze (h_matrix) + Environmental haze
             h_self_matrix = SelfHaze.compute_self_haze_matrix(spm, params)
 

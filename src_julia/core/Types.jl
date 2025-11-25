@@ -111,6 +111,23 @@ Base.@kwdef mutable struct EPHParams
     haze_decay_rate::Float64 = 0.97       # Global haze decay factor (optimized: 0.97 = 3% decay/step)
     haze_deposit_type::Symbol = :lubricant # :lubricant (decrease haze, RECOMMENDED) or :repellent (increase haze)
 
+    # Full Tensor Haze parameters (Phase 3)
+    enable_full_tensor::Bool = false      # Enable Phase 3 full tensor haze
+    channel_weights::Vector{Float64} = [1.0, 0.5, 0.5]  # Per-channel haze weights [occ, rad, tan]
+    channel_mask::Vector{Float64} = [1.0, 1.0, 1.0]     # Selective attention mask [occ, rad, tan]
+    # Per-channel thresholds (Ω_threshold for each channel)
+    Ω_threshold_occ::Float64 = 0.05       # Occupancy threshold
+    Ω_threshold_rad::Float64 = 0.03       # Radial velocity threshold
+    Ω_threshold_tan::Float64 = 0.03       # Tangential velocity threshold
+    # Per-channel sigmoid sensitivity
+    α_occ::Float64 = 10.0                 # Occupancy sensitivity
+    α_rad::Float64 = 8.0                  # Radial velocity sensitivity
+    α_tan::Float64 = 8.0                  # Tangential velocity sensitivity
+    # Per-channel maximum haze
+    h_max_occ::Float64 = 0.8              # Max haze for occupancy
+    h_max_rad::Float64 = 0.6              # Max haze for radial velocity
+    h_max_tan::Float64 = 0.6              # Max haze for tangential velocity
+
     # FOV parameters
     fov_angle::Float64 = 120.0 * π / 180.0  # 120 degrees in radians
     fov_range::Float64 = 100.0     # Perception range

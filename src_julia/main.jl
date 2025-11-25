@@ -10,6 +10,7 @@ include("perception/SPM.jl")
 include("prediction/SPMPredictor.jl")
 include("control/SelfHaze.jl")
 include("control/EnvironmentalHaze.jl")
+include("control/FullTensorHaze.jl")
 include("control/EPH.jl")
 include("Simulation.jl")
 

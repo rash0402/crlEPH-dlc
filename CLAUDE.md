@@ -24,6 +24,7 @@ Located in `src_julia/`, this is the current active implementation optimized for
 - `perception/SPM.jl` - Saliency Polar Map computation with Gaussian splatting
 - `control/SelfHaze.jl` - Self-haze computation and precision modulation (Phase 1)
 - `control/EnvironmentalHaze.jl` - Environmental haze sampling, composition, deposition (Phase 2)
+- `control/FullTensorHaze.jl` - 3D tensor haze with per-channel control (Phase 3)
 - `control/EPH.jl` - Gradient-based action selection using Zygote automatic differentiation
 - `prediction/SPMPredictor.jl` - GRU neural network for SPM prediction
 - `utils/MathUtils.jl` - Toroidal geometry utilities
@@ -187,6 +188,35 @@ zmq
   - **Repellent**: Increases haze → decreases precision → reduces coverage
   - Lubricant achieves higher maximum coverage (93.2% vs 92.5%)
 
+#### Phase 3: Full Tensor Haze (Per-Channel Control) - **Integrated 2025-11-24**
+- **Implementation**: `control/FullTensorHaze.jl` - Fully integrated in `Simulation.jl`
+- **3D Haze Tensor**: `H(c, r, θ)` where c ∈ {occupancy, radial_vel, tangential_vel}
+  - Per-channel haze computation: `h_c(r,θ) = h_max_c · σ(-α_c(Ω_c - Ω_threshold_c))`
+  - Enables selective attention and cognitive biases
+- **Per-Channel Precision**: `Π(c, r, θ) = Π_base · (1 - h(c,r,θ))^γ`
+  - Different precision for each SPM channel
+  - Channel masking for selective attention (e.g., "see obstacles but ignore them")
+- **Weighted Precision Collapse**: 3D tensor → 2D for compatibility with current EPH controller
+  - `Π(r,θ) = Σ_c w_c · Π(c,r,θ) / Σ_c w_c`
+  - Allows gradual integration without EPH controller rewrite
+- **Parameters** (EPHParams):
+  - `enable_full_tensor::Bool = false` - Phase 3 activation flag
+  - `channel_weights::Vector{Float64} = [1.0, 0.5, 0.5]` - Per-channel importance [occ, rad, tan]
+  - `channel_mask::Vector{Float64} = [1.0, 1.0, 1.0]` - Selective attention mask
+  - Per-channel thresholds: `Ω_threshold_occ`, `Ω_threshold_rad`, `Ω_threshold_tan`
+  - Per-channel sensitivity: `α_occ`, `α_rad`, `α_tan`
+  - Per-channel max haze: `h_max_occ`, `h_max_rad`, `h_max_tan`
+- **Initial Comparison Results** (200 steps, 5 agents):
+  - Phase 1 (Baseline): Coverage 52.2%, Self-Haze 0.555
+  - Phase 2 (Optimized): Coverage 42.8% (-9.5%), Self-Haze 0.557
+  - Phase 3 (Full Tensor): Coverage 40.0% (-12.2%), Self-Haze 0.061
+  - **Note**: Lower coverage in Phase 3 suggests parameter tuning needed
+  - Very low self-haze (0.061) indicates aggressive per-channel thresholds
+- **Future Enhancements**:
+  - Enhance EPH controller to use full 3D precision tensor (no collapse)
+  - Per-channel Expected Free Energy computation
+  - Channel-specific exploratory behaviors
+
 ### Communication Protocol (Julia ↔ Python)
 **ZeroMQ PUB-SUB pattern**
 
@@ -292,3 +322,59 @@ Several debug scripts exist in root:
 
 ### Git Status Note
 The codebase is actively under development. Current modified files include simulation parameters and viewer enhancements.
+
+## Documentation
+
+### Comprehensive Guides
+
+**📘 [Haze Tensor Design Guidelines](doc/HAZE_TENSOR_DESIGN_GUIDELINES.md)** ⭐ **NEW**
+- **Purpose**: Comprehensive design guidelines for spatial haze modulation strategies
+- **Content**:
+  - 7 independent experiments (44 configurations, 22,000 simulation steps)
+  - Recommended strategies with tier classification (S/A/B/C)
+  - Trade-off analysis (exploration efficiency ↔ control cost ↔ safety)
+  - Production-ready configurations
+- **Key Findings**:
+  - Distance-Selective (Mid-range) + Angular (Left-Half): Best combined strategy (92.2% coverage)
+  - Tangential velocity precision reduction: Safe and effective (+1.0%)
+  - Radial velocity precision reduction: Unsafe and ineffective (-6.0%, +46 collisions)
+  - Channel-selective haze insufficient; spatial modulation essential
+- **When to Use**: Designing haze strategies for exploration, understanding trade-offs
+
+**📚 [Documentation Index](doc/INDEX.md)**
+- Central navigation hub for all project documentation
+- Quick start guides, experimental results catalog
+- Links to all technical notes and implementation guides
+
+### Technical References
+
+**Framework & Theory:**
+- `doc/technical_notes/EmergentPerceptualHaze_EPH.md` - Main EPH framework proposal
+- `doc/technical_notes/SaliencyPolarMap_SPM.md` - SPM perceptual representation
+- `doc/EPH_Active_Inference_Derivation.md` - Mathematical derivations
+
+**Implementation:**
+- `doc/EPH_Implementation_Guide_Julia.md` - Julia-specific implementation details
+- `doc/PHASE_GUIDE.md` - Development phases and milestones
+- `doc/VALIDATION_PHILOSOPHY.md` - Testing methodology and validation workflow
+- `doc/DIAGNOSTICS_GUIDE.md` - Troubleshooting and diagnostic tools
+
+### Research Context
+
+The project validates the EPH framework through systematic experiments:
+
+**Completed Studies (2025-11):**
+1. Phase 3 Full Tensor Haze: Channel weight optimization
+2. Directional Haze: Symmetric angular modulation (failed)
+3. Localized Haze: Specific bin modulation (Central-Mid succeeded, +3.0%)
+4. Distance-Selective: Radial range modulation (Mid-5.0x best, +4.0%)
+5. Asymmetric Haze: Left-Right asymmetry (Left-Half succeeded, +3.0%)
+6. Combined Strategy: Distance × Angular integration (Near×Left best, +3.0%)
+7. Channel-Selective: Per-channel modulation (Tangential-only safe, +1.0%)
+
+**Performance Benchmarks:**
+- Baseline (uniform haze): 89.2% coverage @500 steps
+- Best spatial haze: 92.2% coverage @500 steps (+3.0%, statistically significant)
+- Phase 2 environmental haze: 93.2% coverage @500 steps (reference)
+
+All documentation follows Obsidian conventions (YAML frontmatter, WikiLinks, Mermaid diagrams) for seamless integration into research notes.

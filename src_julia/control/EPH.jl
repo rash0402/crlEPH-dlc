@@ -49,7 +49,9 @@ Compute optimal action by minimizing Expected Free Energy G(a).
 function decide_action(controller::GradientEPHController, agent::Agent,
                       spm_tensor::Array{Float64, 3},
                       env::Environment,
-                      preferred_velocity::Union{Vector{Float64}, Nothing})
+                      preferred_velocity::Union{Vector{Float64}, Nothing};
+                      h_matrix_override::Union{Matrix{Float64}, Nothing} = nothing,
+                      α_override::Union{Float64, Nothing} = nothing)
 
     # Initial guess: current velocity (for continuity)
     current_action = copy(agent.velocity)
@@ -66,7 +68,9 @@ function decide_action(controller::GradientEPHController, agent::Agent,
         grads = Zygote.gradient(a -> expected_free_energy(a, agent, spm_tensor, env,
                                                          preferred_velocity,
                                                          controller.params,
-                                                         controller.predictor),
+                                                         controller.predictor,
+                                                         h_matrix_override,
+                                                         α_override),
                                current_action)
         grad = grads[1]
 
@@ -93,7 +97,8 @@ function decide_action(controller::GradientEPHController, agent::Agent,
 
     # Store final EFE value in agent for diagnostics
     final_efe = expected_free_energy(current_action, agent, spm_tensor, env,
-                                     preferred_velocity, controller.params, controller.predictor)
+                                     preferred_velocity, controller.params, controller.predictor,
+                                     h_matrix_override, α_override)
     agent.current_efe = final_efe
 
     # Store final Belief Entropy in agent for Active Inference diagnostics
@@ -140,13 +145,21 @@ function expected_free_energy(action::Vector{Float64}, agent::Agent,
                                env::Environment,
                                preferred_velocity::Union{Vector{Float64}, Nothing},
                                params::EPHParams,
-                               predictor::Predictor)::Float64
+                               predictor::Predictor,
+                               h_matrix_override::Union{Matrix{Float64}, Nothing} = nothing,
+                               α_override::Union{Float64, Nothing} = nothing)::Float64
 
-    # --- 1. Compute Self-Haze from SPM ---
-    h_self = SelfHaze.compute_self_haze(spm_tensor, params)
-
-    # --- 2. Compute Haze-Modulated Precision Matrix (Current) ---
-    Π_current = SelfHaze.compute_precision_matrix(spm_tensor, h_self, params)
+    # --- 1. Compute Self-Haze from SPM (or use override) ---
+    if h_matrix_override !== nothing
+        # Use externally-provided haze matrix (for experiments)
+        h_matrix = h_matrix_override
+        α_value = α_override !== nothing ? α_override : 2.0
+        Π_current = SelfHaze.compute_precision_matrix_exponential(spm_tensor, h_matrix, params, α=α_value)
+    else
+        # Natural haze computation from SPM
+        h_self = SelfHaze.compute_self_haze(spm_tensor, params)
+        Π_current = SelfHaze.compute_precision_matrix(spm_tensor, h_self, params)
+    end
 
     # --- 3. Compute Future Belief Entropy & Information Gain ---
     # Predict future SPM based on action

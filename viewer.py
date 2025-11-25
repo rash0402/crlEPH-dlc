@@ -178,24 +178,37 @@ class DashboardWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         
-        # Create Matplotlib Figure
-        self.figure = Figure(figsize=(8, 8), facecolor='#F0F0F0')
+        # Create Matplotlib Figure with adjusted size and color
+        self.figure = Figure(figsize=(8, 10), facecolor='#F0F0F0') # Taller figure
         self.canvas = FigureCanvas(self.figure)
-        layout.addWidget(self.canvas)
+        
+        # Use a ScrollArea to handle vertical overflow
+        from PyQt5.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidget(self.canvas)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Style the scroll area
+        scroll.setStyleSheet("QScrollArea { border: none; background-color: #F0F0F0; }")
+        
+        layout.addWidget(scroll)
 
-        # Setup Subplots
+        # Setup Subplots with better spacing
         # Top row: EFE, Entropy, Surprise (3 plots)
-        # Middle row: Gradient Norm, Self-Haze (2 plots, wide)
+        # Middle row: Gradient Norm, Self-Haze (2 plots)
         # Bottom row: SPM Heatmaps (3 plots)
-        gs = self.figure.add_gridspec(3, 3, height_ratios=[1, 1, 1.2])
+        gs = self.figure.add_gridspec(3, 3, height_ratios=[1, 1, 1.2], hspace=0.4, wspace=0.3)
 
         self.ax_efe = self.figure.add_subplot(gs[0, 0])
         self.ax_ent = self.figure.add_subplot(gs[0, 1])
-        self.ax_surprise = self.figure.add_subplot(gs[0, 2])  # New: Surprise plot
+        self.ax_surprise = self.figure.add_subplot(gs[0, 2])
         
-        self.ax_grad = self.figure.add_subplot(gs[1, 0:2])  # Gradient Norm (wide)
-        self.ax_haze = self.figure.add_subplot(gs[1, 2])     # Self-Haze (moved here)
+        self.ax_grad = self.figure.add_subplot(gs[1, 0:2])
+        self.ax_haze = self.figure.add_subplot(gs[1, 2])
 
         self.ax_spm_occ = self.figure.add_subplot(gs[2, 0])
         self.ax_spm_rad = self.figure.add_subplot(gs[2, 1])
@@ -205,19 +218,15 @@ class DashboardWidget(QWidget):
                      self.ax_spm_occ, self.ax_spm_rad, self.ax_spm_tan]
 
         # Initial Styling
-        self.ax_efe.set_title('Expected Free Energy')
-        self.ax_ent.set_title('Belief Entropy')
-        self.ax_surprise.set_title('Surprise (F_percept)')
-        self.ax_grad.set_title('Gradient Norm')
-        self.ax_haze.set_title('Self-Haze')
+        titles = ['Expected Free Energy', 'Belief Entropy', 'Surprise (F_percept)',
+                  'Gradient Norm', 'Self-Haze',
+                  'SPM: Occupancy', 'SPM: Radial Vel', 'SPM: Tangential Vel']
         
-        self.ax_spm_occ.set_title('SPM: Occupancy')
-        self.ax_spm_rad.set_title('SPM: Radial Vel')
-        self.ax_spm_tan.set_title('SPM: Tangential Vel')
-
-        for ax in self.axes:
+        for ax, title in zip(self.axes, titles):
+            ax.set_title(title, fontsize=10, pad=10)
             ax.grid(True, linestyle='--', alpha=0.6)
             ax.set_facecolor('white')
+            ax.tick_params(labelsize=8)
 
         self.figure.tight_layout()
 
@@ -227,7 +236,7 @@ class DashboardWidget(QWidget):
             'frame': deque(maxlen=self.max_history),
             'efe': deque(maxlen=self.max_history),
             'entropy': deque(maxlen=self.max_history),
-            'surprise': deque(maxlen=self.max_history),  # New: Surprise
+            'surprise': deque(maxlen=self.max_history),
             'haze': deque(maxlen=self.max_history),
             'grad_norm': deque(maxlen=self.max_history)
         }
@@ -243,7 +252,7 @@ class DashboardWidget(QWidget):
         self.history['frame'].append(frame)
         self.history['efe'].append(tracked_data.get("efe", 0))
         self.history['entropy'].append(tracked_data.get("entropy", 0))
-        self.history['surprise'].append(tracked_data.get("surprise", 0))  # New: Surprise
+        self.history['surprise'].append(tracked_data.get("surprise", 0))
         self.history['haze'].append(tracked_data.get("self_haze", 0))
         
         grad = tracked_data.get("gradient", [0, 0])
@@ -253,52 +262,37 @@ class DashboardWidget(QWidget):
         # Redraw Time Series
         x = list(self.history['frame'])
         
-        self.ax_efe.clear()
-        self.ax_efe.set_title('Expected Free Energy')
-        self.ax_efe.plot(x, self.history['efe'], 'b-')
-        self.ax_efe.grid(True)
+        # Helper to plot time series
+        def plot_ts(ax, y_data, color, title, ylim=None):
+            ax.clear()
+            ax.set_title(title, fontsize=10)
+            ax.plot(x, y_data, color=color, linewidth=1.5)
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.tick_params(labelsize=8)
+            if ylim: ax.set_ylim(ylim)
 
-        self.ax_ent.clear()
-        self.ax_ent.set_title('Belief Entropy')
-        self.ax_ent.plot(x, self.history['entropy'], 'r-')
-        self.ax_ent.grid(True)
-
-        self.ax_surprise.clear()
-        self.ax_surprise.set_title('Surprise (F_percept)')
-        self.ax_surprise.plot(x, self.history['surprise'], 'orange')
-        self.ax_surprise.grid(True)
-        
-        self.ax_grad.clear()
-        self.ax_grad.set_title('Gradient Norm')
-        self.ax_grad.plot(x, self.history['grad_norm'], 'k-')
-        self.ax_grad.grid(True)
-
-        self.ax_haze.clear()
-        self.ax_haze.set_title('Self-Haze')
-        self.ax_haze.plot(x, self.history['haze'], 'g-')
-        self.ax_haze.set_ylim(0, 1.0)
-        self.ax_haze.grid(True)
+        plot_ts(self.ax_efe, self.history['efe'], 'b', 'Expected Free Energy')
+        plot_ts(self.ax_ent, self.history['entropy'], 'r', 'Belief Entropy')
+        plot_ts(self.ax_surprise, self.history['surprise'], 'orange', 'Surprise (F_percept)')
+        plot_ts(self.ax_grad, self.history['grad_norm'], 'k', 'Gradient Norm')
+        plot_ts(self.ax_haze, self.history['haze'], 'g', 'Self-Haze', ylim=(0, 1.0))
 
         # Update Heatmaps
         spm_occ = np.array(tracked_data.get("spm_occupancy", []))
         spm_rad = np.array(tracked_data.get("spm_radial", []))
         spm_tan = np.array(tracked_data.get("spm_tangential", []))
 
-        # Check if SPM data is valid
-        if spm_occ.size > 0 and spm_occ.ndim == 2:
-            self.ax_spm_occ.clear()
-            self.ax_spm_occ.set_title('SPM: Occupancy')
-            self.ax_spm_occ.imshow(spm_occ, cmap='hot', aspect='auto', interpolation='nearest')
-            
-        if spm_rad.size > 0 and spm_rad.ndim == 2:
-            self.ax_spm_rad.clear()
-            self.ax_spm_rad.set_title('SPM: Radial Vel')
-            self.ax_spm_rad.imshow(spm_rad, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-50, vmax=50)
-            
-        if spm_tan.size > 0 and spm_tan.ndim == 2:
-            self.ax_spm_tan.clear()
-            self.ax_spm_tan.set_title('SPM: Tangential Vel')
-            self.ax_spm_tan.imshow(spm_tan, cmap='RdBu', aspect='auto', interpolation='nearest', vmin=-50, vmax=50)
+        # Helper to plot heatmap
+        def plot_hm(ax, data, title, cmap, vmin=None, vmax=None):
+            if data.size > 0 and data.ndim == 2:
+                ax.clear()
+                ax.set_title(title, fontsize=10)
+                ax.imshow(data, cmap=cmap, aspect='auto', interpolation='nearest', vmin=vmin, vmax=vmax)
+                ax.tick_params(labelsize=8)
+
+        plot_hm(self.ax_spm_occ, spm_occ, 'SPM: Occupancy', 'hot')
+        plot_hm(self.ax_spm_rad, spm_rad, 'SPM: Radial Vel', 'RdBu', -50, 50)
+        plot_hm(self.ax_spm_tan, spm_tan, 'SPM: Tangential Vel', 'RdBu', -50, 50)
 
         self.canvas.draw()
 
@@ -312,17 +306,26 @@ class MainWindow(QMainWindow):
         # Main Layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        # Set light gray background
         central_widget.setStyleSheet(f"background-color: {BG_COLOR.name()};")
         
         layout = QHBoxLayout(central_widget)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20) # Increased margins
+        layout.setSpacing(20) # Increased spacing
 
         # Add Widgets
         self.sim_widget = SimulationWidget()
+        
+        # Container for simulation to keep it square and centered vertically
+        sim_container = QWidget()
+        sim_layout = QVBoxLayout(sim_container)
+        sim_layout.addStretch()
+        sim_layout.addWidget(self.sim_widget)
+        sim_layout.addStretch()
+        
         self.dashboard_widget = DashboardWidget()
         
-        layout.addWidget(self.sim_widget, stretch=4)
+        layout.addWidget(sim_container, stretch=4)
         layout.addWidget(self.dashboard_widget, stretch=6)
 
         # ZeroMQ Setup
@@ -356,12 +359,23 @@ class MainWindow(QMainWindow):
             print(f"Error: {e}")
 
     def closeEvent(self, event):
+        # Stop the timer to prevent further polling
+        self.timer.stop()
+        
+        # Set LINGER to 0 to discard pending messages immediately
+        self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.close()
+        
+        # Terminate context
         self.context.term()
         event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    # Set application style
+    app.setStyle("Fusion")
+    
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())
