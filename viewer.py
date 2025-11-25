@@ -8,8 +8,9 @@ import json
 import numpy as np
 from collections import deque
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout
-from PyQt5.QtCore import QTimer, Qt, QRectF, QPointF
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+                             QPushButton, QSlider, QLabel, QSpinBox, QGroupBox, QGridLayout)
+from PyQt5.QtCore import QTimer, Qt, QRectF, QPointF, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QFont, QPolygonF
 
 import matplotlib
@@ -188,6 +189,118 @@ class SimulationWidget(QWidget):
                     painter.drawPolygon(QPolygonF([QPointF(grad_end_x, grad_end_y), arrow_p1, arrow_p2]))
 
 
+class ControlPanel(QWidget):
+    """Control panel for simulation parameters."""
+
+    # Signals for control
+    start_sim = pyqtSignal()
+    stop_sim = pyqtSignal()
+    reset_sim = pyqtSignal()
+    speed_changed = pyqtSignal(float)  # Speed multiplier
+    steps_changed = pyqtSignal(int)    # Max steps
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Control Group
+        control_group = QGroupBox("Simulation Control")
+        control_layout = QGridLayout()
+
+        # Buttons
+        self.start_btn = QPushButton("▶ Start")
+        self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px;")
+        self.start_btn.clicked.connect(self.start_sim.emit)
+
+        self.stop_btn = QPushButton("⏸ Stop")
+        self.stop_btn.setStyleSheet("background-color: #f44336; color: white; font-weight: bold; padding: 8px;")
+        self.stop_btn.clicked.connect(self.stop_sim.emit)
+        self.stop_btn.setEnabled(False)
+
+        self.reset_btn = QPushButton("⟲ Reset")
+        self.reset_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 8px;")
+        self.reset_btn.clicked.connect(self.reset_sim.emit)
+
+        control_layout.addWidget(self.start_btn, 0, 0)
+        control_layout.addWidget(self.stop_btn, 0, 1)
+        control_layout.addWidget(self.reset_btn, 1, 0, 1, 2)
+
+        control_group.setLayout(control_layout)
+        layout.addWidget(control_group)
+
+        # Speed Control Group
+        speed_group = QGroupBox("Playback Speed")
+        speed_layout = QVBoxLayout()
+
+        self.speed_label = QLabel("Speed: 1.0x")
+        self.speed_label.setAlignment(Qt.AlignCenter)
+
+        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider.setMinimum(1)
+        self.speed_slider.setMaximum(50)  # 0.1x to 5.0x
+        self.speed_slider.setValue(10)  # 1.0x
+        self.speed_slider.setTickPosition(QSlider.TicksBelow)
+        self.speed_slider.setTickInterval(5)
+        self.speed_slider.valueChanged.connect(self.on_speed_changed)
+
+        speed_layout.addWidget(self.speed_label)
+        speed_layout.addWidget(self.speed_slider)
+
+        # Speed presets
+        preset_layout = QGridLayout()
+        speeds = [("0.5x", 5), ("1x", 10), ("2x", 20), ("5x", 50)]
+        for i, (label, value) in enumerate(speeds):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda checked, v=value: self.speed_slider.setValue(v))
+            preset_layout.addWidget(btn, 0, i)
+
+        speed_layout.addLayout(preset_layout)
+        speed_group.setLayout(speed_layout)
+        layout.addWidget(speed_group)
+
+        # Steps Control Group
+        steps_group = QGroupBox("Max Steps")
+        steps_layout = QVBoxLayout()
+
+        self.steps_spinbox = QSpinBox()
+        self.steps_spinbox.setMinimum(10)
+        self.steps_spinbox.setMaximum(10000)
+        self.steps_spinbox.setValue(1000)
+        self.steps_spinbox.setSingleStep(50)
+        self.steps_spinbox.valueChanged.connect(self.steps_changed.emit)
+
+        steps_layout.addWidget(QLabel("Steps:"))
+        steps_layout.addWidget(self.steps_spinbox)
+
+        steps_group.setLayout(steps_layout)
+        layout.addWidget(steps_group)
+
+        # Status Label
+        self.status_label = QLabel("Status: Ready")
+        self.status_label.setStyleSheet("padding: 5px; background-color: #E0E0E0; border-radius: 3px;")
+        layout.addWidget(self.status_label)
+
+        layout.addStretch()
+
+    def on_speed_changed(self, value):
+        speed = value / 10.0
+        self.speed_label.setText(f"Speed: {speed:.1f}x")
+        self.speed_changed.emit(speed)
+
+    def set_running(self, running):
+        self.start_btn.setEnabled(not running)
+        self.stop_btn.setEnabled(running)
+        if running:
+            self.status_label.setText("Status: Running")
+            self.status_label.setStyleSheet("padding: 5px; background-color: #C8E6C9; border-radius: 3px;")
+        else:
+            self.status_label.setText("Status: Stopped")
+            self.status_label.setStyleSheet("padding: 5px; background-color: #FFCDD2; border-radius: 3px;")
+
+
 class DashboardWidget(QWidget):
     """Widget to display real-time plots using Matplotlib."""
     def __init__(self, parent=None):
@@ -329,19 +442,26 @@ class MainWindow(QMainWindow):
         layout.setSpacing(20) # Increased spacing
 
         # Add Widgets
+        # Left panel: Control + Simulation
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setSpacing(10)
+
+        self.control_panel = ControlPanel()
         self.sim_widget = SimulationWidget()
-        
-        # Container for simulation to keep it square and centered vertically
-        sim_container = QWidget()
-        sim_layout = QVBoxLayout(sim_container)
-        sim_layout.addStretch()
-        sim_layout.addWidget(self.sim_widget)
-        sim_layout.addStretch()
-        
+
+        left_layout.addWidget(self.control_panel)
+        left_layout.addWidget(self.sim_widget, stretch=1)
+
         self.dashboard_widget = DashboardWidget()
-        
-        layout.addWidget(sim_container, stretch=4)
+
+        layout.addWidget(left_panel, stretch=4)
         layout.addWidget(self.dashboard_widget, stretch=6)
+
+        # Connect control signals
+        self.control_panel.speed_changed.connect(self.on_speed_changed)
+        self.is_paused = False
+        self.speed_multiplier = 1.0
 
         # ZeroMQ Setup
         self.context = zmq.Context()
@@ -350,24 +470,38 @@ class MainWindow(QMainWindow):
         self.socket.setsockopt_string(zmq.SUBSCRIBE, '')
         
         # Timer for polling ZMQ
+        self.base_interval = 16  # ~60 FPS base
         self.timer = QTimer()
         self.timer.timeout.connect(self.poll_zmq)
-        self.timer.start(16) # ~60 FPS
+        self.timer.start(self.base_interval)
+
+    def on_speed_changed(self, speed):
+        """Adjust polling rate based on speed multiplier."""
+        self.speed_multiplier = speed
+        # Faster speed = shorter interval (poll more frequently to keep up)
+        # Slower speed = longer interval (poll less frequently)
+        new_interval = max(1, int(self.base_interval / speed))
+        self.timer.setInterval(new_interval)
 
     def poll_zmq(self):
+        if self.is_paused:
+            return
+
         try:
-            while True:
+            # Poll multiple messages if speed > 1.0 to catch up
+            max_msgs = max(1, int(self.speed_multiplier))
+            for _ in range(max_msgs):
                 try:
                     msg = self.socket.recv_string(flags=zmq.NOBLOCK)
                     data = json.loads(msg)
-                    
+
                     # Update widgets
                     self.sim_widget.update_data(data)
-                    
+
                     # Throttle plot updates
                     if data.get("frame", 0) % 5 == 0:
                         self.dashboard_widget.update_plots(data)
-                        
+
                 except zmq.Again:
                     break
         except Exception as e:
