@@ -85,9 +85,17 @@ function main()
 
     # Initialize ZMQ Context
     ctx = Context()
+
+    # PUB socket for simulation data
     socket = Socket(ctx, PUB)
     ZMQ.bind(socket, "tcp://*:5555")
-    println("ZMQ Server bound to tcp://*:5555")
+    println("ZMQ PUB Server bound to tcp://*:5555")
+
+    # REP socket for control commands (non-blocking)
+    control_socket = Socket(ctx, REP)
+    ZMQ.bind(control_socket, "tcp://*:5556")
+    println("ZMQ REP Control bound to tcp://*:5556")
+    println("Ready for viewer connection")
 
     # Disable default SIGINT handling to ensure we catch InterruptException
     Base.exit_on_sigint(false)
@@ -106,8 +114,35 @@ function main()
 
     frame_count = 0
 
+    # External haze tensor (controlled via ZMQ)
+    external_haze_tensor = nothing  # 6x6 matrix, will override agent SPM precision if set
+
     try
         while true
+            # Check for control commands (non-blocking)
+            try
+                cmd_json = ZMQ.recv(control_socket, String; mode=ZMQ.DONTWAIT)
+                cmd = JSON.parse(cmd_json)
+
+                if cmd["type"] == "set_haze_tensor"
+                    # Update external haze tensor (6x6 matrix)
+                    external_haze_tensor = Float64.(hcat(cmd["haze_tensor"]...))  # Convert to Matrix
+                    println("[CONTROL] External haze tensor updated: size=$(size(external_haze_tensor))")
+
+                    # Send acknowledgment
+                    response = Dict("status" => "ok", "message" => "Haze tensor updated")
+                    ZMQ.send(control_socket, JSON.json(response))
+                else
+                    # Unknown command
+                    response = Dict("status" => "error", "message" => "Unknown command type: $(cmd["type"])")
+                    ZMQ.send(control_socket, JSON.json(response))
+                end
+            catch e
+                if !isa(e, Base.IOError)  # Ignore "no message" error (DONTWAIT)
+                    println("Error processing control command: $e")
+                end
+            end
+
             # Capture state before simulation step
             if frame_count > 0 && frame_count % log_interval == 0
                 prev_positions = [(a.position[1], a.position[2]) for a in env.agents]

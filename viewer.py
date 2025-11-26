@@ -560,8 +560,10 @@ class ControlPanel(QWidget):
 
 class DashboardWidget(QWidget):
     """Widget to display real-time plots using Matplotlib."""
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, control_socket=None, socket_lock=None):
         super().__init__(parent)
+        self.control_socket = control_socket
+        self.socket_lock = socket_lock
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
@@ -690,7 +692,39 @@ class DashboardWidget(QWidget):
                 self.canvas.draw_idle()
 
                 print(f"Haze tensor active position updated to: ({row}, {col})")
-                # TODO: Send haze update to Julia via ZMQ REQ socket
+
+                # Send haze update to Julia via ZMQ REQ socket
+                self._send_haze_update()
+
+    def _send_haze_update(self):
+        """Send current haze tensor to Julia server via ZMQ REQ socket."""
+        if self.control_socket is None or self.socket_lock is None:
+            print("Warning: Control socket not initialized, cannot send haze update")
+            return
+
+        try:
+            # Prepare haze update message
+            message = {
+                "type": "set_haze_tensor",
+                "haze_tensor": self.haze_tensor.tolist()  # Convert numpy array to list
+            }
+
+            with self.socket_lock:
+                # Send request
+                self.control_socket.send_json(message)
+                print(f"Sent haze update: active_pos={self.haze_active_pos}")
+
+                # Wait for acknowledgment
+                try:
+                    response = self.control_socket.recv_json()
+                    if response.get("status") == "ok":
+                        print(f"✓ Haze update acknowledged by Julia server")
+                    else:
+                        print(f"Warning: Unexpected response from Julia: {response}")
+                except zmq.Again:
+                    print("Warning: No response from Julia server (timeout)")
+        except Exception as e:
+            print(f"Error sending haze update: {e}")
 
     def clear_plots(self):
         """Clear all plot history and redraw empty plots."""
@@ -790,10 +824,10 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.control_panel)
         left_layout.addWidget(self.sim_widget, stretch=1)
 
-        self.dashboard_widget = DashboardWidget()
+        # DashboardWidget will be initialized after ZMQ sockets are created
+        self.dashboard_widget = None
 
         layout.addWidget(left_panel, stretch=4)
-        layout.addWidget(self.dashboard_widget, stretch=6)
 
         # Connect control signals
         self.control_panel.start_sim.connect(self.on_start)
@@ -845,7 +879,15 @@ class MainWindow(QMainWindow):
 
         # Lock for thread-safe socket access
         self.control_socket_lock = threading.Lock()
-        
+
+        # Now create DashboardWidget with control socket
+        self.dashboard_widget = DashboardWidget(
+            parent=None,
+            control_socket=self.control_socket,
+            socket_lock=self.control_socket_lock
+        )
+        layout.addWidget(self.dashboard_widget, stretch=6)
+
         # Timer for polling ZMQ
         self.base_interval = 16  # ~60 FPS base
         self.timer = QTimer()
