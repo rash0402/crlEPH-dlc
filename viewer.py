@@ -96,6 +96,28 @@ class SimulationWidget(QWidget):
         painter.translate(offset_x, offset_y)
         painter.scale(scale, scale)
 
+        # Draw Coverage Map (visit count visualization)
+        coverage_map = self.data.get("coverage_map")
+        if coverage_map is not None:
+            coverage_arr = np.array(coverage_map)
+            rows, cols = coverage_arr.shape
+            cell_w = self.sim_world_size[0] / cols
+            cell_h = self.sim_world_size[1] / rows
+
+            # Compute max visit count for normalization
+            max_visits = np.max(coverage_arr) if np.max(coverage_arr) > 0 else 1
+
+            for r in range(rows):
+                for c in range(cols):
+                    visits = coverage_arr[r, c]
+                    if visits > 0:
+                        # Blue translucent overlay, darker with more visits
+                        # Logarithmic scaling for better visibility
+                        intensity = min(1.0, np.log1p(visits) / np.log1p(max_visits))
+                        alpha = int(80 + 120 * intensity)  # 80-200 range
+                        color = QColor(100, 150, 255, alpha)  # Light blue
+                        painter.fillRect(QRectF(c * cell_w, r * cell_h, cell_w, cell_h), color)
+
         # Draw Haze Grid
         haze_grid = self.data.get("haze_grid")
         if haze_grid:

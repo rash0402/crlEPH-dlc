@@ -49,7 +49,7 @@ mutable struct Environment
     dt::Float64
 
     # Experimental tracking
-    coverage_map::Matrix{Bool}  # Coverage tracking
+    coverage_map::Matrix{Int}  # Visit count tracking (0 = unvisited, N = visited N times)
     frame_count::Int
 
     # Scenario-specific fields (optional, nothing for exploration)
@@ -61,7 +61,7 @@ mutable struct Environment
                         grid_size::Int=20, dt::Float64=0.1, scenario_type::Symbol=:exploration)
         grid_w = ceil(Int, width / grid_size)
         grid_h = ceil(Int, height / grid_size)
-        coverage_map = falses(grid_w, grid_h)
+        coverage_map = zeros(Int, grid_w, grid_h)  # Changed to Int for visit counting
         new(width, height, Agent[], grid_size, zeros(grid_w, grid_h), dt, coverage_map, 0,
             scenario_type, nothing, nothing)
     end

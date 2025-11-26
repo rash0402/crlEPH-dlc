@@ -330,14 +330,14 @@ function _update_coverage_map!(env::Environment, params::EPHParams)
         gx = clamp(floor(Int, agent.position[1] / env.grid_size) + 1, 1, grid_w)
         gy = clamp(floor(Int, agent.position[2] / env.grid_size) + 1, 1, grid_h)
 
-        # Mark as covered
-        env.coverage_map[gx, gy] = true
+        # Increment visit count
+        env.coverage_map[gx, gy] += 1
 
-        # Also mark adjacent cells (agent's footprint)
+        # Also increment adjacent cells (agent's footprint)
         for dx in -1:1, dy in -1:1
             nx = clamp(gx + dx, 1, grid_w)
             ny = clamp(gy + dy, 1, grid_h)
-            env.coverage_map[nx, ny] = true
+            env.coverage_map[nx, ny] += 1
         end
     end
 end
@@ -345,10 +345,11 @@ end
 """
     compute_coverage(env::Environment) -> Float64
 
-Compute the fraction of the environment covered by agents.
+Compute the fraction of the environment visited by agents (cells with visit_count > 0).
 """
 function compute_coverage(env::Environment)::Float64
-    return sum(env.coverage_map) / length(env.coverage_map)
+    visited_cells = count(x -> x > 0, env.coverage_map)
+    return visited_cells / length(env.coverage_map)
 end
 
 end

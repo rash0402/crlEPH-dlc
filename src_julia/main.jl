@@ -283,7 +283,8 @@ function main()
                 "frame" => env.frame_count,
                 "agents" => agents_data,
                 "haze_grid" => env.haze_grid,  # Keep for backward compatibility
-                "coverage" => sum(env.coverage_map) / length(env.coverage_map),
+                "coverage" => sum(env.coverage_map .> 0) / length(env.coverage_map),  # Fraction visited
+                "coverage_map" => collect(transpose(env.coverage_map)),  # Visit count matrix (transposed for Python row-major)
                 "tracked_agent" => tracked_data  # Detailed data for Agent 1
             )
 
