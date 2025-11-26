@@ -5,7 +5,7 @@
 2. [Phase 1: Scalar Self-Haze](#phase-1)
 3. [Phase 2: Environmental Haze](#phase-2)
 4. [Phase 3: Advanced Integration](#phase-3)
-5. [Phase 4: Full 3D Tensor Haze](#phase-4)
+5. [Phase 4: Shepherding with Directional Haze](#phase-4)
 6. [比較表](#比較表)
 7. [どちらを使うべきか](#どちらを使うべきか)
 8. [評価方法](#評価方法)
@@ -20,14 +20,14 @@ EPHフレームワークには**4つの実装フェーズ**があります：
 |-------|------|------------|--------|------|
 | **Phase 1** | Scalar Self-Haze | エージェント内部 | ⭐ シンプル | 基本動作検証 |
 | **Phase 2** | Environmental Haze | 環境グリッド | ⭐⭐⭐ 複雑 | 高度な群知能 |
-| **Phase 3** | Advanced Integration | Phase 2 + 予測器 | ⭐⭐⭐⭐ 高度 | 予測ベース制御 |
-| **Phase 4** | Full 3D Tensor Haze | SPM空間（チャネル毎） | ⭐⭐⭐⭐ 高度 | 選択的注意 |
+| **Phase 3** | Advanced Integration | Phase 2 + 予測器 | ⭐⭐⭐⭐⭐ 最高度 | 予測ベース制御 |
+| **Phase 4** | Shepherding w/ Directional Haze | エージェント内部（SPM対応） | ⭐⭐⭐⭐ 高度 | Shepherding制御 |
 
 **重要な違い：**
 - Phase 1：エージェントが「自分のヘイズ値」を1つ持つ（スカラー値）
 - Phase 2：環境全体が「ヘイズの地図」を持つ（2次元グリッド）
 - Phase 3：Phase 2 + GRU予測器 + Shepherding統合
-- Phase 4：3次元ヘイズテンソル H(r, θ, c) でチャネル毎の精度制御
+- Phase 4：2次元空間ヘイズマトリックス H(r, θ) で方向依存の精度制御
 
 ---
 
@@ -332,198 +332,217 @@ EPH_WORLD_SIZE=500 \
 
 ---
 
-## Phase 4: Full 3D Tensor Haze
+## Phase 4: Shepherding with Directional Haze
 
 ### 🎯 目的
-**チャネル毎の精度制御**による高度な認知的バイアスと選択的注意機構を実現する。
+**空間的ヘイズマトリックス H(r, θ)** による方向依存の精度制御で、shepherding（追い込み）タスクに特化した行動を実現する。
 
-「障害物は見えるが無視する」「速度情報のみを重視する」といった、人間の選択的注意に似た柔軟な認知制御を可能にする。
+ゴール方向への精度制御を通じて、犬エージェントが羊を効率的にゴールへ誘導する行動を可能にする。
 
 ### 📊 データ構造
 
-Phase 4は **3次元ヘイズテンソル H(r, θ, c)** を導入します：
+Phase 4は **2次元空間ヘイズマトリックス H(r, θ)** を使用します：
 
 ```julia
-# Haze Tensor: H(r, θ, c) ∈ [0,1]^(Nr × Nθ × Nc)
-haze_tensor::Array{Float64, 3}  # (3, Nr, Nθ)
+# Spatial Haze Matrix: H(r, θ) ∈ [0,1]^(Nr × Nθ)
+haze_matrix::Matrix{Float64}  # (Nr, Nθ)
 
-# Channel indices:
-# c=1: Occupancy channel (占有)
-# c=2: Radial velocity channel (放射速度)
-# c=3: Tangential velocity channel (接線速度)
+# Directional haze modulation based on:
+# - SPM occupancy per bin
+# - Goal direction (reduced haze toward goal)
 ```
 
-各チャネルは独立したヘイズ値を持ち、異なる精度制御を可能にします。
+各SPMビンが独立したヘイズ値を持ち、方向依存の精度制御を可能にします。
 
 ### 🔬 動作メカニズム
 
-#### 1. Per-Channel Haze Computation
+#### 1. Spatial Haze Matrix Computation
 
-各チャネルで独立してヘイズを計算：
+各SPMビン(r, θ)でローカル占有率に基づいてヘイズを計算：
 
 ```julia
-# Occupancy channel haze
-Ω_occ = sum(spm[1, :, :])
-h_occ = sigmoid(α_occ * (Ω_occ - Ω_threshold_occ)) * w_occupancy
-
-# Radial velocity channel haze
-Ω_rad = sum(abs.(spm[2, :, :]))
-h_rad = sigmoid(α_rad * (Ω_rad - Ω_threshold_rad)) * w_radial_vel
-
-# Tangential velocity channel haze
-Ω_tan = sum(abs.(spm[3, :, :]))
-h_tan = sigmoid(α_tan * (Ω_tan - Ω_threshold_tan)) * w_tangential_vel
+# Base spatial haze from SPM occupancy
+for r in 1:Nr, θ in 1:Nθ
+    Ω_local = spm[1, r, θ]  # Local occupancy
+    logit = -α * (Ω_local - Ω_threshold)
+    haze_matrix[r, θ] = h_max / (1.0 + exp(-logit))
+end
 ```
 
-#### 2. Per-Channel Precision Modulation
+**直感的理解：**
+- 占有が高い方向 → ヘイズ低 → 精度高 → 強い回避
+- 占有が低い方向 → ヘイズ高 → 精度低 → 柔軟な行動
 
-各チャネルの精度を独立して制御：
+#### 2. Goal-Aware Haze Modulation
+
+ゴール方向のヘイズを減少させ、より積極的な追い込み動作を実現：
 
 ```julia
-# Precision modulation formula
-Π_c(r, θ) = (1 - h_c(r, θ))^γ
+# Goal direction in agent-relative coordinates
+θ_goal = atan(dy_goal, dx_goal) - heading
+
+# Reduce haze toward goal (Gaussian weighting)
+for θ in 1:Nθ
+    θ_center = (θ - 0.5) * (2π / Nθ)
+    angle_diff = mod(θ_center - θ_goal + π, 2π) - π
+
+    # Gaussian weight centered on goal direction
+    goal_weight = exp(-(angle_diff / 0.8)^2)  # σ = 0.8 rad ≈ 45°
+
+    # Reduce haze by up to 50% in goal direction
+    for r in 1:Nr
+        haze_matrix[r, θ] *= (1.0 - 0.5 * goal_weight)
+    end
+end
+```
+
+**効果：**
+- ゴール方向の羊 → ヘイズ低 → 精度高 → 強く押す
+- ゴールと反対の羊 → ヘイズ高 → 精度低 → 柔軟に回避
+
+#### 3. Precision Modulation per SPM Bin
+
+各ビンの精度を独立して制御：
+
+```julia
+# Precision modulation formula (exponential decay)
+Π(r, θ) = Π_base(r, θ) · exp(-α · h(r, θ))
 
 # Where:
-# - h_c(r, θ): Haze value for channel c at position (r, θ)
-# - γ: Precision modulation exponent (default: 2.0)
-# - Π_c: Resulting precision weight for channel c
+# - Π_base(r, θ): Base precision (distance-dependent)
+# - h(r, θ): Spatial haze value at position (r, θ)
+# - α: Decay rate (default: 2.0)
 ```
 
-#### 3. Channel Masking (Selective Attention)
+#### 4. Adaptive Meta-Evaluation
 
-チャネルマスクにより選択的注意を実現：
-
-```julia
-# Example 1: Ignore obstacles, focus on velocity
-channel_mask = [0.0, 1.0, 1.0]  # [occ, rad_vel, tan_vel]
-masked_haze = apply_channel_mask(haze_tensor, channel_mask)
-
-# Example 2: Only focus on obstacles
-channel_mask = [1.0, 0.0, 0.0]
-masked_haze = apply_channel_mask(haze_tensor, channel_mask)
-```
-
-#### 4. Weighted Surprise & Entropy
-
-チャネル毎の重み付き驚き（Surprise）とエントロピー：
+エントロピーに基づく重みの動的調整：
 
 ```julia
-# Weighted surprise (precision-weighted prediction error)
-surprise = Σ_c Σ_r Σ_θ w_c * Π_c(r,θ) * (spm_current[c,r,θ] - spm_previous[c,r,θ])²
+# Angular compactness entropy
+H = -Σ P(θ) log P(θ)
 
-# Weighted entropy (belief uncertainty)
-entropy = -Σ_c Σ_r Σ_θ w_c * log(Π_c(r,θ))
+# Adaptive weight switching
+if H > H_threshold_high      # Dispersed sheep
+    λ_compact = 3.0
+    λ_goal = 0.3
+elseif H < H_threshold_low   # Compact sheep
+    λ_compact = 0.3
+    λ_goal = 3.0
+else                          # Balanced
+    λ_compact = 0.8
+    λ_goal = 1.5
+end
 ```
 
 ### 📝 実装ファイル
 
 ```
-src_julia/control/FullTensorHaze.jl    # Phase 4 core implementation
+src_julia/control/ShepherdingEPHv2.jl   # Phase 4 Shepherding controller
+src_julia/control/SocialValue.jl        # Social Value computation
+src_julia/agents/SheepAgent.jl          # BOIDS-based sheep agents
+src_julia/main_shepherding.jl           # Main simulation entry point
+viewer.py                                # Real-time visualization
 ```
 
-### 🧪 Phase 4 Validation Tests
+### 🧪 Phase 4 実行方法
 
 ```bash
-# Phase 4検証実行
-./scripts/run_basic_validation.sh 4
-```
+# リアルタイム可視化付きシミュレーション（デフォルト: 30羊、5犬）
+./scripts/run_shepherding_viewer.sh
 
-**検証項目:**
-1. FullTensorHaze module import
-2. FullTensorHazeParams instantiation
-3. Full tensor haze computation (3D)
-4. Per-channel precision computation
-5. Channel mask application
-6. Weighted surprise computation
+# カスタムパラメータで実行
+./scripts/run_shepherding_viewer.sh --n-sheep 50 --n-dogs 10 --steps 2000
+
+# 非インタラクティブモード（テスト用）
+EPH_NON_INTERACTIVE=1 EPH_STEPS=100 ~/.juliaup/bin/julia --project=src_julia src_julia/main_shepherding.jl
+```
 
 ### 💡 使用例
 
-#### 例1: 「障害物は見えるが無視する」行動
+#### 例1: デフォルト設定で shepherding シミュレーション
 
-```julia
-using .FullTensorHaze
+```bash
+# 30羊、5犬でシミュレーション開始
+./scripts/run_shepherding_viewer.sh
 
-# パラメータ設定: 占有チャネルのヘイズを増やす
-params = FullTensorHazeParams(
-    w_occupancy = 2.0,      # 占有チャネルを強く抑制
-    w_radial_vel = 0.5,
-    w_tangential_vel = 0.5,
-    h_max_occ = 0.9         # 占有情報をほぼ無視
-)
-
-# ヘイズ計算
-haze_tensor = compute_full_tensor_haze(spm, params)
-precision_tensor = compute_channel_precision(spm, haze_tensor, params)
-
-# → 結果: エージェントは障害物を知覚しているが、
-#          精度が低いため優先度を下げて行動
+# UI操作:
+# - マウスクリック: ゴール位置を変更
+# - 矢印キー: ゴール位置を微調整
+# - STOP/START: シミュレーション制御
+# - RESET: エージェントを再配置
 ```
 
-#### 例2: 速度情報のみに集中
+#### 例2: カスタムパラメータで実験
 
-```julia
-# チャネルマスクで占有情報を完全に遮断
-channel_mask = [0.0, 1.0, 1.0]  # 占有OFF, 速度ON
-masked_haze = apply_channel_mask(haze_tensor, channel_mask)
-
-# → 結果: 速度情報のみを使った行動決定
+```bash
+# 大規模シミュレーション: 100羊、20犬
+./scripts/run_shepherding_viewer.sh --n-sheep 100 --n-dogs 20 --world-size 600 --steps 3000
 ```
 
 ### 🔧 Phase 4 パラメータ
 
-`FullTensorHazeParams` で制御可能なパラメータ：
+`ShepherdingParams` で制御可能なパラメータ：
 
 | パラメータ | 説明 | デフォルト |
 |-----------|------|----------|
-| `w_occupancy` | 占有チャネルの重み | 1.0 |
-| `w_radial_vel` | 放射速度チャネルの重み | 0.5 |
-| `w_tangential_vel` | 接線速度チャネルの重み | 0.5 |
-| `Ω_threshold_occ` | 占有チャネルの閾値 | 0.05 |
-| `Ω_threshold_rad` | 放射速度チャネルの閾値 | 0.03 |
-| `Ω_threshold_tan` | 接線速度チャネルの閾値 | 0.03 |
-| `α_occ` | 占有チャネルの感度 | 10.0 |
-| `α_rad` | 放射速度チャネルの感度 | 8.0 |
-| `α_tan` | 接線速度チャネルの感度 | 8.0 |
-| `h_max_occ` | 占有チャネルの最大ヘイズ | 0.8 |
-| `h_max_rad` | 放射速度チャネルの最大ヘイズ | 0.6 |
-| `h_max_tan` | 接線速度チャネルの最大ヘイズ | 0.6 |
+| **Social Value Weights** |||
+| `λ_compact` | 凝集性の重み（適応的に変化） | 1.0 |
+| `λ_goal` | ゴール方向への重み（適応的に変化） | 0.5 |
+| **Adaptive Thresholds** |||
+| `H_threshold_high` | 高エントロピー閾値（凝集モード移行） | 1.8 |
+| `H_threshold_low` | 低エントロピー閾値（ゴール推進モード移行） | 0.8 |
+| **Haze Parameters** |||
+| `use_self_haze` | 自己ヘイズを使用するか | true |
+| `h_max` | 最大ヘイズ値 | 0.8 |
+| `α` | ヘイズ感度（シグモイド勾配） | 10.0 |
+| `Ω_threshold` | 占有率閾値 | 0.12 |
 | `γ` | 精度減衰指数 | 2.0 |
+| **Action Optimization** |||
+| `max_iter` | 勾配降下の最大イテレーション数 | 5 |
+| `η` | 学習率 | 0.1 |
+| `max_speed` | 犬の最大速度 | 50.0 |
+| **SPM Parameters** |||
+| `Nr` | 放射方向のビン数 | 6 |
+| `Nθ` | 角度方向のビン数 | 6 |
+| `Nc` | チャネル数 | 3 |
 
 ### 🚀 Phase 4 使用シナリオ
 
-1. **選択的注意タスク**: 特定の情報源のみに注目するエージェント
-2. **認知バイアス実験**: 人間の認知バイアスをシミュレート
-3. **高度な群れ制御**: チャネル毎の優先度を動的に変更
-4. **マルチモーダル統合**: 異なる感覚情報の統合戦略
+1. **Shepherding タスク**: 複数の犬エージェントが羊の群れをゴールへ誘導
+2. **動的な群れ制御**: エントロピー適応による自動モード切替（凝集⇔ゴール推進）
+3. **方向依存の行動制御**: ゴール方向への積極的な追い込み、側方からの柔軟な誘導
+4. **マルチエージェント協調**: 犬同士の衝突回避と協調的なherding
 
 ### 🔬 Phase 4 の理論的位置づけ
 
-Phase 4は **Predictive Coding** と **Active Inference** の統合を最も高度に実現：
+Phase 4は **Spatial Precision Control** と **Active Inference** の統合を実現：
 
-- **Precision-weighted prediction error minimization** の直接実装
-- **Selective attention** の生物学的妥当性
-- **Hierarchical inference** への拡張可能性
+- **Goal-aware precision modulation** による方向依存の行動選択
+- **SPM-based social value** による群れ行動のperceptual grounding
+- **Adaptive meta-evaluation** によるタスク進捗に応じた戦略切替
+- **Stigmergetic coordination** への拡張可能性（環境ヘイズとの統合）
 
 ---
 
 ## 比較表
 
-| 項目 | Phase 1: Self-Haze | Phase 2: Environmental Haze | Phase 3: Advanced Integration | Phase 4: Full 3D Tensor Haze |
+| 項目 | Phase 1: Self-Haze | Phase 2: Environmental Haze | Phase 3: Advanced Integration | Phase 4: Shepherding with Directional Haze |
 |------|---------------------|----------------------------|-------------------------------|------------------------------|
-| **データ構造** | スカラー値（1値） | 2Dグリッド（width×height） | Phase 2 + GRU + Shepherding | 3Dテンソル（3 × Nr × Nθ） |
-| **ヘイズ所在** | エージェント内部 | 環境空間 | 環境空間 + 予測 | SPM空間（チャネル毎） |
-| **計算量** | O(1) per agent | O(N_grid + N_agents) | O(N_grid + N_agents + GRU) | O(Nr × Nθ × Nc) per agent |
-| **メモリ** | ~8 bytes per agent | ~(width×height) × 8 bytes | Phase 2 + GRUモデル（~1MB） | ~(Nr×Nθ×3) × 8 bytes per agent |
-| **通信能力** | なし | スティグマージー（間接） | スティグマージー + 予測 | チャネル選択的通信 |
-| **空間情報** | なし | あり（方向・距離依存） | あり + 将来予測 | あり（チャネル毎独立） |
-| **時間情報** | 即時のみ | 履歴（減衰付き） | 履歴 + 将来予測 | 即時（チャネル毎） |
+| **データ構造** | スカラー値（1値） | 2Dグリッド（width×height） | Phase 2 + GRU + Shepherding | 2D空間ヘイズ（Nr × Nθ） |
+| **ヘイズ所在** | エージェント内部 | 環境空間 | 環境空間 + 予測 | エージェント内部（SPM対応） |
+| **計算量** | O(1) per agent | O(N_grid + N_agents) | O(N_grid + N_agents + GRU) | O(Nr × Nθ) per agent |
+| **メモリ** | ~8 bytes per agent | ~(width×height) × 8 bytes | Phase 2 + GRUモデル（~1MB） | ~(Nr×Nθ) × 8 bytes per agent |
+| **通信能力** | なし | スティグマージー（間接） | スティグマージー + 予測 | 直接的（dog-dog衝突回避） |
+| **空間情報** | なし | あり（方向・距離依存） | あり + 将来予測 | あり（方向依存精度制御） |
+| **時間情報** | 即時のみ | 履歴（減衰付き） | 履歴 + 将来予測 | 即時 + エントロピー適応 |
 | **予測可能性** | 不可 | 可（GRU等） | GRUによる高精度予測 | 不可（Phase 3と統合可） |
-| **精度制御** | なし | 一律 | 一律 | チャネル毎独立制御 |
-| **選択的注意** | なし | なし | なし | チャネルマスクによる実現 |
-| **理論的基盤** | Active Inference | Active Inference + Stigmergy | Active Inference + Predictive Coding | Precision-weighted Active Inference |
+| **精度制御** | なし | 一律 | 一律 | 方向毎独立制御 |
+| **ゴール認識** | なし | なし | あり（Shepherding） | あり（ゴール指向ヘイズ調整） |
+| **理論的基盤** | Active Inference | Active Inference + Stigmergy | Active Inference + Predictive Coding | Spatial Precision Control + Active Inference |
 | **実装難易度** | ⭐ 簡単 | ⭐⭐⭐ 難しい | ⭐⭐⭐⭐⭐ 最難関 | ⭐⭐⭐⭐ 難しい |
 | **デバッグ難易度** | ⭐ 簡単 | ⭐⭐⭐ 難しい | ⭐⭐⭐⭐⭐ 非常に難しい | ⭐⭐⭐⭐ 難しい |
-| **適用タスク** | 回避、探索 | Shepherding、経路計画、群れ行動 | 高度なShepherding、学習ベース制御 | 選択的注意、認知バイアス実験 |
+| **適用タスク** | 回避、探索 | 経路計画、群れ行動 | 高度なShepherding、学習ベース制御 | Shepherding、方向制御タスク |
 
 ---
 
@@ -552,31 +571,31 @@ Phase 4は **Predictive Coding** と **Active Inference** の統合を最も高�
 ✅ トップ国際会議・ジャーナルへの投稿を目指す
 
 ### Phase 4を選ぶべき場合：
-✅ 選択的注意メカニズムを研究したい
-✅ チャネル毎に異なる精度制御が必要
-✅ 「見えているが無視する」ような認知バイアスを実装したい
-✅ マルチモーダル知覚統合を研究したい
-✅ 人間の認知メカニズムをモデル化したい
-✅ Precision-weighted Active Inferenceの理論研究
-✅ Phase 2/3の拡張として、より高度な制御を目指す
+✅ Shepherdingタスクに特化した制御を実現したい
+✅ 方向依存の精度制御（ゴール方向への積極性）が必要
+✅ エントロピー適応による自動モード切替を研究したい
+✅ SPMベースのperceptual groundingを重視する
+✅ 空間的ヘイズマトリックスの効果を検証したい
+✅ Spatial Precision Control + Active Inferenceの理論研究
+✅ Phase 1の拡張として、より高度なshepherdingを目指す
 
 ### 推奨開発フロー：
 ```
-1. Phase 1で基本動作を検証
+1. Phase 1で基本動作を検証（Self-Haze）
    ↓
 2. Phase 1のパラメータ最適化
    ↓
-3. Phase 2へ拡張
-   ↓
-4. Phase 2のスティグマージー効果を検証
-   ↓
-5. Phase 3 or Phase 4 へ分岐:
+3. Phase 2 or Phase 4 へ分岐:
 
-   【Phase 3へ】           【Phase 4へ】
-   - SPMデータ収集         - Phase 2が安定動作
-   - GRU予測器訓練         - Phase 4 Validation実行
-   - Shepherding実験       - チャネルマスク実験
-                          - 選択的注意タスク
+   【Phase 2へ】                    【Phase 4へ】
+   - 環境ヘイズによる                 - Shepherdingタスクに特化
+     スティグマージー                  - 方向依存精度制御
+   - 群れ行動・経路計画                - エントロピー適応
+   ↓                                ↓
+   Phase 3へ拡張（Advanced）         Phase 2と統合可能
+   - SPMデータ収集                    （環境ヘイズ追加）
+   - GRU予測器訓練
+   - 学習ベース制御
 ```
 
 ---
@@ -651,52 +670,49 @@ julia scripts/evaluate_gru_prediction.jl
 
 ### Phase 4の評価実験
 ```bash
-# 1. 基本動作確認（Validation）
-./scripts/run_basic_validation.sh 4
+# 1. Shepherding シミュレーション（リアルタイム可視化付き）
+./scripts/run_shepherding_viewer.sh
 
-# 期待される出力:
-# ✅ FullTensorHaze module import
-# ✅ FullTensorHazeParams instantiation
-# ✅ Full tensor haze computation (3D)
-# ✅ Per-channel precision computation
-# ✅ Channel mask application
-# ✅ Weighted surprise computation
+# 期待される動作:
+# ✅ 犬エージェントが羊をゴールへ誘導
+# ✅ エントロピー適応による自動モード切替
+# ✅ 方向依存のヘイズ制御（ゴール方向への積極性）
+# ✅ 犬同士の衝突回避
+# ✅ リアルタイムダッシュボード（SPM, ヘイズマトリックス表示）
 
-# 2. チャネル選択的注意実験
-# Phase 4の核心機能を評価
-julia scripts/phase4_selective_attention_experiment.jl
-
+# 2. Shepherding性能評価
 # 評価指標:
-# - チャネルマスクによる行動変化
-# - 各チャネルのヘイズ値推移
-# - チャネル毎の精度重み（Π_c）
-# - 加重サプライズ（channel-weighted surprise）
+# - Goal Distance: 羊の重心からゴールまでの距離
+# - Compactness: 羊の凝集性（重心からの平均二乗距離）
+# - Convergence Time: ゴール到達までの時間
+# - Angular Compactness Entropy: 羊の角度分布エントロピー
 
-# 3. 認知バイアス実験
-# 「障害物は見えるが無視する」行動の定量化
-julia scripts/phase4_cognitive_bias_experiment.jl
+# 3. パラメータスキャン実験（カスタム実験）
+EPH_N_SHEEP=50 EPH_N_DOGS=10 ./scripts/run_shepherding_viewer.sh
 
-# 評価指標:
-# - 障害物回避率（チャネルマスク有無比較）
-# - 衝突時間 (Time-to-Collision)
-# - 経路効率 (Path efficiency)
+# 異なる羊数・犬数での性能比較:
+# - 羊が少ない（10匹）vs 多い（100匹）
+# - 犬が少ない（2匹）vs 多い（20匹）
+# - ワールドサイズの影響（300 vs 600）
 ```
 
 ### 可視化
 ```bash
-# ヘイズグリッドの可視化（Phase 2, 3）
-python viewer.py  # リアルタイム可視化
+# Phase 4: Shepherding リアルタイム可視化
+./scripts/run_shepherding_viewer.sh
 
 # 結果:
-# - エージェント位置（茶色/灰色の円）
-# - ヘイズグリッド（赤色のオーバーレイ）
-# - 移動軌跡（ヘイズの痕跡として残る）
+# - 犬エージェント（赤/マゼンタ）と羊エージェント（緑）の位置
+# - ゴールマーカー（黄色の×印）
+# - SPMヒートマップ（追跡対象犬の視覚情報）
+# - ヘイズマトリックス可視化（方向依存精度）
+# - エントロピー・EFE・サプライズのプロット
+# - インタラクティブゴール制御（マウス/矢印キー）
 
-# Phase 4: チャネル毎ヘイズの可視化
-# 各チャネルを独立して可視化（将来実装予定）
-# - Channel 1: 占有ヘイズ（赤）
-# - Channel 2: 放射速度ヘイズ（緑）
-# - Channel 3: 接線速度ヘイズ（青）
+# 可視化の特徴:
+# - Dog ID 1が追跡対象（マゼンタ色）
+# - SPM 3チャネル（Occupancy, Radial, Tangential）を個別表示
+# - ヘイズマトリックスの時間変化を確認可能
 ```
 
 ---
@@ -705,19 +721,19 @@ python viewer.py  # リアルタイム可視化
 
 | | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
 |---|---------|---------|---------|---------|
-| **一言で言うと** | エージェント自身の「不確実性」を表現 | 環境を通じた「間接的コミュニケーション」 | 予測ベースの「先読み行動」 | チャネル毎の「選択的注意」 |
-| **Active Inferenceとの関係** | 信念エントロピーの直接的実装 | スティグマージー + Active Inference | Predictive Coding + Active Inference | Precision-weighted Active Inference |
-| **生物学的類似** | 個体の「警戒度」 | アリの「フェロモン」 | 人間の「予測制御」 | 人間の「選択的注意」 |
-| **推奨される使用順序** | 1番目（基礎検証） | 2番目（応用研究） | 3番目（最先端研究） | 2番目の分岐（Phase 2後） |
+| **一言で言うと** | エージェント自身の「不確実性」を表現 | 環境を通じた「間接的コミュニケーション」 | 予測ベースの「先読み行動」 | 方向依存の「Shepherding制御」 |
+| **Active Inferenceとの関係** | 信念エントロピーの直接的実装 | スティグマージー + Active Inference | Predictive Coding + Active Inference | Spatial Precision Control + Active Inference |
+| **生物学的類似** | 個体の「警戒度」 | アリの「フェロモン」 | 人間の「予測制御」 | 牧羊犬の「方向制御」 |
+| **推奨される使用順序** | 1番目（基礎検証） | 2番目の分岐（環境ヘイズ） | 3番目（最先端研究） | 2番目の分岐（Shepherding） |
 
 **開発者へのアドバイス：**
 - まずPhase 1で基本を固める
-- Phase 1が安定動作してからPhase 2へ
-- Phase 2のパラメータ（decay_rate, deposit_amount）は慎重に調整
-- Phase 2安定後、Phase 3（予測）またはPhase 4（選択的注意）へ分岐
+- Phase 1が安定動作したら Phase 2 または Phase 4 へ分岐
+  - **Phase 2へ**: 環境ヘイズ・スティグマージーが必要 → 環境グリッド実装
+  - **Phase 4へ**: Shepherdingタスクに特化 → 方向依存精度制御 → エントロピー適応
+- Phase 2安定後、Phase 3へ拡張可能
   - **Phase 3へ**: GRU予測が必要 → SPMデータ収集 → GRU訓練
-  - **Phase 4へ**: 選択的注意が必要 → Phase 4 Validation → チャネルマスク実験
-- Phase 3/4は独立しているため、両方実装して比較研究も可能
+- Phase 4は Phase 2の環境ヘイズと統合可能（将来拡張）
 - 論文では4つのPhaseを比較することで段階的な貢献を示せる
 
 ---
@@ -731,17 +747,20 @@ python viewer.py  # リアルタイム可視化
   - GRU予測器: `src_julia/prediction/SPMPredictor.jl`
   - Shepherding制御: `src_julia/control/ShepherdingEPH.jl`
   - Boids制御: `src_julia/agents/BoidsAgent.jl`
-- Phase 4実装: `src_julia/control/FullTensorHaze.jl`
+- Phase 4実装:
+  - Shepherding制御: `src_julia/control/ShepherdingEPHv2.jl`
+  - Social Value: `src_julia/control/SocialValue.jl`
+  - 羊エージェント: `src_julia/agents/SheepAgent.jl`
+  - メインループ: `src_julia/main_shepherding.jl`
 
 ### 実験スクリプト
 - Phase 1検証: `scripts/run_basic_validation.sh 1`
 - Phase 2検証: `scripts/run_basic_validation.sh 2`
 - Phase 3検証: `scripts/run_basic_validation.sh 3`
-- Phase 4検証: `scripts/run_basic_validation.sh 4`
+- Phase 4実行: `scripts/run_shepherding_viewer.sh`
 - 全Phase検証: `scripts/run_basic_validation.sh all`
-- Shepherding: `scripts/run_shepherding_experiment.sh`
-- ベースライン比較: `scripts/baseline_comparison.jl`
-- GRU訓練: `scripts/gru/update_gru.sh`
+- ベースライン比較: `scripts/baseline_comparison.jl` (Phase 2/3用)
+- GRU訓練: `scripts/gru/update_gru.sh` (Phase 3用)
 
 ### パラメータ設定
 ```julia
