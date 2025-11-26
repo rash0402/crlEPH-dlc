@@ -30,7 +30,7 @@ When agents see few neighbors (low Ω), self-haze increases → precision decrea
 → belief entropy increases → epistemic term dominates → exploration emerges
 """
 function initialize_simulation(;width=400.0, height=400.0, n_agents=10)
-    env = Environment(width, height, grid_size=20)
+    env = Environment(width, height, grid_size=5)  # Finer grid: 5px cells (was 20px)
 
     # Sparse initial placement: divide world into regions
     # Scaled for variable world size and agent count
@@ -330,15 +330,8 @@ function _update_coverage_map!(env::Environment, params::EPHParams)
         gx = clamp(floor(Int, agent.position[1] / env.grid_size) + 1, 1, grid_w)
         gy = clamp(floor(Int, agent.position[2] / env.grid_size) + 1, 1, grid_h)
 
-        # Increment visit count
+        # Increment visit count (only agent's current cell, not adjacent cells)
         env.coverage_map[gx, gy] += 1
-
-        # Also increment adjacent cells (agent's footprint)
-        for dx in -1:1, dy in -1:1
-            nx = clamp(gx + dx, 1, grid_w)
-            ny = clamp(gy + dy, 1, grid_h)
-            env.coverage_map[nx, ny] += 1
-        end
     end
 end
 
