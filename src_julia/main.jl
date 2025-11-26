@@ -119,27 +119,28 @@ function main()
 
     try
         while true
-            # Check for control commands (non-blocking)
-            try
-                # Try non-blocking receive with DONTWAIT flag
-                cmd_json = ZMQ.recv(control_socket, String, ZMQ.ZMQ_DONTWAIT)
-                cmd = JSON.parse(cmd_json)
+            # Check for control commands (non-blocking using isready)
+            # Note: REP socket blocks on recv, so we check if data is available first
+            # Using low-level socket polling to avoid blocking
+            if control_socket.events & ZMQ.POLLIN != 0
+                try
+                    cmd_json = ZMQ.recv(control_socket, String)
+                    cmd = JSON.parse(cmd_json)
 
-                if cmd["type"] == "set_haze_tensor"
-                    # Update external haze tensor (6x6 matrix)
-                    external_haze_tensor = Float64.(hcat(cmd["haze_tensor"]...))  # Convert to Matrix
-                    println("[CONTROL] External haze tensor updated: size=$(size(external_haze_tensor))")
+                    if cmd["type"] == "set_haze_tensor"
+                        # Update external haze tensor (6x6 matrix)
+                        external_haze_tensor = Float64.(hcat(cmd["haze_tensor"]...))  # Convert to Matrix
+                        println("[CONTROL] External haze tensor updated: size=$(size(external_haze_tensor))")
 
-                    # Send acknowledgment
-                    response = Dict("status" => "ok", "message" => "Haze tensor updated")
-                    ZMQ.send(control_socket, JSON.json(response))
-                else
-                    # Unknown command
-                    response = Dict("status" => "error", "message" => "Unknown command type: $(cmd["type"])")
-                    ZMQ.send(control_socket, JSON.json(response))
-                end
-            catch e
-                if !isa(e, Base.IOError)  # Ignore "no message" error (DONTWAIT)
+                        # Send acknowledgment
+                        response = Dict("status" => "ok", "message" => "Haze tensor updated")
+                        ZMQ.send(control_socket, JSON.json(response))
+                    else
+                        # Unknown command
+                        response = Dict("status" => "error", "message" => "Unknown command type: $(cmd["type"])")
+                        ZMQ.send(control_socket, JSON.json(response))
+                    end
+                catch e
                     println("Error processing control command: $e")
                 end
             end
