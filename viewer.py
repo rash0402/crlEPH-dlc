@@ -584,15 +584,16 @@ class DashboardWidget(QWidget):
 
         # Setup Subplots with better spacing
         # Top row: EFE, Entropy, Surprise (3 plots)
-        # Middle row: Gradient Norm, Self-Haze (2 plots)
+        # Middle row: Gradient Norm (1 plot), Haze Tensor Editor (interactive), Self-Haze (1 plot)
         # Bottom row: SPM Heatmaps (3 plots)
         gs = self.figure.add_gridspec(3, 3, height_ratios=[1, 1, 1.2], hspace=0.4, wspace=0.3)
 
         self.ax_efe = self.figure.add_subplot(gs[0, 0])
         self.ax_ent = self.figure.add_subplot(gs[0, 1])
         self.ax_surprise = self.figure.add_subplot(gs[0, 2])
-        
-        self.ax_grad = self.figure.add_subplot(gs[1, 0:2])
+
+        self.ax_grad = self.figure.add_subplot(gs[1, 0])  # Changed: half size (1 column)
+        self.ax_haze_editor = self.figure.add_subplot(gs[1, 1])  # New: Haze tensor editor
         self.ax_haze = self.figure.add_subplot(gs[1, 2])
 
         self.ax_spm_occ = self.figure.add_subplot(gs[2, 0])
@@ -606,6 +607,8 @@ class DashboardWidget(QWidget):
         titles = ['Expected Free Energy', 'Belief Entropy', 'Surprise (F_percept)',
                   'Gradient Norm', 'Self-Haze',
                   'SPM: Occupancy', 'SPM: Radial Vel', 'SPM: Tangential Vel']
+
+        # Note: ax_haze_editor is styled separately for interactive use
         
         for ax, title in zip(self.axes, titles):
             ax.set_title(title, fontsize=10, pad=10)
@@ -614,6 +617,16 @@ class DashboardWidget(QWidget):
             ax.tick_params(labelsize=8)
 
         self.figure.tight_layout()
+
+        # Initialize Haze Tensor Editor (2x2 interactive grid)
+        self.haze_tensor_size = 6  # 6x6 grid (matching SPM size)
+        self.haze_active_pos = (2, 2)  # Center position of 2x2 active region
+        self.haze_tensor = np.zeros((self.haze_tensor_size, self.haze_tensor_size))
+        self._update_haze_tensor()  # Set initial 2x2 region to 1.0
+        self._draw_haze_editor()
+
+        # Connect mouse event for interactive editing
+        self.canvas.mpl_connect('button_press_event', self._on_haze_editor_click)
 
         # Data History
         self.max_history = 200
@@ -625,6 +638,59 @@ class DashboardWidget(QWidget):
             'haze': deque(maxlen=self.max_history),
             'grad_norm': deque(maxlen=self.max_history)
         }
+
+    def _update_haze_tensor(self):
+        """Update haze tensor: 2x2 region at active_pos = 1.0, rest = 0.0"""
+        self.haze_tensor.fill(0.0)
+        r, c = self.haze_active_pos
+        # Set 2x2 region to 1.0 (with boundary check)
+        for dr in range(2):
+            for dc in range(2):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < self.haze_tensor_size and 0 <= nc < self.haze_tensor_size:
+                    self.haze_tensor[nr, nc] = 1.0
+
+    def _draw_haze_editor(self):
+        """Draw the Haze tensor editor as a heatmap."""
+        self.ax_haze_editor.clear()
+        self.ax_haze_editor.set_title('Haze Tensor Editor (Click to Move)', fontsize=10, pad=10)
+
+        # Draw heatmap
+        im = self.ax_haze_editor.imshow(self.haze_tensor, cmap='Reds', vmin=0, vmax=1,
+                                        interpolation='nearest', aspect='auto')
+
+        # Add grid lines
+        for i in range(self.haze_tensor_size + 1):
+            self.ax_haze_editor.axhline(i - 0.5, color='gray', linewidth=0.5)
+            self.ax_haze_editor.axvline(i - 0.5, color='gray', linewidth=0.5)
+
+        # Set ticks
+        self.ax_haze_editor.set_xticks(range(self.haze_tensor_size))
+        self.ax_haze_editor.set_yticks(range(self.haze_tensor_size))
+        self.ax_haze_editor.set_xticklabels(range(self.haze_tensor_size), fontsize=8)
+        self.ax_haze_editor.set_yticklabels(range(self.haze_tensor_size), fontsize=8)
+
+        # Add instruction text
+        self.ax_haze_editor.text(0.5, -0.15, 'Click to reposition 2x2 active region',
+                                 transform=self.ax_haze_editor.transAxes,
+                                 ha='center', fontsize=8, style='italic')
+
+    def _on_haze_editor_click(self, event):
+        """Handle mouse click on Haze editor to reposition 2x2 active region."""
+        if event.inaxes == self.ax_haze_editor and event.xdata is not None and event.ydata is not None:
+            # Convert click coordinates to grid indices
+            col = int(np.round(event.xdata))
+            row = int(np.round(event.ydata))
+
+            # Ensure 2x2 region fits within bounds
+            if 0 <= row < self.haze_tensor_size - 1 and 0 <= col < self.haze_tensor_size - 1:
+                self.haze_active_pos = (row, col)
+                self._update_haze_tensor()
+                self._draw_haze_editor()
+                self.canvas.draw_idle()
+
+                print(f"Haze tensor active position updated to: ({row}, {col})")
+                # TODO: Send haze update to Julia via ZMQ REQ socket
 
     def clear_plots(self):
         """Clear all plot history and redraw empty plots."""
