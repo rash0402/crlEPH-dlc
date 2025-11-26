@@ -16,8 +16,8 @@
 set -e  # Exit on error
 
 # Default parameters
-N_SHEEP=25
-N_DOGS=5
+N_SHEEP=30  # Default: 30 sheep
+N_DOGS=5    # Default: 5 dogs
 STEPS=1000
 WORLD_SIZE=400
 SEED=42
@@ -156,6 +156,11 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "  Server PID: $SERVER_PID"
 echo "  Viewer PID: $VIEWER_PID"
+echo ""
+echo -e "${YELLOW}📌 インタラクティブコントロール:${NC}"
+echo "  • マウスクリック: ゴール位置を移動"
+echo "  • ドラッグ: ゴールをドラッグして移動"
+echo "  • 矢印キー: ゴールを微調整"
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop both processes${NC}"
 echo ""

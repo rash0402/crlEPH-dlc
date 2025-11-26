@@ -41,8 +41,10 @@ Base.@kwdef mutable struct ShepherdingParams
     λ_goal::Float64 = 0.5        # Goal pushing weight
 
     # Adaptive weight thresholds
-    H_threshold_high::Float64 = 2.0  # High entropy → focus on compactness
-    H_threshold_low::Float64 = 1.0   # Low entropy → focus on goal
+    # Entropy thresholds for adaptive weight switching (TUNED for better herding)
+    # Lower thresholds = earlier transition to goal-pushing mode
+    H_threshold_high::Float64 = 1.8  # High entropy → focus on compactness (reduced from 2.0)
+    H_threshold_low::Float64 = 0.8   # Low entropy → focus on goal (reduced from 1.0)
 
     # Haze parameters
     use_self_haze::Bool = true
@@ -153,8 +155,19 @@ function compute_efe_shepherding(
         σ=0.5  # Gaussian kernel width
     )
 
-    # === 3. Total EFE ===
-    G = F_percept + M_social
+    # === 3. Action-dependent goal-seeking cost (for gradient flow) ===
+    # CRITICAL: This ensures gradients flow even when SPM is empty
+    # Cost proportional to misalignment between action and goal direction
+    action_angle = atan(action[2], action[1])
+    goal_angle = atan(goal_vec[2], goal_vec[1])
+    angle_diff = mod(goal_angle - action_angle + π, 2π) - π  # Wrap to [-π, π]
+
+    # Cosine similarity cost: higher cost when action points away from goal
+    # Range: [-1, 1] where -1 = aligned, +1 = opposite
+    M_action_goal = 10.0 * (1.0 - cos(angle_diff))  # Range: [0, 20]
+
+    # === 4. Total EFE ===
+    G = F_percept + M_social + M_action_goal
 
     return G
 end
@@ -253,7 +266,8 @@ function update_shepherding_dog!(
     dog::ShepherdingDog,
     sheep_list::Vector,  # SheepAgent.Sheep
     params::ShepherdingParams,
-    world_size::Float64
+    world_size::Float64;
+    other_dogs::Vector{ShepherdingDog}=ShepherdingDog[]  # For dog-dog collision avoidance
 )
     # === 1. Compute SPM (perception) ===
     # Convert sheep to "other agents" for SPM computation
@@ -284,9 +298,50 @@ function update_shepherding_dog!(
     # === 3. Adjust Social Value weights (adaptive) ===
     adjust_social_value_weights!(dog, params)
 
-    # === 4. Compute haze matrix ===
-    # Simple uniform haze for now
-    dog.haze_matrix .= dog.self_haze
+    # === 4. Compute haze matrix (DIRECTIONAL for herding) ===
+    # Use spatial haze matrix for directional precision control
+    eph_params_temp = EPHParams(
+        h_max=params.h_max,
+        α=params.α,
+        Ω_threshold=params.Ω_threshold,
+        γ=params.γ
+    )
+
+    # Base spatial haze from SPM occupancy
+    dog.haze_matrix .= SelfHaze.compute_self_haze_matrix(dog.current_spm, eph_params_temp)
+
+    # Goal-aware modulation: Reduce haze in goal direction to encourage forward pushing
+    # This makes dogs more sensitive to sheep in the goal direction (stronger herding)
+    goal_pos = something(params.goal_position, [world_size/2, world_size/2])
+    dx_goal, dy_goal, _ = MathUtils.toroidal_distance(
+        dog.position, goal_pos,
+        world_size, world_size
+    )
+
+    # Dog's heading
+    if norm(dog.velocity) < 1e-6
+        heading = 0.0
+    else
+        heading = atan(dog.velocity[2], dog.velocity[1])
+    end
+
+    # Goal angle in agent-relative coordinates
+    angle_goal_world = atan(dy_goal, dx_goal)
+    angle_goal_relative = mod(angle_goal_world - heading, 2π)
+
+    # Reduce haze in bins facing the goal (stronger repulsion → better herding)
+    for θ in 1:params.Nθ
+        θ_center = (θ - 0.5) * (2π / params.Nθ)
+        angle_diff = mod(θ_center - angle_goal_relative + π, 2π) - π
+
+        # Gaussian weight centered on goal direction
+        goal_weight = exp(-(angle_diff / 0.8)^2)  # σ = 0.8 rad ≈ 45°
+
+        # Reduce haze by up to 50% in goal direction (all radial bins)
+        for r in 1:params.Nr
+            dog.haze_matrix[r, θ] *= (1.0 - 0.5 * goal_weight)
+        end
+    end
 
     # === 5. Select action via gradient descent ===
     goal_pos = something(params.goal_position, [world_size/2, world_size/2])
@@ -298,29 +353,90 @@ function update_shepherding_dog!(
         world_size
     )
 
-    # === 6. Collision avoidance with sheep ===
+    # === 6. Collision avoidance with sheep AND other dogs ===
     collision_avoidance = zeros(2)
+
+    # Dog-Sheep collision avoidance
     for sheep in sheep_list
         dx, dy, dist = MathUtils.toroidal_distance(
             dog.position, sheep.position,
             world_size, world_size
         )
+
+        # IMPORTANT: Effective distance = actual distance - sum of radii
+        # This prevents overlapping by considering body sizes
         min_dist = dog.radius + sheep.radius
-        # Emergency repulsion if too close
-        if dist < min_dist * 1.2 && dist > 1e-6
-            # CRITICAL: collision imminent
-            repulsion_dir = [-dx, -dy] / dist  # Away from sheep
-            repulsion_strength = 500.0 / (dist * dist + 0.1)  # Extremely strong
+        effective_dist = dist - min_dist  # Negative if overlapping!
+
+        # Avoid division by zero
+        if dist < 1e-6
+            continue
+        end
+
+        # Direction away from sheep
+        repulsion_dir = [-dx, -dy] / dist
+
+        # Multi-tier collision avoidance based on effective distance
+        if effective_dist < 0.0
+            # CRITICAL: Already overlapping! Strong force to separate
+            overlap = -effective_dist  # Positive value
+            repulsion_strength = 200.0 * (1.0 + overlap / min_dist)
             collision_avoidance += repulsion_dir * repulsion_strength
-        elseif dist < min_dist * 2.0 && dist > 1e-6
-            # Very strong emergency avoidance
-            repulsion_dir = [-dx, -dy] / dist
-            repulsion_strength = 300.0 / (dist * dist + 1.0)
+        elseif effective_dist < min_dist * 0.5
+            # Very close: moderate repulsion
+            repulsion_strength = 100.0 / (effective_dist + 0.5)
             collision_avoidance += repulsion_dir * repulsion_strength
-        elseif dist < min_dist * 3.0 && dist > 1e-6
-            # Moderate avoidance
-            repulsion_dir = [-dx, -dy] / dist
-            repulsion_strength = 80.0 / dist
+        elseif effective_dist < min_dist * 1.5
+            # Close: mild repulsion
+            repulsion_strength = 40.0 / (effective_dist + 1.0)
+            collision_avoidance += repulsion_dir * repulsion_strength
+        elseif effective_dist < min_dist * 3.0
+            # Nearby: very weak repulsion
+            repulsion_strength = 15.0 / (effective_dist + 2.0)
+            collision_avoidance += repulsion_dir * repulsion_strength
+        end
+    end
+
+    # Dog-Dog collision avoidance (STRONGER than dog-sheep)
+    for other in other_dogs
+        if other.id == dog.id
+            continue  # Skip self
+        end
+
+        dx, dy, dist = MathUtils.toroidal_distance(
+            dog.position, other.position,
+            world_size, world_size
+        )
+
+        # IMPORTANT: Effective distance = actual distance - sum of radii
+        min_dist = dog.radius + other.radius
+        effective_dist = dist - min_dist  # Negative if overlapping!
+
+        # Avoid division by zero
+        if dist < 1e-6
+            continue
+        end
+
+        # Direction away from other dog
+        repulsion_dir = [-dx, -dy] / dist
+
+        # Multi-tier collision avoidance (STRONGER than dog-sheep)
+        if effective_dist < 0.0
+            # CRITICAL: Already overlapping! Strong force
+            overlap = -effective_dist
+            repulsion_strength = 300.0 * (1.0 + overlap / min_dist)
+            collision_avoidance += repulsion_dir * repulsion_strength
+        elseif effective_dist < min_dist * 0.5
+            # Very close: strong repulsion
+            repulsion_strength = 150.0 / (effective_dist + 0.5)
+            collision_avoidance += repulsion_dir * repulsion_strength
+        elseif effective_dist < min_dist * 1.5
+            # Close: moderate repulsion
+            repulsion_strength = 60.0 / (effective_dist + 1.0)
+            collision_avoidance += repulsion_dir * repulsion_strength
+        elseif effective_dist < min_dist * 3.0
+            # Nearby: weak repulsion
+            repulsion_strength = 25.0 / (effective_dist + 2.0)
             collision_avoidance += repulsion_dir * repulsion_strength
         end
     end
@@ -348,6 +464,9 @@ end
 
 """
 Compute SPM for dog (treating sheep as obstacles).
+
+IMPORTANT: Considers sheep body radius for accurate occupancy detection.
+Uses center-to-center distance but accounts for physical extent.
 """
 function compute_spm_for_dog(
     dog::ShepherdingDog,
@@ -358,22 +477,30 @@ function compute_spm_for_dog(
 
     spm = zeros(Float64, params.Nc, params.Nr, params.Nθ)
 
-    # Dog's heading
-    heading = atan(dog.velocity[2], dog.velocity[1])
+    # Dog's heading (use [1, 0] if velocity is zero)
+    if norm(dog.velocity) < 1e-6
+        heading = 0.0
+    else
+        heading = atan(dog.velocity[2], dog.velocity[1])
+    end
 
     for sheep in sheep_list
-        # Relative position (toroidal)
-        dx, dy, dist = MathUtils.toroidal_distance(
+        # Relative position (toroidal, center-to-center)
+        dx, dy, dist_center = MathUtils.toroidal_distance(
             dog.position, sheep.position,
             world_size, world_size
         )
 
-        # Skip if too far
-        if dist > 200.0  # Max perception range
+        # CRITICAL: Account for body radii
+        # Effective distance = center-to-center - radii
+        dist_surface = max(dist_center - sheep.radius, 0.0)
+
+        # Skip if too far (from surface)
+        if dist_surface > 100.0  # Max perception range (narrowed from 200.0)
             continue
         end
 
-        # Relative angle
+        # Relative angle (to center)
         angle_world = atan(dy, dx)
         angle_relative = angle_world - heading
 
@@ -383,20 +510,43 @@ function compute_spm_for_dog(
         # Convert to SPM coordinates
         θ_idx = angle_to_spm_index(angle_relative, params.Nθ)
 
-        # Radial bin (log-polar, simplified)
-        r_idx = dist < 30.0 ? 1 : min(ceil(Int, log(dist / 30.0) + 2), params.Nr)
+        # Radial bin (based on surface distance, not center distance)
+        # Personal space threshold (sum of radii)
+        personal_space = dog.radius + sheep.radius
 
-        # Occupancy
-        spm[1, r_idx, θ_idx] += 1.0
+        if dist_surface < 10.0  # Very close (almost touching)
+            r_idx = 1
+        elseif dist_surface < 20.0  # Close
+            r_idx = 2
+        elseif dist_surface < 35.0  # Medium
+            r_idx = 3
+        elseif dist_surface < 55.0  # Far
+            r_idx = 4
+        elseif dist_surface < 80.0  # Very far
+            r_idx = 5
+        else
+            r_idx = 6  # Max range (80-100)
+        end
+
+        r_idx = min(r_idx, params.Nr)
+
+        # Occupancy (weighted by body size)
+        # Larger sheep = stronger occupancy signal
+        size_weight = (sheep.radius / 4.0)^2  # Normalize by typical radius
+        spm[1, r_idx, θ_idx] += size_weight
 
         # Radial velocity (relative)
-        v_radial = dot([dx, dy] / dist, sheep.velocity - dog.velocity)
-        spm[2, r_idx, θ_idx] += v_radial
+        if dist_center > 1e-6
+            v_radial = dot([dx, dy] / dist_center, sheep.velocity - dog.velocity)
+            spm[2, r_idx, θ_idx] += v_radial
+        end
 
         # Tangential velocity
-        tangent_dir = [-dy, dx] / dist
-        v_tangent = dot(tangent_dir, sheep.velocity - dog.velocity)
-        spm[3, r_idx, θ_idx] += v_tangent
+        if dist_center > 1e-6
+            tangent_dir = [-dy, dx] / dist_center
+            v_tangent = dot(tangent_dir, sheep.velocity - dog.velocity)
+            spm[3, r_idx, θ_idx] += v_tangent
+        end
     end
 
     return spm
@@ -404,6 +554,11 @@ end
 
 """
 Adjust Social Value weights based on current compactness.
+
+IMPROVED for better herding (追い込み動作):
+- More aggressive goal pushing when compact
+- Stronger compactness priority when dispersed
+- Tighter thresholds for faster adaptation
 """
 function adjust_social_value_weights!(
     dog::ShepherdingDog,
@@ -414,17 +569,19 @@ function adjust_social_value_weights!(
         H = SocialValue.compute_angular_compactness(dog.current_spm)
 
         if H > params.H_threshold_high
-            # High entropy (dispersed) → focus on compactness
-            dog.λ_compact = 2.0
-            dog.λ_goal = 0.5
+            # High entropy (dispersed) → STRONGLY focus on compactness
+            # Increased from 2.0 to 3.0 for more aggressive gathering
+            dog.λ_compact = 3.0
+            dog.λ_goal = 0.3
         elseif H < params.H_threshold_low
-            # Low entropy (compact) → focus on goal
-            dog.λ_compact = 0.5
-            dog.λ_goal = 2.0
+            # Low entropy (compact) → AGGRESSIVELY push toward goal
+            # Increased from 2.0 to 3.0 for stronger herding drive
+            dog.λ_compact = 0.3
+            dog.λ_goal = 3.0
         else
-            # Balanced
-            dog.λ_compact = 1.0
-            dog.λ_goal = 1.0
+            # Balanced (but still favor goal pushing slightly)
+            dog.λ_compact = 0.8
+            dog.λ_goal = 1.5
         end
     end
 
@@ -445,10 +602,34 @@ function predict_spm_simple(
     action::Vector{Float64},
     params::ShepherdingParams
 )::Array{Float64, 3}
-    # For now, just return current SPM
-    # In full implementation, this would predict how sheep react to dog's future position
-    # and compute new SPM from predicted sheep positions
-    return dog.current_spm
+    # CRITICAL: This must be action-dependent AND non-mutating for Zygote!
+    #
+    # Current approach: Add simple action-dependent noise to SPM
+    # This is a placeholder until GRU forward model is implemented
+    #
+    # Key insight: Even simple action-dependency creates useful gradients
+    # for collision avoidance through EFE minimization
+
+    # Action magnitude (fully differentiable)
+    action_mag = sqrt(action[1]^2 + action[2]^2 + 1e-8)  # Add epsilon for stability
+
+    # Create action-dependent perturbation
+    # Approach: Scale current occupancy by action magnitude
+    # Higher action → higher perceived collision risk
+    perturbation_scale = 0.03 * action_mag
+
+    # NON-MUTATING: Use broadcasting with proper array shapes
+    # SPM shape is (Nc=3, Nr, Nθ)
+    # Apply perturbation only to occupancy channel (channel 1)
+
+    # Build channel-wise perturbation using reshape for broadcasting
+    # Channels: [occupancy, radial_vel, tangential_vel]
+    channel_scales = reshape([1.0 + perturbation_scale, 1.0, 1.0], 3, 1, 1)
+
+    # Element-wise multiplication (fully differentiable, non-mutating)
+    spm_perturbed = dog.current_spm .* channel_scales
+
+    return spm_perturbed
 end
 
 """
@@ -475,10 +656,7 @@ function select_action_gradient_descent(
     for iter in 1:params.max_iter
         # Compute gradient via Zygote
         grad_result = gradient(a -> begin
-            # Predict future SPM
-            # NOTE: Currently uses current SPM (no action dependency)
-            # This means ∇_a G comes only from F_percept (haze modulation)
-            # Full implementation needs GRU predictor or forward sheep simulation
+            # Predict future SPM (action-dependent)
             spm_predicted = predict_spm_simple(dog, a, params)
 
             # Compute EFE
@@ -490,6 +668,17 @@ function select_action_gradient_descent(
         end, a)
 
         grad = grad_result[1]
+
+        # Debug: print values AFTER gradient computation (outside Zygote)
+        if dog.id == 1 && iter == 1 && get(ENV, "EPH_DEBUG_GRADIENT", "0") == "1"
+            spm_predicted_debug = predict_spm_simple(dog, a, params)
+            G_debug = compute_efe_shepherding(
+                a, dog, spm_predicted_debug, goal_position, params, world_size
+            )
+            spm_max = maximum(spm_predicted_debug[1, :, :])
+            grad_norm = norm(grad)
+            println("[DEBUG] Dog 1, Iter 1: G = $G_debug, grad_norm = $grad_norm, SPM_max = $spm_max")
+        end
 
         # Compute current EFE and surprise for tracking
         spm_pred = predict_spm_simple(dog, a, params)

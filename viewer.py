@@ -6,11 +6,12 @@ import sys
 import zmq
 import json
 import numpy as np
+import threading
 from collections import deque
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
                              QPushButton, QSlider, QLabel, QSpinBox, QGroupBox, QGridLayout)
-from PyQt5.QtCore import QTimer, Qt, QRectF, QPointF, pyqtSignal
+from PyQt5.QtCore import QTimer, Qt, QRectF, QPointF, pyqtSignal, QDateTime
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QFont, QPolygonF
 
 import matplotlib
@@ -32,6 +33,7 @@ class SimulationWidget(QWidget):
         self.setMinimumSize(SIM_WIDTH, SIM_WIDTH)  # Square aspect ratio
         self.data = None
         self.sim_world_size = (300, 300) # Default, will update from data
+        self.goal_position = None  # Will be updated from data
     
     def heightForWidth(self, width):
         """Maintain square aspect ratio"""
@@ -41,12 +43,33 @@ class SimulationWidget(QWidget):
         """Enable aspect ratio constraint"""
         return True
 
+    def widget_to_world_coords(self, widget_x, widget_y):
+        """Convert widget pixel coordinates to world coordinates.
+
+        Must match the coordinate transformation in paintEvent:
+        - painter.translate(offset_x, offset_y)
+        - painter.scale(scale, scale)
+        """
+        # Calculate same transformation as in paintEvent
+        size = min(self.width(), self.height())
+        scale = size / max(self.sim_world_size[0], self.sim_world_size[1])
+        offset_x = (self.width() - self.sim_world_size[0] * scale) / 2
+        offset_y = (self.height() - self.sim_world_size[1] * scale) / 2
+
+        # Inverse transformation: (widget - offset) / scale = world
+        world_x = (widget_x - offset_x) / scale
+        world_y = (widget_y - offset_y) / scale
+
+        return world_x, world_y
+
     def update_data(self, data):
         self.data = data
         # Update world size from data if available
         if data and "world_size" in data:
             world_size = data["world_size"]
             self.sim_world_size = (world_size[0], world_size[1])
+        # NOTE: goal_position is now managed by MainWindow, not updated from data here
+        # This prevents Julia messages from overwriting user-controlled goal position
         self.update() # Trigger repaint
 
     def paintEvent(self, event):
@@ -90,6 +113,28 @@ class SimulationWidget(QWidget):
                         color = QColor(0, 200, 0, alpha)
                         painter.fillRect(QRectF(c * cell_w, r * cell_h, cell_w, cell_h), color)
 
+        # Draw Goal Position (if available)
+        if self.goal_position is not None:
+            goal_x, goal_y = self.goal_position
+            goal_radius = 20
+
+            # Draw target circle with crosshair
+            painter.setPen(QPen(QColor(255, 200, 0), 3))  # Yellow-orange outline
+            painter.setBrush(QColor(255, 200, 0, 80))  # Semi-transparent fill
+            painter.drawEllipse(QPointF(goal_x, goal_y), goal_radius, goal_radius)
+
+            # Draw crosshair
+            painter.setPen(QPen(QColor(255, 150, 0), 2))
+            painter.drawLine(QPointF(goal_x - goal_radius - 5, goal_y),
+                           QPointF(goal_x + goal_radius + 5, goal_y))
+            painter.drawLine(QPointF(goal_x, goal_y - goal_radius - 5),
+                           QPointF(goal_x, goal_y + goal_radius + 5))
+
+            # Draw "GOAL" label
+            painter.setPen(QColor(255, 200, 0))
+            painter.setFont(QFont("Arial", 10, QFont.Bold))
+            painter.drawText(QPointF(goal_x - 15, goal_y - goal_radius - 10), "GOAL")
+
         # Draw Agents
         agents = self.data.get("agents", [])
         for agent in agents:
@@ -117,8 +162,29 @@ class SimulationWidget(QWidget):
         # Agent 1 or magenta-colored agents are tracked
         is_tracked = (agent_id == 1) or (agent_type in ["dog", "sheep"] and color == [255, 0, 255])
 
+        # Draw FOV (Field of View) for tracked shepherding dog
+        if is_tracked and agent_type == "dog":
+            # SPM perception range: 210 degrees, max range ~100.0
+            fov_angle = np.radians(210)
+            fov_radius = 100  # Max SPM perception range (narrowed from 200)
+
+            fov_start_angle = -np.degrees(orientation + fov_angle/2) * 16
+            fov_span_angle = np.degrees(fov_angle) * 16
+
+            # Draw semi-transparent FOV sector
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 0, 255, 30))  # Semi-transparent magenta
+            painter.drawPie(QRectF(x - fov_radius, y - fov_radius, fov_radius*2, fov_radius*2),
+                            int(fov_start_angle), int(fov_span_angle))
+
+            # Draw FOV boundary arc
+            painter.setPen(QPen(QColor(255, 0, 255, 100), 1, Qt.DashLine))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawArc(QRectF(x - fov_radius, y - fov_radius, fov_radius*2, fov_radius*2),
+                            int(fov_start_angle), int(fov_span_angle))
+
         # Draw FOV (Field of View) - only for non-shepherding agents
-        if agent_type == "default":
+        elif agent_type == "default":
             fov_angle = np.radians(210)
             fov_radius = 100
 
@@ -130,15 +196,18 @@ class SimulationWidget(QWidget):
             painter.drawPie(QRectF(x - fov_radius, y - fov_radius, fov_radius*2, fov_radius*2),
                             int(fov_start_angle), int(fov_span_angle))
 
+        # Keep same radius for all agents
+        display_radius = radius
+
         # Draw Body
         if agent_type in ["dog", "sheep"]:
             # Shepherding agents: Use provided color
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(color[0], color[1], color[2]))
 
-            # Add white outline for tracked agent
+            # Add yellow outline for tracked agent
             if is_tracked:
-                painter.setPen(QPen(Qt.white, 2))
+                painter.setPen(QPen(QColor(255, 255, 0), 3))  # Yellow outline
         elif is_tracked and agent_type == "default":
             # Tracked agent (EPH foraging): Red
             painter.setPen(Qt.NoPen)
@@ -148,12 +217,12 @@ class SimulationWidget(QWidget):
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(80, 120, 255))
 
-        painter.drawEllipse(QPointF(x, y), radius, radius)
+        painter.drawEllipse(QPointF(x, y), display_radius, display_radius)
 
         # Draw Direction Indicator
         end_x = x + np.cos(orientation) * radius * 1.5
         end_y = y + np.sin(orientation) * radius * 1.5
-        painter.setPen(QPen(Qt.black, 2))
+        painter.setPen(QPen(Qt.black, 3 if is_tracked else 2))
         painter.drawLine(QPointF(x, y), QPointF(end_x, end_y))
         
         # Draw Gradient Vector for tracked agent
@@ -196,99 +265,265 @@ class ControlPanel(QWidget):
     start_sim = pyqtSignal()
     stop_sim = pyqtSignal()
     reset_sim = pyqtSignal()
-    speed_changed = pyqtSignal(float)  # Speed multiplier
+    speed_changed = pyqtSignal(float)  # Playback speed multiplier
     steps_changed = pyqtSignal(int)    # Max steps
+    dog_speed_changed = pyqtSignal(float)   # Dog max speed
+    sheep_speed_changed = pyqtSignal(float) # Sheep max speed
+    boids_params_changed = pyqtSignal(dict) # BOIDS parameters
+    save_config = pyqtSignal()         # Save configuration
+    load_config = pyqtSignal()         # Load configuration
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        # Use horizontal layout for compact design
+        layout = QHBoxLayout(self)
+        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
 
-        # Control Group
-        control_group = QGroupBox("Simulation Control")
-        control_layout = QGridLayout()
+        # Control Buttons (vertical mini panel)
+        control_group = QGroupBox("Control")
+        control_layout = QVBoxLayout()
+        control_layout.setSpacing(3)
 
-        # Buttons
-        self.start_btn = QPushButton("▶ Start")
-        self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px;")
+        # Buttons (smaller)
+        self.start_btn = QPushButton("▶")
+        self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
+        self.start_btn.setToolTip("Start")
         self.start_btn.clicked.connect(self.start_sim.emit)
 
-        self.stop_btn = QPushButton("⏸ Stop")
-        self.stop_btn.setStyleSheet("background-color: #f44336; color: white; font-weight: bold; padding: 8px;")
+        self.stop_btn = QPushButton("⏸")
+        self.stop_btn.setStyleSheet("background-color: #f44336; color: white; font-weight: bold; padding: 5px;")
+        self.stop_btn.setToolTip("Stop")
         self.stop_btn.clicked.connect(self.stop_sim.emit)
         self.stop_btn.setEnabled(False)
 
-        self.reset_btn = QPushButton("⟲ Reset")
-        self.reset_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 8px;")
+        self.reset_btn = QPushButton("⟲")
+        self.reset_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px;")
+        self.reset_btn.setToolTip("Reset")
         self.reset_btn.clicked.connect(self.reset_sim.emit)
 
-        control_layout.addWidget(self.start_btn, 0, 0)
-        control_layout.addWidget(self.stop_btn, 0, 1)
-        control_layout.addWidget(self.reset_btn, 1, 0, 1, 2)
+        control_layout.addWidget(self.start_btn)
+        control_layout.addWidget(self.stop_btn)
+        control_layout.addWidget(self.reset_btn)
+        control_layout.addStretch()
 
         control_group.setLayout(control_layout)
         layout.addWidget(control_group)
 
-        # Speed Control Group
-        speed_group = QGroupBox("Playback Speed")
-        speed_layout = QVBoxLayout()
+        # Simulation Parameters (compact)
+        sim_group = QGroupBox("Simulation")
+        sim_layout = QVBoxLayout()
+        sim_layout.setSpacing(2)
 
-        self.speed_label = QLabel("Speed: 1.0x")
-        self.speed_label.setAlignment(Qt.AlignCenter)
-
+        # Playback speed
+        pb_layout = QHBoxLayout()
+        pb_layout.addWidget(QLabel("Play:"))
+        self.speed_label = QLabel("1.0x")
+        self.speed_label.setMinimumWidth(30)
         self.speed_slider = QSlider(Qt.Horizontal)
         self.speed_slider.setMinimum(1)
-        self.speed_slider.setMaximum(50)  # 0.1x to 5.0x
-        self.speed_slider.setValue(10)  # 1.0x
-        self.speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.speed_slider.setTickInterval(5)
+        self.speed_slider.setMaximum(50)
+        self.speed_slider.setValue(10)
         self.speed_slider.valueChanged.connect(self.on_speed_changed)
+        pb_layout.addWidget(self.speed_slider)
+        pb_layout.addWidget(self.speed_label)
+        sim_layout.addLayout(pb_layout)
 
-        speed_layout.addWidget(self.speed_label)
-        speed_layout.addWidget(self.speed_slider)
-
-        # Speed presets
-        preset_layout = QGridLayout()
-        speeds = [("0.5x", 5), ("1x", 10), ("2x", 20), ("5x", 50)]
-        for i, (label, value) in enumerate(speeds):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda checked, v=value: self.speed_slider.setValue(v))
-            preset_layout.addWidget(btn, 0, i)
-
-        speed_layout.addLayout(preset_layout)
-        speed_group.setLayout(speed_layout)
-        layout.addWidget(speed_group)
-
-        # Steps Control Group
-        steps_group = QGroupBox("Max Steps")
-        steps_layout = QVBoxLayout()
-
+        # Max steps
+        steps_layout = QHBoxLayout()
+        steps_layout.addWidget(QLabel("Steps:"))
         self.steps_spinbox = QSpinBox()
         self.steps_spinbox.setMinimum(10)
         self.steps_spinbox.setMaximum(10000)
         self.steps_spinbox.setValue(1000)
         self.steps_spinbox.setSingleStep(50)
         self.steps_spinbox.valueChanged.connect(self.steps_changed.emit)
-
-        steps_layout.addWidget(QLabel("Steps:"))
         steps_layout.addWidget(self.steps_spinbox)
+        steps_layout.addStretch()
+        sim_layout.addLayout(steps_layout)
 
-        steps_group.setLayout(steps_layout)
-        layout.addWidget(steps_group)
+        sim_group.setLayout(sim_layout)
+        layout.addWidget(sim_group)
 
-        # Status Label
-        self.status_label = QLabel("Status: Ready")
-        self.status_label.setStyleSheet("padding: 5px; background-color: #E0E0E0; border-radius: 3px;")
+        # Agent Speeds (compact)
+        agent_group = QGroupBox("Agent Speed")
+        agent_layout = QVBoxLayout()
+        agent_layout.setSpacing(2)
+
+        # Dog speed
+        dog_layout = QHBoxLayout()
+        dog_layout.addWidget(QLabel("Dog:"))
+        self.dog_speed_label = QLabel("40.0")
+        self.dog_speed_label.setMinimumWidth(30)
+        self.dog_speed_slider = QSlider(Qt.Horizontal)
+        self.dog_speed_slider.setMinimum(10)
+        self.dog_speed_slider.setMaximum(100)
+        self.dog_speed_slider.setValue(40)
+        self.dog_speed_slider.valueChanged.connect(self.on_dog_speed_changed)
+        dog_layout.addWidget(self.dog_speed_slider)
+        dog_layout.addWidget(self.dog_speed_label)
+        agent_layout.addLayout(dog_layout)
+
+        # Sheep speed
+        sheep_layout = QHBoxLayout()
+        sheep_layout.addWidget(QLabel("Sheep:"))
+        self.sheep_speed_label = QLabel("10.0")
+        self.sheep_speed_label.setMinimumWidth(30)
+        self.sheep_speed_slider = QSlider(Qt.Horizontal)
+        self.sheep_speed_slider.setMinimum(5)
+        self.sheep_speed_slider.setMaximum(50)
+        self.sheep_speed_slider.setValue(10)
+        self.sheep_speed_slider.valueChanged.connect(self.on_sheep_speed_changed)
+        sheep_layout.addWidget(self.sheep_speed_slider)
+        sheep_layout.addWidget(self.sheep_speed_label)
+        agent_layout.addLayout(sheep_layout)
+
+        agent_group.setLayout(agent_layout)
+        layout.addWidget(agent_group)
+
+        # BOIDS Parameters (compact)
+        boids_group = QGroupBox("BOIDS")
+        boids_layout = QVBoxLayout()
+        boids_layout.setSpacing(2)
+
+        # Helper to create compact slider
+        def create_slider(label, default_val):
+            h_layout = QHBoxLayout()
+            h_layout.addWidget(QLabel(label))
+            value_label = QLabel(f"{default_val/10:.1f}")
+            value_label.setMinimumWidth(25)
+            slider = QSlider(Qt.Horizontal)
+            slider.setMinimum(0)
+            slider.setMaximum(50)
+            slider.setValue(int(default_val))
+            slider.setMinimumWidth(100)  # Ensure slider is wide enough to operate
+            h_layout.addWidget(slider)
+            h_layout.addWidget(value_label)
+            return h_layout, slider, value_label
+
+        # Create sliders
+        sep_l, self.sep_slider, self.sep_label = create_slider("Sep:", 30)
+        ali_l, self.ali_slider, self.ali_label = create_slider("Ali:", 10)
+        coh_l, self.coh_slider, self.coh_label = create_slider("Coh:", 10)
+        flee_l, self.flee_slider, self.flee_label = create_slider("Flee:", 30)
+
+        boids_layout.addLayout(sep_l)
+        boids_layout.addLayout(ali_l)
+        boids_layout.addLayout(coh_l)
+        boids_layout.addLayout(flee_l)
+
+        # Connect sliders
+        self.sep_slider.valueChanged.connect(lambda v: self.on_boids_param_changed('sep', v))
+        self.ali_slider.valueChanged.connect(lambda v: self.on_boids_param_changed('ali', v))
+        self.coh_slider.valueChanged.connect(lambda v: self.on_boids_param_changed('coh', v))
+        self.flee_slider.valueChanged.connect(lambda v: self.on_boids_param_changed('flee', v))
+
+        boids_group.setLayout(boids_layout)
+        layout.addWidget(boids_group)
+
+        # Config (compact)
+        config_group = QGroupBox("Config")
+        config_layout = QVBoxLayout()
+        config_layout.setSpacing(2)
+
+        self.save_btn = QPushButton("💾")
+        self.save_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 3px;")
+        self.save_btn.setToolTip("Save configuration")
+        self.save_btn.clicked.connect(self.save_config.emit)
+
+        self.load_btn = QPushButton("📂")
+        self.load_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 3px;")
+        self.load_btn.setToolTip("Load configuration")
+        self.load_btn.clicked.connect(self.load_config.emit)
+
+        config_layout.addWidget(self.save_btn)
+        config_layout.addWidget(self.load_btn)
+        config_layout.addStretch()
+        config_group.setLayout(config_layout)
+        layout.addWidget(config_group)
+
+        # Status Label (minimal)
+        self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet("padding: 2px; font-size: 9px;")
+        self.status_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.status_label)
-
-        layout.addStretch()
 
     def on_speed_changed(self, value):
         speed = value / 10.0
         self.speed_label.setText(f"Speed: {speed:.1f}x")
         self.speed_changed.emit(speed)
+
+    def on_dog_speed_changed(self, value):
+        speed = float(value)
+        self.dog_speed_label.setText(f"{speed:.1f}")
+        self.dog_speed_changed.emit(speed)
+
+    def on_sheep_speed_changed(self, value):
+        speed = float(value)
+        self.sheep_speed_label.setText(f"{speed:.1f}")
+        self.sheep_speed_changed.emit(speed)
+
+    def on_boids_param_changed(self, param_name, value):
+        """Handle BOIDS parameter slider changes."""
+        float_value = value / 10.0
+
+        # Update label
+        if param_name == 'sep':
+            self.sep_label.setText(f"{float_value:.1f}")
+        elif param_name == 'ali':
+            self.ali_label.setText(f"{float_value:.1f}")
+        elif param_name == 'coh':
+            self.coh_label.setText(f"{float_value:.1f}")
+        elif param_name == 'flee':
+            self.flee_label.setText(f"{float_value:.1f}")
+
+        # Emit all current BOIDS params
+        params = {
+            'w_separation': self.sep_slider.value() / 10.0,
+            'w_alignment': self.ali_slider.value() / 10.0,
+            'w_cohesion': self.coh_slider.value() / 10.0,
+            'flee_weight': self.flee_slider.value() / 10.0
+        }
+        self.boids_params_changed.emit(params)
+
+    def get_all_params(self):
+        """Get all current parameter values for saving."""
+        return {
+            'dog_speed': self.dog_speed_slider.value(),
+            'sheep_speed': self.sheep_speed_slider.value(),
+            'playback_speed': self.speed_slider.value(),
+            'max_steps': self.steps_spinbox.value(),
+            'boids': {
+                'w_separation': self.sep_slider.value() / 10.0,
+                'w_alignment': self.ali_slider.value() / 10.0,
+                'w_cohesion': self.coh_slider.value() / 10.0,
+                'flee_weight': self.flee_slider.value() / 10.0
+            }
+        }
+
+    def set_all_params(self, params):
+        """Set all parameter values from loaded config."""
+        if 'dog_speed' in params:
+            self.dog_speed_slider.setValue(int(params['dog_speed']))
+        if 'sheep_speed' in params:
+            self.sheep_speed_slider.setValue(int(params['sheep_speed']))
+        if 'playback_speed' in params:
+            self.speed_slider.setValue(int(params['playback_speed']))
+        if 'max_steps' in params:
+            self.steps_spinbox.setValue(int(params['max_steps']))
+        if 'boids' in params:
+            boids = params['boids']
+            if 'w_separation' in boids:
+                self.sep_slider.setValue(int(boids['w_separation'] * 10))
+            if 'w_alignment' in boids:
+                self.ali_slider.setValue(int(boids['w_alignment'] * 10))
+            if 'w_cohesion' in boids:
+                self.coh_slider.setValue(int(boids['w_cohesion'] * 10))
+            if 'flee_weight' in boids:
+                self.flee_slider.setValue(int(boids['flee_weight'] * 10))
 
     def set_running(self, running):
         self.start_btn.setEnabled(not running)
@@ -369,6 +604,20 @@ class DashboardWidget(QWidget):
             'grad_norm': deque(maxlen=self.max_history)
         }
 
+    def clear_plots(self):
+        """Clear all plot history and redraw empty plots."""
+        # Clear history
+        for key in self.history:
+            self.history[key].clear()
+
+        # Clear all axes
+        for ax in self.axes:
+            ax.clear()
+            ax.grid(True, linestyle='--', alpha=0.6)
+
+        self.canvas.draw()
+        print("Dashboard plots cleared")
+
     def update_plots(self, data):
         tracked_data = data.get("tracked_agent")
         if not tracked_data:
@@ -418,7 +667,7 @@ class DashboardWidget(QWidget):
                 ax.imshow(data, cmap=cmap, aspect='auto', interpolation='nearest', vmin=vmin, vmax=vmax)
                 ax.tick_params(labelsize=8)
 
-        plot_hm(self.ax_spm_occ, spm_occ, 'SPM: Occupancy', 'hot')
+        plot_hm(self.ax_spm_occ, spm_occ, 'SPM: Occupancy', 'hot', vmin=0, vmax=10)
         plot_hm(self.ax_spm_rad, spm_rad, 'SPM: Radial Vel', 'RdBu', -50, 50)
         plot_hm(self.ax_spm_tan, spm_tan, 'SPM: Tangential Vel', 'RdBu', -50, 50)
 
@@ -459,21 +708,126 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.dashboard_widget, stretch=6)
 
         # Connect control signals
+        self.control_panel.start_sim.connect(self.on_start)
+        self.control_panel.stop_sim.connect(self.on_stop)
+        self.control_panel.reset_sim.connect(self.on_reset)
         self.control_panel.speed_changed.connect(self.on_speed_changed)
+        self.control_panel.dog_speed_changed.connect(self.on_dog_speed_changed)
+        self.control_panel.sheep_speed_changed.connect(self.on_sheep_speed_changed)
+        self.control_panel.boids_params_changed.connect(self.on_boids_params_changed)
+        self.control_panel.save_config.connect(self.on_save_config)
+        self.control_panel.load_config.connect(self.on_load_config)
+
         self.is_paused = False
         self.speed_multiplier = 1.0
+        self.dog_max_speed = 40.0
+        self.sheep_max_speed = 10.0
+        self.config_file = "shepherding_config.json"
+
+        # Goal position (default: 75% of world size, will be updated from Julia)
+        self.goal_position = [300.0, 300.0]  # [x, y] in world coordinates
+        self.world_size = 400.0
+        self.sim_widget.goal_position = self.goal_position  # Sync with sim widget
+        self.goal_position_user_controlled = False  # Flag: has user set goal position?
+
+        # Enable mouse tracking for goal position updates
+        self.sim_widget.setMouseTracking(True)
+        self.sim_widget.mousePressEvent = self.on_sim_mouse_press
+        self.sim_widget.mouseMoveEvent = self.on_sim_mouse_move
+        self.sim_widget.mouseReleaseEvent = self.on_sim_mouse_release
+        self.goal_drag_active = False
+
+        # Enable keyboard input for goal position
+        self.setFocusPolicy(Qt.StrongFocus)
 
         # ZeroMQ Setup
         self.context = zmq.Context()
+
+        # SUB socket for receiving simulation data
         self.socket = self.context.socket(zmq.SUB)
         self.socket.connect("tcp://localhost:5555")
         self.socket.setsockopt_string(zmq.SUBSCRIBE, '')
+
+        # REQ socket for sending control commands
+        self.control_socket = self.context.socket(zmq.REQ)
+        self.control_socket.connect("tcp://localhost:5556")
+        self.control_socket.setsockopt(zmq.LINGER, 0)
+        self.control_socket.setsockopt(zmq.RCVTIMEO, 1000)  # Default 1s timeout
+        print("✓ Connected to Julia control socket (tcp://localhost:5556)")
+
+        # Lock for thread-safe socket access
+        self.control_socket_lock = threading.Lock()
         
         # Timer for polling ZMQ
         self.base_interval = 16  # ~60 FPS base
         self.timer = QTimer()
         self.timer.timeout.connect(self.poll_zmq)
         self.timer.start(self.base_interval)
+
+    def on_start(self):
+        """Start/Resume simulation."""
+        self.is_paused = False
+        self.control_panel.set_running(True)
+        print("Simulation started/resumed")
+
+    def on_stop(self):
+        """Stop/Pause simulation."""
+        self.is_paused = True
+        self.control_panel.set_running(False)
+        print("Simulation paused")
+
+    def send_control_command(self, command, value=None):
+        """Send control command to Julia server and get response (thread-safe)."""
+        with self.control_socket_lock:
+            try:
+                cmd = {"command": command}
+                if value is not None:
+                    cmd["value"] = value
+
+                self.control_socket.send_json(cmd)
+                response = self.control_socket.recv_json()
+                return response
+            except zmq.error.Again:
+                print(f"Timeout waiting for response to command: {command}")
+                # REQ socket is now in invalid state, must recreate
+                self._recreate_control_socket()
+                return None
+            except zmq.ZMQError as e:
+                print(f"ZMQ error sending control command: {e}")
+                # Socket may be in invalid state, recreate
+                self._recreate_control_socket()
+                return None
+            except Exception as e:
+                print(f"Error sending control command: {e}")
+                return None
+
+    def _recreate_control_socket(self):
+        """Recreate control socket after error (must hold lock)."""
+        try:
+            self.control_socket.close()
+        except:
+            pass
+
+        self.control_socket = self.context.socket(zmq.REQ)
+        self.control_socket.connect("tcp://localhost:5556")
+        self.control_socket.setsockopt(zmq.LINGER, 0)
+        self.control_socket.setsockopt(zmq.RCVTIMEO, 1000)  # 1s timeout
+        print("✓ Control socket recreated after error")
+
+    def on_reset(self):
+        """Reset simulation by sending reset command to Julia server (async)."""
+        print("Sending RESET command to Julia server...")
+        self.dashboard_widget.clear_plots()
+
+        # Send command in background thread to avoid blocking UI
+        def send_cmd():
+            response = self.send_control_command("reset")
+            if response:
+                print(f"✓ Reset response: {response.get('status')}")
+            else:
+                print("✗ Failed to send reset command")
+
+        threading.Thread(target=send_cmd, daemon=True).start()
 
     def on_speed_changed(self, speed):
         """Adjust polling rate based on speed multiplier."""
@@ -482,18 +836,217 @@ class MainWindow(QMainWindow):
         # Slower speed = longer interval (poll less frequently)
         new_interval = max(1, int(self.base_interval / speed))
         self.timer.setInterval(new_interval)
+        print(f"Playback speed changed to {speed:.1f}x")
 
-    def poll_zmq(self):
-        if self.is_paused:
+    def on_dog_speed_changed(self, speed):
+        """Update dog max speed via Julia control channel (async)."""
+        self.dog_max_speed = speed
+        print(f"Setting dog max speed to {speed:.1f}...")
+
+        # Send command in background thread to avoid blocking UI
+        def send_cmd():
+            response = self.send_control_command("set_dog_speed", speed)
+            if response and response.get("status") == "ok":
+                print(f"✓ Dog max speed updated to {response.get('dog_speed'):.1f}")
+            else:
+                print(f"✗ Failed to update dog speed: {response}")
+
+        threading.Thread(target=send_cmd, daemon=True).start()
+
+    def on_sheep_speed_changed(self, speed):
+        """Update sheep max speed via Julia control channel (async)."""
+        self.sheep_max_speed = speed
+        print(f"Setting sheep max speed to {speed:.1f}...")
+
+        # Send command in background thread to avoid blocking UI
+        def send_cmd():
+            response = self.send_control_command("set_sheep_speed", speed)
+            if response and response.get("status") == "ok":
+                print(f"✓ Sheep max speed updated to {response.get('sheep_speed'):.1f}")
+            else:
+                print(f"✗ Failed to update sheep speed: {response}")
+
+        threading.Thread(target=send_cmd, daemon=True).start()
+
+    def on_boids_params_changed(self, params):
+        """Update BOIDS parameters via Julia control channel (async)."""
+        print(f"Setting BOIDS params: {params}")
+
+        def send_cmd():
+            response = self.send_control_command("set_boids_params", params)
+            if response and response.get("status") == "ok":
+                print(f"✓ BOIDS parameters updated")
+            else:
+                print(f"✗ Failed to update BOIDS params: {response}")
+
+        threading.Thread(target=send_cmd, daemon=True).start()
+
+    def on_save_config(self):
+        """Save current configuration to JSON file."""
+        import json
+
+        config = self.control_panel.get_all_params()
+        config['timestamp'] = str(QDateTime.currentDateTime().toString())
+
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+            print(f"✓ Configuration saved to {self.config_file}")
+            self.control_panel.status_label.setText("Config saved!")
+            QTimer.singleShot(2000, lambda: self.control_panel.status_label.setText("Status: Ready"))
+        except Exception as e:
+            print(f"✗ Failed to save config: {e}")
+            self.control_panel.status_label.setText(f"Save failed: {e}")
+
+    def on_load_config(self):
+        """Load configuration from JSON file."""
+        import json
+        import os
+
+        if not os.path.exists(self.config_file):
+            print(f"✗ Config file not found: {self.config_file}")
+            self.control_panel.status_label.setText("No config file found")
+            QTimer.singleShot(2000, lambda: self.control_panel.status_label.setText("Status: Ready"))
             return
 
         try:
+            with open(self.config_file, 'r') as f:
+                config = json.load(f)
+
+            self.control_panel.set_all_params(config)
+            print(f"✓ Configuration loaded from {self.config_file}")
+            self.control_panel.status_label.setText("Config loaded!")
+            QTimer.singleShot(2000, lambda: self.control_panel.status_label.setText("Status: Ready"))
+        except Exception as e:
+            print(f"✗ Failed to load config: {e}")
+            self.control_panel.status_label.setText(f"Load failed: {e}")
+
+    def on_sim_mouse_press(self, event):
+        """Handle mouse press on simulation widget to move goal."""
+        if event.button() == Qt.LeftButton:
+            # Convert widget coordinates to world coordinates
+            pos = event.pos()
+            world_x, world_y = self.sim_widget.widget_to_world_coords(pos.x(), pos.y())
+
+            # Check if click is near current goal position (within 30 world units)
+            if self.goal_position:
+                dx = world_x - self.goal_position[0]
+                dy = world_y - self.goal_position[1]
+                dist = (dx*dx + dy*dy)**0.5
+
+                if dist < 30:
+                    # Start dragging goal
+                    self.goal_drag_active = True
+                    return
+
+            # Direct click: move goal immediately
+            self.update_goal_position(world_x, world_y)
+
+    def on_sim_mouse_move(self, event):
+        """Handle mouse move to drag goal position."""
+        if self.goal_drag_active:
+            pos = event.pos()
+            world_x, world_y = self.sim_widget.widget_to_world_coords(pos.x(), pos.y())
+            self.update_goal_position(world_x, world_y)
+
+    def keyPressEvent(self, event):
+        """Handle keyboard input to move goal position."""
+        if not self.goal_position:
+            return
+
+        move_step = 10.0  # pixels per key press
+        x, y = self.goal_position
+
+        if event.key() == Qt.Key_Left:
+            self.update_goal_position(x - move_step, y)
+        elif event.key() == Qt.Key_Right:
+            self.update_goal_position(x + move_step, y)
+        elif event.key() == Qt.Key_Up:
+            self.update_goal_position(x, y - move_step)
+        elif event.key() == Qt.Key_Down:
+            self.update_goal_position(x, y + move_step)
+        else:
+            super().keyPressEvent(event)
+
+    def on_sim_mouse_release(self, event):
+        """Handle mouse release to stop dragging."""
+        if event.button() == Qt.LeftButton:
+            self.goal_drag_active = False
+
+    def update_goal_position(self, x, y):
+        """Update goal position and send to Julia server."""
+        # Clamp to world bounds
+        x = max(0, min(self.world_size, x))
+        y = max(0, min(self.world_size, y))
+
+        # Update locally FIRST for immediate visual feedback
+        self.goal_position = [x, y]
+        self.sim_widget.goal_position = [x, y]  # Update SimulationWidget too
+        self.goal_position_user_controlled = True  # User has taken control
+
+        self.sim_widget.update()  # Redraw immediately
+
+        # Send to Julia server asynchronously (don't block UI)
+        def send_cmd():
+            try:
+                with self.control_socket_lock:
+                    # Send command with fire-and-forget approach
+                    cmd = {"command": "set_goal_position", "value": [x, y]}
+                    self.control_socket.send_json(cmd)
+
+                    # Try to receive response with very short timeout
+                    self.control_socket.setsockopt(zmq.RCVTIMEO, 50)
+                    try:
+                        self.control_socket.recv_json()
+                        # Success - goal synced
+                    except zmq.error.Again:
+                        # Timeout: Julia is busy, but command was sent
+                        # Recreate socket for next command (REQ-REP needs clean state)
+                        self._recreate_control_socket()
+                    finally:
+                        # Restore normal timeout
+                        self.control_socket.setsockopt(zmq.RCVTIMEO, 1000)
+            except Exception:
+                # Try to recover socket on error
+                try:
+                    self._recreate_control_socket()
+                except:
+                    pass
+
+        threading.Thread(target=send_cmd, daemon=True).start()
+
+    def poll_zmq(self):
+        try:
+            # If paused, drain the socket buffer to prevent buildup
+            if self.is_paused:
+                # Drain all pending messages (don't display them)
+                while True:
+                    try:
+                        self.socket.recv_string(flags=zmq.NOBLOCK)
+                    except zmq.Again:
+                        break  # No more messages
+                return
+
             # Poll multiple messages if speed > 1.0 to catch up
             max_msgs = max(1, int(self.speed_multiplier))
             for _ in range(max_msgs):
                 try:
                     msg = self.socket.recv_string(flags=zmq.NOBLOCK)
                     data = json.loads(msg)
+
+                    # Update world size and goal position from first message
+                    if hasattr(data, 'get'):
+                        world_size_data = data.get("world_size")
+                        if world_size_data and isinstance(world_size_data, list) and len(world_size_data) == 2:
+                            self.world_size = world_size_data[0]
+
+                        # Update goal position if provided (ONLY on initial connection)
+                        goal_data = data.get("goal_position")
+                        if goal_data and isinstance(goal_data, list) and len(goal_data) == 2:
+                            # Only accept Julia's goal position if user hasn't taken control yet
+                            if not self.goal_position_user_controlled and not self.goal_drag_active:
+                                self.goal_position = goal_data
+                                self.sim_widget.goal_position = goal_data
 
                     # Update widgets
                     self.sim_widget.update_data(data)
@@ -510,11 +1063,14 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # Stop the timer to prevent further polling
         self.timer.stop()
-        
+
         # Set LINGER to 0 to discard pending messages immediately
         self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.close()
-        
+
+        self.control_socket.setsockopt(zmq.LINGER, 0)
+        self.control_socket.close()
+
         # Terminate context
         self.context.term()
         event.accept()

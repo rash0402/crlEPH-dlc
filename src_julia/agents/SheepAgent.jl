@@ -34,14 +34,14 @@ Base.@kwdef mutable struct SheepParams
     w_alignment::Float64 = 1.0
     w_cohesion::Float64 = 1.0
 
-    # Flee-from-dog parameters
-    flee_range::Float64 = 150.0        # Maximum flee distance
-    k_flee::Float64 = 300.0            # Flee force magnitude (increased)
-    r_fear::Float64 = 50.0             # Exponential decay scale
+    # Flee-from-dog parameters (STRONGLY PRIORITIZED)
+    flee_range::Float64 = 100.0        # Maximum flee distance (matched to dog FOV)
+    k_flee::Float64 = 800.0            # Flee force magnitude (VERY STRONG)
+    r_fear::Float64 = 40.0             # Exponential decay scale (adjusted for narrower range)
 
-    # Physical constraints
-    max_speed::Float64 = 40.0
-    max_acceleration::Float64 = 80.0
+    # Physical constraints (slower than dogs for effective herding)
+    max_speed::Float64 = 10.0           # Default speed
+    max_acceleration::Float64 = 20.0    # Scaled with speed
     radius::Float64 = 4.0
 
     # Environmental noise
@@ -112,24 +112,27 @@ function compute_boids_forces(
         )
 
         # Separation: repel from nearby sheep
-        # Use sum of radii for collision threshold
+        # IMPORTANT: Use effective distance = actual distance - sum of radii
         min_dist = sheep.radius + other.radius
+        effective_dist = dist - min_dist  # Negative if overlapping!
+
         if dist < params.separation_radius && dist > 1e-6
             repulsion_dir = [dx, dy] / dist
-            # Stronger repulsion when very close (potential collision)
-            if dist < min_dist * 1.2
-                # CRITICAL: Actual collision imminent
-                # Extremely strong inverse square
-                sep -= repulsion_dir * 200.0 / (dist * dist + 0.1)
-            elseif dist < min_dist * 2.0
-                # Emergency: very strong repulsion
-                sep -= repulsion_dir * 100.0 / (dist * dist + 1.0)
-            elseif dist < min_dist * 3.0
-                # Close proximity: strong repulsion
-                sep -= repulsion_dir * 30.0 / dist
+
+            # Multi-tier repulsion based on effective distance
+            if effective_dist < 0.0
+                # CRITICAL: Already overlapping!
+                overlap = -effective_dist
+                sep -= repulsion_dir * 300.0 * (1.0 + overlap / min_dist)
+            elseif effective_dist < min_dist * 0.5
+                # Very close: strong repulsion
+                sep -= repulsion_dir * 150.0 / (effective_dist + 0.5)
+            elseif effective_dist < min_dist * 1.5
+                # Close: moderate repulsion
+                sep -= repulsion_dir * 60.0 / (effective_dist + 1.0)
             else
                 # Normal separation
-                sep -= repulsion_dir / dist
+                sep -= repulsion_dir * 20.0 / (effective_dist + 2.0)
             end
             n_sep += 1
         end
@@ -197,23 +200,28 @@ function compute_flee_force(
         )
 
         if dist < params.flee_range && dist > 1e-6
-            # Direction away from dog
-            flee_dir = [dx, dy] / dist
+            # Direction away from dog (NEGATIVE because dx,dy points TOWARDS dog)
+            # We want to flee in the OPPOSITE direction
+            flee_dir = -[dx, dy] / dist
 
-            # Emergency collision avoidance with dog (assuming dog radius ~4.8)
+            # IMPORTANT: Use effective distance (dog radius ~4.8)
             min_dist = sheep.radius + 4.8
-            if dist < min_dist * 1.2
-                # CRITICAL: collision imminent
-                flee_magnitude = params.k_flee * 20.0 / (dist * dist + 0.1)
-            elseif dist < min_dist * 2.0
-                # Emergency: very strong
-                flee_magnitude = params.k_flee * 10.0 / (dist * dist + 1.0)
-            elseif dist < min_dist * 3.5
+            effective_dist = dist - min_dist  # Negative if overlapping!
+
+            # Multi-tier flee response based on effective distance
+            if effective_dist < 0.0
+                # CRITICAL: Overlapping with dog! Emergency escape!
+                overlap = -effective_dist
+                flee_magnitude = params.k_flee * 30.0 * (1.0 + overlap / min_dist)
+            elseif effective_dist < min_dist * 0.5
+                # Very close: extremely strong
+                flee_magnitude = params.k_flee * 15.0 / (effective_dist + 0.5)
+            elseif effective_dist < min_dist * 1.5
                 # Close: strong exponential
-                flee_magnitude = params.k_flee * 2.0 * exp(-dist / (params.r_fear * 0.5))
+                flee_magnitude = params.k_flee * 3.0 * exp(-effective_dist / (params.r_fear * 0.5))
             else
                 # Normal exponential decay
-                flee_magnitude = params.k_flee * exp(-dist / params.r_fear)
+                flee_magnitude = params.k_flee * exp(-effective_dist / params.r_fear)
             end
 
             flee += flee_magnitude * flee_dir
@@ -241,11 +249,12 @@ function update_sheep!(
     flee = compute_flee_force(sheep, dog_positions, params)
 
     # 3. Combine forces with time-varying weights
+    # CRITICAL: Flee force has 3x weight to ensure strong escape response
     w = sheep.boids_weights
     total_force = w[1] * boids.separation +
                   w[2] * boids.alignment +
                   w[3] * boids.cohesion +
-                  flee
+                  3.0 * flee  # Flee is STRONGLY prioritized
 
     # 4. Add environmental noise
     noise = randn(2) * params.noise_strength

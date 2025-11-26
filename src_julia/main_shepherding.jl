@@ -36,7 +36,7 @@ using .ShepherdingEPHv2
 """
 Create ZeroMQ visualization message
 """
-function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
+function create_viz_message(frame::Int, dogs, flock, world_size::Float64, goal_position::Vector{Float64})
     agents = []
 
     # Add all dogs
@@ -109,6 +109,7 @@ function create_viz_message(frame::Int, dogs, flock, world_size::Float64)
         "agents" => agents,
         "haze_grid" => haze_grid,
         "world_size" => [world_size, world_size],
+        "goal_position" => goal_position,  # Add goal position to message
         "tracked_agent" => tracked_data
     )
 end
@@ -123,8 +124,8 @@ function run_shepherding_with_viz()
 
     # === Parameters (from environment or defaults) ===
     world_size = parse(Float64, get(ENV, "EPH_WORLD_SIZE", "400.0"))
-    n_sheep = parse(Int, get(ENV, "EPH_N_SHEEP", "25"))
-    n_dogs = parse(Int, get(ENV, "EPH_N_DOGS", "5"))
+    n_sheep = parse(Int, get(ENV, "EPH_N_SHEEP", "30"))  # Default: 30 sheep
+    n_dogs = parse(Int, get(ENV, "EPH_N_DOGS", "5"))     # Default: 5 dogs
     n_steps = parse(Int, get(ENV, "EPH_STEPS", "1000"))
     seed = parse(Int, get(ENV, "EPH_SEED", "42"))
 
@@ -172,13 +173,14 @@ function run_shepherding_with_viz()
         max_speed=40.0
     )
 
-    # Sheep parameters
+    # Sheep parameters (with strong flee response, slower than dogs)
     sheep_params = SheepParams(
         world_size=world_size,
-        flee_range=120.0,
-        k_flee=150.0,
-        r_fear=40.0,
-        max_speed=40.0,
+        flee_range=100.0,         # Matched to dog FOV range
+        k_flee=800.0,             # Very strong flee force
+        r_fear=40.0,              # Adjusted for narrower range
+        max_speed=10.0,           # Much slower than dogs (dog: 40.0)
+        max_acceleration=20.0,    # Slower acceleration
         dt=0.1
     )
 
@@ -189,14 +191,20 @@ function run_shepherding_with_viz()
     # === Initialize ZMQ ===
     println("\nInitializing ZeroMQ...")
     ctx = Context()
+
+    # PUB socket for simulation data
     socket = Socket(ctx, PUB)
     ZMQ.bind(socket, "tcp://*:5555")
-    println("  ✓ ZMQ Server bound to tcp://*:5555")
+    println("  ✓ ZMQ PUB Server bound to tcp://*:5555")
+
+    # REP socket for control commands (non-blocking)
+    control_socket = Socket(ctx, REP)
+    ZMQ.bind(control_socket, "tcp://*:5556")
+    println("  ✓ ZMQ REP Control bound to tcp://*:5556")
     println("  ✓ Ready for viewer connection")
 
-    # Wait for viewer to connect (reduced wait time)
-    println("\nWaiting for viewer to connect (1 second)...")
-    sleep(1)
+    # No sleep needed - viewer will connect when ready
+    # PUB-SUB and REQ-REP sockets work asynchronously
 
     # === Simulation Loop ===
     println("\nStarting simulation ($n_steps steps)...")
@@ -206,11 +214,88 @@ function run_shepherding_with_viz()
     # Disable default SIGINT handling
     Base.exit_on_sigint(false)
 
+    # Simulation control variables
+    should_reset = false
+    is_running = true
+
     try
         for step in 1:n_steps
-            # Update all dogs (EPH controller)
+            # Check for control commands (non-blocking)
+            # Use try-catch with DONTWAIT flag for non-blocking receive
+            try
+                # Try to receive with DONTWAIT flag (will throw if no message)
+                cmd_json = ZMQ.recv(control_socket, String; mode=ZMQ.DONTWAIT)
+                cmd = JSON.parse(cmd_json)
+
+                if cmd["command"] == "reset"
+                    # Reset simulation within the loop (don't break)
+                    println("\n[CONTROL] Received RESET command - resetting agents...")
+
+                    # Reinitialize all agents
+                    dogs = ShepherdingEPHv2.create_shepherding_dogs(
+                        n_dogs,
+                        world_size,
+                        shep_params
+                    )
+
+                    flock = create_sheep_flock(
+                        n_sheep,
+                        world_size,
+                        spawn_region=(0.3, 0.7)
+                    )
+
+                    # Reset step counter
+                    step = 1
+
+                    println("[CONTROL] Reset complete - $(n_dogs) dogs, $(n_sheep) sheep")
+                    ZMQ.send(control_socket, JSON.json(Dict("status" => "ok", "message" => "reset_complete")))
+                elseif cmd["command"] == "set_dog_speed"
+                    new_speed = cmd["value"]
+                    shep_params.max_speed = new_speed
+                    println("[CONTROL] Dog max speed set to $new_speed")
+                    ZMQ.send(control_socket, JSON.json(Dict("status" => "ok", "dog_speed" => new_speed)))
+                elseif cmd["command"] == "set_sheep_speed"
+                    new_speed = cmd["value"]
+                    sheep_params.max_speed = new_speed
+                    sheep_params.max_acceleration = new_speed * 2.0  # Maintain ratio
+                    println("[CONTROL] Sheep max speed set to $new_speed")
+                    ZMQ.send(control_socket, JSON.json(Dict("status" => "ok", "sheep_speed" => new_speed)))
+                elseif cmd["command"] == "set_boids_params"
+                    params_dict = cmd["value"]
+                    if haskey(params_dict, "w_separation")
+                        sheep_params.w_separation = params_dict["w_separation"]
+                    end
+                    if haskey(params_dict, "w_alignment")
+                        sheep_params.w_alignment = params_dict["w_alignment"]
+                    end
+                    if haskey(params_dict, "w_cohesion")
+                        sheep_params.w_cohesion = params_dict["w_cohesion"]
+                    end
+                    # Update flee weight in all sheep's boids_weights (3rd multiplier in update_sheep!)
+                    if haskey(params_dict, "flee_weight")
+                        # Store flee_weight separately for reference
+                        flee_weight = params_dict["flee_weight"]
+                        println("[CONTROL] BOIDS params updated: sep=$(sheep_params.w_separation), ali=$(sheep_params.w_alignment), coh=$(sheep_params.w_cohesion), flee=$flee_weight")
+                    else
+                        println("[CONTROL] BOIDS params updated: sep=$(sheep_params.w_separation), ali=$(sheep_params.w_alignment), coh=$(sheep_params.w_cohesion)")
+                    end
+                    ZMQ.send(control_socket, JSON.json(Dict("status" => "ok")))
+                elseif cmd["command"] == "set_goal_position"
+                    new_goal = cmd["value"]  # [x, y] array
+                    goal_position[1] = new_goal[1]
+                    goal_position[2] = new_goal[2]
+                    println("[CONTROL] Goal position updated to [$(goal_position[1]), $(goal_position[2])]")
+                    ZMQ.send(control_socket, JSON.json(Dict("status" => "ok", "goal_position" => goal_position)))
+                else
+                    ZMQ.send(control_socket, JSON.json(Dict("status" => "unknown_command")))
+                end
+            catch
+                # No message available (EAGAIN error), continue normally
+            end
+
+            # Update all dogs (EPH controller with dog-dog collision avoidance)
             for dog in dogs
-                update_shepherding_dog!(dog, flock, shep_params, world_size)
+                update_shepherding_dog!(dog, flock, shep_params, world_size, other_dogs=dogs)
             end
 
             # Update sheep (BOIDS + flee from all dogs)
@@ -220,7 +305,7 @@ function run_shepherding_with_viz()
             end
 
             # Send visualization message (includes all dogs and sheep)
-            msg = create_viz_message(step, dogs, flock, world_size)
+            msg = create_viz_message(step, dogs, flock, world_size, goal_position)
             ZMQ.send(socket, JSON.json(msg))
 
             # Progress indicator (every 100 steps)
@@ -247,28 +332,39 @@ function run_shepherding_with_viz()
         # Cleanup
         println("\nCleaning up...")
         close(socket)
+        close(control_socket)
         close(ctx)
-        println("  ✓ ZMQ connection closed")
+        println("  ✓ ZMQ connections closed")
 
-        # Final statistics
-        final_com = compute_center_of_mass(flock)
-        final_dist = norm(final_com - goal_position)
-        final_compact = compute_compactness(flock)
+        # Final statistics (only if not resetting)
+        if !should_reset
+            final_com = compute_center_of_mass(flock)
+            final_dist = norm(final_com - goal_position)
+            final_compact = compute_compactness(flock)
 
-        println("\n" * "=" ^ 60)
-        println("Final State:")
-        println("=" ^ 60)
-        @printf("  Sheep COM:       [%.1f, %.1f]\n", final_com...)
-        @printf("  Goal distance:   %.2f\n", final_dist)
-        @printf("  Compactness:     %.2f\n", final_compact)
+            println("\n" * "=" ^ 60)
+            println("Final State:")
+            println("=" ^ 60)
+            @printf("  Sheep COM:       [%.1f, %.1f]\n", final_com...)
+            @printf("  Goal distance:   %.2f\n", final_dist)
+            @printf("  Compactness:     %.2f\n", final_compact)
 
-        if final_dist < 100.0
-            println("\n  ✓ Goal reached!")
-        else
-            println("\n  Goal not reached (dist > 100)")
+            if final_dist < 100.0
+                println("\n  ✓ Goal reached!")
+            else
+                println("\n  Goal not reached (dist > 100)")
+            end
+
+            println("=" ^ 60)
         end
+    end
 
+    # Handle reset: restart simulation
+    if should_reset
+        println("\n" * "=" ^ 60)
+        println("RESETTING SIMULATION...")
         println("=" ^ 60)
+        run_shepherding_with_viz()  # Recursive call to restart
     end
 end
 
