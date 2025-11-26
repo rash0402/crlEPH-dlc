@@ -560,10 +560,11 @@ class ControlPanel(QWidget):
 
 class DashboardWidget(QWidget):
     """Widget to display real-time plots using Matplotlib."""
-    def __init__(self, parent=None, control_socket=None, socket_lock=None):
+    def __init__(self, parent=None, control_socket=None, socket_lock=None, zmq_context=None):
         super().__init__(parent)
         self.control_socket = control_socket
         self.socket_lock = socket_lock
+        self.context = zmq_context  # ZMQ context for socket recreation
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
@@ -723,8 +724,34 @@ class DashboardWidget(QWidget):
                         print(f"Warning: Unexpected response from Julia: {response}")
                 except zmq.Again:
                     print("Warning: No response from Julia server (timeout)")
+                    # REQ socket becomes invalid after timeout - must reset
+                    self._reset_control_socket()
+        except zmq.ZMQError as e:
+            print(f"ZMQ error sending haze update: {e}")
+            # Reset socket on any ZMQ error (e.g., "Operation cannot be accomplished")
+            self._reset_control_socket()
         except Exception as e:
             print(f"Error sending haze update: {e}")
+
+    def _reset_control_socket(self):
+        """Reset control socket after error or timeout.
+
+        REQ sockets have strict send-recv-send-recv ordering.
+        If recv times out or errors, the socket becomes invalid and must be recreated.
+        """
+        try:
+            if self.control_socket is not None:
+                self.control_socket.close()
+
+            # Recreate REQ socket with same settings
+            import zmq
+            self.control_socket = self.context.socket(zmq.REQ)
+            self.control_socket.connect("tcp://localhost:5556")
+            self.control_socket.setsockopt(zmq.LINGER, 0)
+            self.control_socket.setsockopt(zmq.RCVTIMEO, 1000)
+            print("✓ Control socket reset")
+        except Exception as e:
+            print(f"Error resetting control socket: {e}")
 
     def clear_plots(self):
         """Clear all plot history and redraw empty plots."""
@@ -884,7 +911,8 @@ class MainWindow(QMainWindow):
         self.dashboard_widget = DashboardWidget(
             parent=None,
             control_socket=self.control_socket,
-            socket_lock=self.control_socket_lock
+            socket_lock=self.control_socket_lock,
+            zmq_context=self.context
         )
         layout.addWidget(self.dashboard_widget, stretch=6)
 
