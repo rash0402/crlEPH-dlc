@@ -120,8 +120,12 @@ function main()
     try
         while true
             # Check for control commands (non-blocking)
+            # Use recv with RCV_DONTWAIT flag via setsockopt
             try
-                cmd_json = ZMQ.recv(control_socket, String; mode=ZMQ.DONTWAIT)
+                # Try non-blocking receive
+                # Note: ZMQ recv() will throw if no message available
+                ZMQ.setsockopt(control_socket, ZMQ.RCVTIMEO, 0)  # 0ms timeout = non-blocking
+                cmd_json = ZMQ.recv(control_socket, String)
                 cmd = JSON.parse(cmd_json)
 
                 if cmd["type"] == "set_haze_tensor"

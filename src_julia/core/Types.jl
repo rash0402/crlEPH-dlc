@@ -30,7 +30,7 @@ mutable struct Agent
     belief_entropy::Float64  # Current belief entropy H[q(s|a)]
 
     function Agent(id::Int, x::Float64, y::Float64;
-                   theta::Float64=0.0, radius::Float64=10.0,
+                   theta::Float64=0.0, radius::Float64=2.0,
                    color::Tuple{Int, Int, Int}=(100, 150, 255))
         # Initialize with high self-haze (isolated state)
         # Will be updated to actual value in first step
