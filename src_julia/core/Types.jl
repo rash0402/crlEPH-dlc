@@ -29,6 +29,10 @@ mutable struct Agent
     current_efe::Float64  # Current Expected Free Energy value
     belief_entropy::Float64  # Current belief entropy H[q(s|a)]
 
+    # Prediction uncertainty tracking (Phase 2.5)
+    prediction_error_history::Vector{Float64}  # Sliding window of recent prediction errors
+    prediction_uncertainty::Float64  # Current prediction uncertainty estimate [0, 1]
+
     function Agent(id::Int, x::Float64, y::Float64;
                    theta::Float64=0.0, radius::Float64=2.0,
                    color::Tuple{Int, Int, Int}=(100, 150, 255))
@@ -36,7 +40,8 @@ mutable struct Agent
         # Will be updated to actual value in first step
         initial_self_haze = 0.7  # Corresponds to isolated state (low occupancy)
         new(id, [x, y], [0.0, 0.0], theta, radius, 50.0, 20.0, color, nothing,
-            nothing, nothing, nothing, nothing, nothing, initial_self_haze, Int[], nothing, 0.0, 0.0)
+            nothing, nothing, nothing, nothing, nothing, initial_self_haze, Int[], nothing, 0.0, 0.0,
+            Float64[], 0.5)  # Initialize with empty history and moderate uncertainty
     end
 end
 
@@ -81,6 +86,11 @@ Base.@kwdef mutable struct EPHParams
     β::Float64 = 1.0               # Entropy term weight (epistemic value)
     λ::Float64 = 0.1               # Pragmatic term weight (low for exploration)
     γ_info::Float64 = 0.5          # Information gain weight (new for Phase 1)
+
+    # Prediction uncertainty parameters (Phase 2.5)
+    uncertainty_alpha::Float64 = 0.3    # Hidden state weight in hybrid uncertainty (0-1)
+    uncertainty_window::Int = 10        # Prediction error history window size
+    uncertainty_enabled::Bool = true    # Enable prediction uncertainty estimation
 
     # Precision matrix base
     Π_max::Float64 = 1.0           # Maximum precision
