@@ -12,9 +12,10 @@ struct SPMParams
     d_max::Float64
     sigma_r::Float64
     sigma_theta::Float64
-    
-    function SPMParams(;Nr=6, Ntheta=6, d_max=300.0, sigma_r=0.5, sigma_theta=0.5)
-        new(Nr, Ntheta, d_max, sigma_r, sigma_theta)
+    fov_angle::Float64  # Field of view angle (radians)
+
+    function SPMParams(;Nr=6, Ntheta=6, d_max=300.0, sigma_r=0.5, sigma_theta=0.5, fov_angle=210.0*π/180.0)
+        new(Nr, Ntheta, d_max, sigma_r, sigma_theta, fov_angle)
     end
 end
 
@@ -29,13 +30,18 @@ function compute_spm(agent::Agent, env::Environment, params::SPMParams)
         
         # Relative position
         dx, dy, dist = toroidal_distance(agent.position, other.position, env.width, env.height)
-        
+
         if dist > params.d_max
             continue
         end
-        
+
         angle = atan(dy, dx)
         rel_angle = normalize_angle(angle - agent.orientation)
+
+        # FOV check: only include agents within the field of view
+        if abs(rel_angle) > params.fov_angle / 2.0
+            continue
+        end
         
         # Relative velocity
         vx_rel = other.velocity[1] - agent.velocity[1]
@@ -71,11 +77,13 @@ function _add_to_tensor!(tensor, dist, angle, v_r, v_t, ps, params)
         r_center = 1.0 + scale * (log(dist) - log_ps)
     end
     
-    # 2. Angular Mapping [-pi, pi] -> [1, Ntheta+1] (1-based indexing for Julia logic, but we map to continuous index)
-    # Python: (angle + pi) / (2pi) * Ntheta -> [0, Ntheta]
-    # Julia: We'll use the same logic but handle indices carefully.
-    # Let's map to [1, Ntheta + 1] range for 1-based indexing logic
-    theta_center = (angle + π) / (2π) * params.Ntheta + 1.0
+    # 2. Angular Mapping within FOV range
+    # angle is in range [-fov_angle/2, +fov_angle/2]
+    # Map to [0, Ntheta] range, then add 1 for Julia 1-based indexing
+    # Normalized position within FOV: (angle + fov_angle/2) / fov_angle gives [0, 1]
+    half_fov = params.fov_angle / 2.0
+    theta_normalized = (angle + half_fov) / params.fov_angle  # [0, 1] within FOV
+    theta_center = theta_normalized * params.Ntheta + 0.5  # [0.5, Ntheta+0.5], center of bins
     
     # 3. Gaussian Splatting
     r_idx_base = round(Int, r_center) + 1 # +1 because r_center starts from 0.0 (bin 0 in Python is index 1 in Julia)
@@ -101,18 +109,16 @@ function _add_to_tensor!(tensor, dist, angle, v_r, v_t, ps, params)
                 # r is 1-based, so dr should be (r-1) - r_center
                 dr = (r - 1) - r_center
                 
-                # Angular diff
-                # bin_angle for t_wrapped
-                # t_wrapped=1 -> angle corresponding to Python's 0 -> -pi
-                # t_wrapped=Ntheta -> angle corresponding to Python's Ntheta-1
+                # Angular diff within FOV range
+                # t_wrapped ranges from 1 to Ntheta
+                # Map back to angle in FOV range [-fov_angle/2, +fov_angle/2]
+                # Bin center: t_wrapped=1 -> -fov_angle/2, t_wrapped=Ntheta -> +fov_angle/2
+                bin_normalized = (t_wrapped - 0.5) / params.Ntheta  # [0, 1]
+                bin_angle = bin_normalized * params.fov_angle - half_fov
+                diff_angle = bin_angle - angle
                 
-                # Python: bin_angle = (t_wrapped_0based / Ntheta) * 2pi - pi
-                # Julia: t_wrapped is 1-based. t_wrapped-1 is 0-based.
-                bin_angle = ((t_wrapped - 1) / params.Ntheta) * 2π - π
-                diff_angle = normalize_angle(bin_angle - angle)
-                
-                # Convert diff_angle to bin units
-                dt_eff = (diff_angle / (2π)) * params.Ntheta
+                # Convert diff_angle to bin units (within FOV range)
+                dt_eff = (diff_angle / params.fov_angle) * params.Ntheta
                 
                 weight = exp(-(dr^2)/(2*params.sigma_r^2) - (dt_eff^2)/(2*params.sigma_theta^2))
                 

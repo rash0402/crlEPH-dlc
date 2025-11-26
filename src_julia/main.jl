@@ -6,6 +6,7 @@ include("utils/MathUtils.jl")
 include("utils/DataCollector.jl")
 include("utils/ExperimentLogger.jl")
 include("core/Types.jl")
+include("utils/ConfigLoader.jl")
 include("perception/SPM.jl")
 include("prediction/SPMPredictor.jl")
 include("control/SelfHaze.jl")
@@ -21,6 +22,7 @@ using .ExperimentLogger
 using .SelfHaze
 using .SPMPredictor
 using .EPH
+using .ConfigLoader
 using ZMQ
 using JSON
 using Statistics  # For var() function
@@ -29,37 +31,25 @@ function main()
     println("Starting Julia EPH Server (Sparse Foraging Task)...")
     println("Active Inference: Expected Free Energy with Self-Hazing")
 
-    # Initialize EPH Parameters
-    params = Types.EPHParams(
-        # Self-hazing parameters
-        h_max=0.8,
-        α=10.0,              # Increased sensitivity (was 2.0)
-        Ω_threshold=0.12,    # Optimized for Isolated↔Grouped transitions (was 0.05)
-        γ=2.0,
-        # EFE weights
-        β=1.0,   # Increased entropy term weight (was 0.5) for stronger exploration drive
-        λ=0.1,   # Pragmatic term (low for exploration-focused behavior)
-        # Precision
-        Π_max=1.0,
-        decay_rate=0.1,
-        # Optimization
-        max_iter=5,
-        η=0.1,
-        # Physical
-        max_speed=50.0,
-        max_accel=100.0,
-        # FOV
-        fov_angle=210.0 * π / 180.0,  # 210 degrees
-        fov_range=100.0,
-        # Data Collection (Phase 2)
-        collect_data=true
-    )
+    # Load configuration from YAML file
+    config = ConfigLoader.load_config()
 
-    # Initialize Sparse Foraging Environment (smaller for more interactions)
-    env = Simulation.initialize_simulation(width=300.0, height=300.0, n_agents=10)
+    # Initialize EPH Parameters from config
+    params = ConfigLoader.create_eph_params(config)
+
+    # Initialize Sparse Foraging Environment using config values
+    env = Simulation.initialize_simulation(
+        width=config.world_width,
+        height=config.world_height,
+        n_agents=config.n_agents,
+        grid_size=config.grid_size,
+        agent_radius=config.agent_radius,
+        personal_space=config.personal_space
+    )
     println("Simulation initialized with $(length(env.agents)) agents.")
     println("World size: $(env.width) × $(env.height)")
-    println("World size: $(env.width) × $(env.height)")
+    println("Agent radius: $(config.agent_radius), Personal space: $(config.personal_space)")
+    println("Coverage grid: $(config.grid_size)px cells ($(ceil(Int, env.width/config.grid_size)) × $(ceil(Int, env.height/config.grid_size)) grid)")
     println("FOV: $(params.fov_angle * 180 / π)° × $(params.fov_range)px")
 
     # Initialize SPM Predictor
@@ -154,7 +144,7 @@ function main()
             end
 
             # Run simulation step
-            Simulation.step!(env, params, predictor)
+            Simulation.step!(env, params, predictor, external_haze_tensor)
             frame_count += 1
 
             # Periodic logging
@@ -174,8 +164,8 @@ function main()
 
                 # Phase 2: GRU Prediction Performance
                 # Note: SPMParams needs to be accessible - assuming it's defined in SPM module
-                spm_params = SPM.SPMParams()
-                ExperimentLogger.log_prediction_metrics(logger, env.agents, predictor, env, spm_params)
+                spm_params_log = SPM.SPMParams(d_max=params.fov_range, fov_angle=params.fov_angle)
+                ExperimentLogger.log_prediction_metrics(logger, env.agents, predictor, env, spm_params_log)
 
                 # Phase 3: Gradient-Driven System
                 # Note: EFE before/after would need to be tracked during simulation
@@ -207,6 +197,9 @@ function main()
             # Special tracking data for Agent 1 (red agent)
             tracked_agent = env.agents[1]
             tracked_data = if tracked_agent.current_spm !== nothing && tracked_agent.current_precision !== nothing
+                # Create SPMParams for prediction
+                spm_params = SPM.SPMParams(d_max=params.fov_range, fov_angle=params.fov_angle)
+
                 # Compute Belief Entropy (Combined: Spatial + Temporal Uncertainty)
                 
                 # 1. Spatial Uncertainty: Entropy of Precision Matrix
@@ -292,6 +285,10 @@ function main()
                 grad_y = tracked_agent.current_gradient !== nothing ? tracked_agent.current_gradient[2] : 0.0
                 grad_norm = tracked_agent.current_gradient !== nothing ? sqrt(grad_x^2 + grad_y^2) : 0.0
 
+                # Compute predicted SPM for visualization
+                predicted_spm = SPMPredictor.predict_spm(predictor, tracked_agent,
+                                                         tracked_agent.velocity, env, spm_params)
+
                 # Send full SPM for visualization
                 Dict(
                     "efe" => efe_current,
@@ -310,18 +307,32 @@ function main()
                     # Full SPM channels for heatmap visualization
                     "spm_occupancy" => collect(tracked_agent.current_spm[1, :, :]),  # Occupancy channel
                     "spm_radial" => collect(tracked_agent.current_spm[2, :, :]), # Radial velocity
-                    "spm_tangential" => collect(tracked_agent.current_spm[3, :, :]) # Tangential velocity
+                    "spm_tangential" => collect(tracked_agent.current_spm[3, :, :]), # Tangential velocity
+                    # Predicted SPM channels
+                    "spm_pred_occupancy" => collect(predicted_spm[1, :, :]),
+                    "spm_pred_radial" => collect(predicted_spm[2, :, :]),
+                    "spm_pred_tangential" => collect(predicted_spm[3, :, :])
                 )
             else
                 nothing
             end
+
+            # Convert coverage_map to row-major format for Python
+            # Julia: coverage_map[gx, gy] where gx=X-index, gy=Y-index
+            # JSON serializes Julia column-major as [[col1], [col2], ...], so we need transpose
+            # Then convert to nested lists in row-major order for Python
+            coverage_transposed = permutedims(env.coverage_map, (2, 1))  # [X,Y] -> [Y,X]
+
+            # Convert to row-major nested list manually
+            grid_h, grid_w = size(coverage_transposed)
+            coverage_list = [[coverage_transposed[y, x] for x in 1:grid_w] for y in 1:grid_h]
 
             message = Dict(
                 "frame" => env.frame_count,
                 "agents" => agents_data,
                 "haze_grid" => env.haze_grid,  # Keep for backward compatibility
                 "coverage" => sum(env.coverage_map .> 0) / length(env.coverage_map),  # Fraction visited
-                "coverage_map" => collect(transpose(env.coverage_map)),  # Visit count matrix (transposed for Python row-major)
+                "coverage_map" => coverage_list,  # Visit count matrix [Y][X] for Python row-major
                 "tracked_agent" => tracked_data  # Detailed data for Agent 1
             )
 
@@ -329,7 +340,7 @@ function main()
             ZMQ.send(socket, JSON.json(message))
 
             if env.frame_count % 10 == 0
-                coverage_pct = 100.0 * sum(env.coverage_map) / length(env.coverage_map)
+                coverage_pct = 100.0 * sum(env.coverage_map .> 0) / length(env.coverage_map)
                 println("Frame: $(env.frame_count) | Coverage: $(round(coverage_pct, digits=1))%")
                 flush(stdout)
                 
@@ -343,7 +354,7 @@ function main()
     catch e
         if e isa InterruptException
             println("\nServer stopped by user.")
-            coverage_pct = 100.0 * sum(env.coverage_map) / length(env.coverage_map)
+            coverage_pct = 100.0 * sum(env.coverage_map .> 0) / length(env.coverage_map)
             println("Final coverage: $(round(coverage_pct, digits=1))%")
             
             # Save experiment log

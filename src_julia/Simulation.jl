@@ -28,9 +28,18 @@ Initialize Sparse Foraging Task environment.
 Test Active Inference hypothesis:
 When agents see few neighbors (low Ω), self-haze increases → precision decreases
 → belief entropy increases → epistemic term dominates → exploration emerges
+
+# Parameters
+- `width`: World width
+- `height`: World height
+- `n_agents`: Number of agents
+- `grid_size`: Coverage grid cell size (should be ~1.5-2x agent radius)
+- `agent_radius`: Agent body radius for visualization and collision
+- `personal_space`: Agent personal space radius for avoidance
 """
-function initialize_simulation(;width=400.0, height=400.0, n_agents=10)
-    env = Environment(width, height, grid_size=5)  # Finer grid: 5px cells (was 20px)
+function initialize_simulation(;width=400.0, height=400.0, n_agents=10,
+                                grid_size=5, agent_radius=3.0, personal_space=20.0)
+    env = Environment(width, height, grid_size=grid_size)
 
     # Sparse initial placement: divide world into regions
     # Scaled for variable world size and agent count
@@ -91,13 +100,13 @@ function initialize_simulation(;width=400.0, height=400.0, n_agents=10)
             agent_color = (80, 120, 255)  # Blue
         end
 
-        agent = Agent(i, x, y, theta=theta, color=agent_color)
+        agent = Agent(i, x, y, theta=theta, radius=agent_radius, color=agent_color)
 
         # No explicit goals (epistemic foraging only)
         agent.goal = nothing
 
-        # Moderate personal space for collision avoidance (increased for more spacing)
-        agent.personal_space = 30.0
+        # Set personal space from config
+        agent.personal_space = personal_space
 
         push!(env.agents, agent)
     end
@@ -106,19 +115,22 @@ function initialize_simulation(;width=400.0, height=400.0, n_agents=10)
 end
 
 """
-    step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Predictor)
+    step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Predictor, external_haze_tensor=nothing)
 
 Execute one simulation timestep with Active Inference-based EPH control.
 
 # Workflow
 1. Perception: Compute SPM for each agent
-2. Inference: Compute self-haze and belief entropy
+2. Inference: Compute self-haze and belief entropy (optionally overridden by external_haze_tensor)
 3. Action Selection: Minimize Expected Free Energy G(a)
 4. Physics: Update positions and orientations
 5. Tracking: Update coverage map and detect information gain events
+
+# Arguments
+- `external_haze_tensor`: Optional 6x6 matrix to override self-computed precision for all agents
 """
-function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Predictor)
-    spm_params = SPM.SPMParams(d_max=params.fov_range)
+function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Predictor, external_haze_tensor=nothing)
+    spm_params = SPM.SPMParams(d_max=params.fov_range, fov_angle=params.fov_angle)
 
     # --- 1. Perception & Action Selection ---
     for agent in env.agents
@@ -220,6 +232,13 @@ function step!(env::Environment, params::EPHParams, predictor::SPMPredictor.Pred
             # Phase 1: Scalar haze (backward compatible)
             agent.self_haze = SelfHaze.compute_self_haze(spm, params)
             Π = SelfHaze.compute_precision_matrix(spm, agent.self_haze, params)
+        end
+
+        # Override with external haze tensor if provided
+        if external_haze_tensor !== nothing
+            # External haze tensor is a 6x6 matrix specifying precision directly
+            # Convert haze values (0.0-1.0) to precision (1.0-0.0): higher haze = lower precision
+            Π = params.Π_max .* (1.0 .- external_haze_tensor)
         end
 
         # Track visible agents (for analysis)

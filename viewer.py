@@ -100,23 +100,32 @@ class SimulationWidget(QWidget):
         coverage_map = self.data.get("coverage_map")
         if coverage_map is not None:
             coverage_arr = np.array(coverage_map)
-            rows, cols = coverage_arr.shape
-            cell_w = self.sim_world_size[0] / cols
-            cell_h = self.sim_world_size[1] / rows
+            # Julia sends pre-transposed: coverage_for_python[gy, gx] = [Y, X] format
+            # Python receives in row-major: arr[y, x] where y=0..59, x=0..59
+            rows, cols = coverage_arr.shape  # rows=Y-dim, cols=X-dim
+
+            # Debug: Print shape once
+            if not hasattr(self, '_coverage_shape_logged'):
+                print(f"DEBUG: coverage_arr.shape = {coverage_arr.shape}, sim_world = {self.sim_world_size}")
+                self._coverage_shape_logged = True
+
+            cell_w = self.sim_world_size[0] / cols  # X direction (width/cols)
+            cell_h = self.sim_world_size[1] / rows  # Y direction (height/rows)
 
             # Compute max visit count for normalization
             max_visits = np.max(coverage_arr) if np.max(coverage_arr) > 0 else 1
 
-            for r in range(rows):
-                for c in range(cols):
-                    visits = coverage_arr[r, c]
+            for y in range(rows):  # y = Y index (0 to 59)
+                for x in range(cols):  # x = X index (0 to 59)
+                    visits = coverage_arr[y, x]
                     if visits > 0:
                         # Blue translucent overlay, darker with more visits
                         # Logarithmic scaling for better visibility
                         intensity = min(1.0, np.log1p(visits) / np.log1p(max_visits))
                         alpha = int(80 + 120 * intensity)  # 80-200 range
                         color = QColor(100, 150, 255, alpha)  # Light blue
-                        painter.fillRect(QRectF(c * cell_w, r * cell_h, cell_w, cell_h), color)
+                        # Draw at screen position (screen_x, screen_y) = (x * cell_w, y * cell_h)
+                        painter.fillRect(QRectF(x * cell_w, y * cell_h, cell_w, cell_h), color)
 
         # Draw Haze Grid
         haze_grid = self.data.get("haze_grid")
@@ -135,27 +144,28 @@ class SimulationWidget(QWidget):
                         color = QColor(0, 200, 0, alpha)
                         painter.fillRect(QRectF(c * cell_w, r * cell_h, cell_w, cell_h), color)
 
-        # Draw Goal Position (if available)
-        if self.goal_position is not None:
-            goal_x, goal_y = self.goal_position
-            goal_radius = 20
-
-            # Draw target circle with crosshair
-            painter.setPen(QPen(QColor(255, 200, 0), 3))  # Yellow-orange outline
-            painter.setBrush(QColor(255, 200, 0, 80))  # Semi-transparent fill
-            painter.drawEllipse(QPointF(goal_x, goal_y), goal_radius, goal_radius)
-
-            # Draw crosshair
-            painter.setPen(QPen(QColor(255, 150, 0), 2))
-            painter.drawLine(QPointF(goal_x - goal_radius - 5, goal_y),
-                           QPointF(goal_x + goal_radius + 5, goal_y))
-            painter.drawLine(QPointF(goal_x, goal_y - goal_radius - 5),
-                           QPointF(goal_x, goal_y + goal_radius + 5))
-
-            # Draw "GOAL" label
-            painter.setPen(QColor(255, 200, 0))
-            painter.setFont(QFont("Arial", 10, QFont.Bold))
-            painter.drawText(QPointF(goal_x - 15, goal_y - goal_radius - 10), "GOAL")
+        # Goal drawing disabled for coverage evaluation task
+        # GOAL visualization removed - not needed for exploration scenario
+        # if self.goal_position is not None:
+        #     goal_x, goal_y = self.goal_position
+        #     goal_radius = 20
+        #
+        #     # Draw target circle with crosshair
+        #     painter.setPen(QPen(QColor(255, 200, 0), 3))  # Yellow-orange outline
+        #     painter.setBrush(QColor(255, 200, 0, 80))  # Semi-transparent fill
+        #     painter.drawEllipse(QPointF(goal_x, goal_y), goal_radius, goal_radius)
+        #
+        #     # Draw crosshair
+        #     painter.setPen(QPen(QColor(255, 150, 0), 2))
+        #     painter.drawLine(QPointF(goal_x - goal_radius - 5, goal_y),
+        #                    QPointF(goal_x + goal_radius + 5, goal_y))
+        #     painter.drawLine(QPointF(goal_x, goal_y - goal_radius - 5),
+        #                    QPointF(goal_x, goal_y + goal_radius + 5))
+        #
+        #     # Draw "GOAL" label
+        #     painter.setPen(QColor(255, 200, 0))
+        #     painter.setFont(QFont("Arial", 10, QFont.Bold))
+        #     painter.drawText(QPointF(goal_x - 15, goal_y - goal_radius - 10), "GOAL")
 
         # Draw Agents
         agents = self.data.get("agents", [])
