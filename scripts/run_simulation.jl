@@ -19,6 +19,7 @@ include("../src/dynamics.jl")
 include("../src/controller.jl")
 include("../src/communication.jl")
 include("../src/logger.jl")
+include("../src/vae.jl")
 
 using .Config
 using .SPM
@@ -26,6 +27,8 @@ using .Dynamics
 using .Controller
 using .Communication
 using .Logger
+using .VAEModel
+using BSON
 
 """
 Main simulation loop
@@ -81,6 +84,25 @@ function main()
     log_filename = joinpath("log", "data_$(timestamp).h5")
     data_logger = init_logger(log_filename, spm_params, world_params)
     println("  Output: $(log_filename)")
+    
+    # Load VAE model (optional - for Haze computation)
+    println("\n🧠 Loading VAE model...")
+    vae_model = nothing
+    model_path = "models/vae_latest.bson"
+    if isfile(model_path)
+        try
+            BSON.@load model_path model
+            vae_model = model
+            println("  ✅ VAE model loaded from: $model_path")
+        catch e
+            @warn "Failed to load VAE model: $e"
+            println("  ⚠️  VAE model load failed. Haze will be set to 0.0")
+        end
+    else
+        println("  ℹ️  No trained model found. Haze will be set to 0.0")
+        println("     Run simulation first to collect data, then train with:")
+        println("     julia --project=. scripts/train_vae.jl")
+    end
     
     # Select agent for detailed logging (first agent from NORTH group)
     detail_agent_id = 1
@@ -188,10 +210,21 @@ function main()
                 # Log detail for selected agent
                 if agent.id == detail_agent_id
                     fe = free_energy(agent.vel, agent.goal_vel, spm, control_params)
+                    
+                    # Compute Haze (uncertainty estimate from VAE)
+                    haze = if vae_model !== nothing
+                        # Reshape SPM to (16, 16, 3, 1) for VAE input
+                        spm_input = reshape(spm, 16, 16, 3, 1)
+                        haze_val = compute_haze(vae_model, spm_input)
+                        Float64(haze_val[1])  # Extract scalar from (1, 1) array
+                    else
+                        0.0  # Placeholder when no model available
+                    end
+                    
                     log_step!(data_logger, spm, action, agent.pos, agent.vel)
                     
                     # Publish detail packet (pass prepared local_agents directly)
-                    publish_detail(publisher, agent, spm, action, fe, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
+                    publish_detail(publisher, agent, spm, action, fe, haze, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
                 end
             end
             

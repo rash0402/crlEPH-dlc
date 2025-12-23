@@ -117,9 +117,9 @@ class DetailViewer:
         self.ax_action.set_ylabel('u', fontsize=8)
         self.ax_action.grid(True, alpha=0.3)
         
-        self.ax_vae.set_title('VAE Prediction Error (M2 - Placeholder)', fontsize=9, fontweight='bold')
+        self.ax_vae.set_title('Haze (VAE Uncertainty)', fontsize=9, fontweight='bold')
         self.ax_vae.set_xlabel('Step', fontsize=8)
-        self.ax_vae.set_ylabel('Error', fontsize=8)
+        self.ax_vae.set_ylabel('Haze', fontsize=8)
         self.ax_vae.grid(True, alpha=0.3)
         
         # Initialize plots
@@ -162,6 +162,7 @@ class DetailViewer:
                 
                 action = data["action"]
                 fe = data["free_energy"]
+                haze = data.get("haze", 0.0)  # Default to 0.0 if not present
                 
                 # Extent: [Left_Val, Right_Val, Bottom, Top]
                 # Left side of plot = -105° (right in ego frame)
@@ -263,10 +264,7 @@ class DetailViewer:
                 self.fe_history.append(fe)
                 self.action_x_history.append(action[0])
                 self.action_y_history.append(action[1])
-                
-                # VAE error (placeholder - will be implemented in M2)
-                vae_error = np.random.rand() * 0.1  # Dummy data for now
-                self.vae_error_history.append(vae_error)
+                self.vae_error_history.append(haze)  # Now stores Haze values
                 
                 # Trim history
                 if len(self.step_history) > self.history_length:
@@ -299,10 +297,10 @@ class DetailViewer:
                     self.ax_action.relim()
                     self.ax_action.autoscale_view()
                 
-                # Update VAE error plot
+                # Update Haze plot
                 if self.line_vae is None:
                     self.line_vae, = self.ax_vae.plot(self.step_history, self.vae_error_history,
-                                                      'm-', linewidth=1.5, label='VAE Error')
+                                                      'm-', linewidth=1.5, label='Haze')
                     self.ax_vae.legend(fontsize=8)
                 else:
                     self.line_vae.set_data(self.step_history, self.vae_error_history)

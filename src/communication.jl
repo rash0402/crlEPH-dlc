@@ -73,6 +73,7 @@ function publish_detail(
     spm::Array{Float64, 3},
     action::Vector{Float64},
     free_energy::Float64,
+    haze::Float64,
     step::Int,
     all_agents::Vector{Agent},
     world_params::WorldParams,
@@ -94,6 +95,7 @@ function publish_detail(
         "spm" => spm,  # 16x16x3 array
         "action" => action,
         "free_energy" => free_energy,
+        "haze" => haze,  # VAE uncertainty estimate
         "local_agents" => local_agents  # Other agents in local coordinates
     )
     

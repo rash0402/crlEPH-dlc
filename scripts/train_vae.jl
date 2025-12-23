@@ -1,137 +1,145 @@
 #!/usr/bin/env julia
---project=.
+# VAE Training Script for EPH Project
+# Trains a Variational Autoencoder on collected SPM data
 
-using Flux
-using BSON: @save
-using Statistics
-using Printf
-using Dates
+using Pkg
+Pkg.activate(".")
 
-# Include modules
-include("../src/config.jl")
 include("../src/vae.jl")
 include("../src/data_loader.jl")
 
-using .Config
 using .VAEModel
 using .DataLoader
+using Flux
+using BSON
+using Printf
+using Dates
+using Statistics
 
-function train_vae()
-    println("============================================================")
-    println("EPH VAE Training")
-    println("============================================================")
-    
-    # 1. Load Data
-    # 1. Load Data
-    data_dir = "log" # Load data from the log directory
-    # Users ran logs in root folder?
-    # Let's check where .h5 files are.
-    # User's requests showed "Output: data_20251220_084923.h5" in root.
-    
-    println("🔍 Loading data from $data_dir...")
-    spm_data = load_spm_data(data_dir)
-    
-    if isnothing(spm_data)
-        println("❌ No data found. Please run simulation to generate .h5 logs.")
-        exit(1)
-    end
-    
-    # Check data volume
-    n_samples = size(spm_data, 4)
-    if n_samples < 100
-        println("⚠️  Warning: Only $n_samples samples found. Training might be unstable.")
-    end
-    
-    # Create DataLoaders
-    batch_size = 64
-    train_loader, test_loader = get_data_loader(spm_data, batch_size)
-    
-    println("📊 Data: $n_samples samples")
-    println("   Train batches: $(length(train_loader))")
-    println("   Test batches: $(length(test_loader))")
-    
-    # 2. Initialize Model
-    latent_dim = 32
-    model = VAE(latent_dim)
-    
-    println("🧠 Model Initialized (Latent Dim = $latent_dim)")
-    
-    # 3. Setup Optimizer
-    learning_rate = 1e-3
-    opt_state = Flux.setup(Flux.Adam(learning_rate), model)
-    
-    # 4. Training Loop
-    epochs = 20
-    best_loss = Inf
-    
-    # Check for models dir
-    if !isdir("data/models")
-        mkpath("data/models")
-    end
-    
-    println("\n🚀 Starting training for $epochs epochs...")
-    
-    for epoch in 1:epochs
-        # Train
-        train_loss = 0.0
-        count = 0
-        
-        for x_batch in train_loader
-            # Compute gradient
-            loss, grads = Flux.withgradient(model) do m
-                l, recon, kld = vae_loss(m, x_batch; β=1.0f0)
-                return l
-            end
-            
-            # Update parameters
-            Flux.update!(opt_state, model, grads[1])
-            
-            train_loss += loss
-            count += 1
-        end
-        
-        avg_train_loss = train_loss / count
-        
-        # Validation
-        val_loss = 0.0
-        val_recon = 0.0
-        val_kld = 0.0
-        val_count = 0
-        
-        for x_val in test_loader
-            l, recon, kld = vae_loss(model, x_val; β=1.0f0)
-            val_loss += l
-            val_recon += recon
-            val_kld += kld
-            val_count += 1
-        end
-        
-        if val_count > 0
-            avg_val_loss = val_loss / val_count
-            avg_val_recon = val_recon / val_count
-            avg_val_kld = val_kld / val_count
-            
-            @printf("Epoch %2d: Train=%.4f Val=%.4f (Recon=%.4f, KLD=%.4f)\n", 
-                epoch, avg_train_loss, avg_val_loss, avg_val_recon, avg_val_kld)
-            
-            # Save best model
-            if avg_val_loss < best_loss
-                best_loss = avg_val_loss
-                model_path = "data/models/vae_best.bson"
-                # Need to bring model to CPU if on GPU (current is CPU)
-                model_cpu = cpu(model)
-                @save model_path model_cpu
-                # print("  (Saved best)")
-            end
-        else
-            @printf("Epoch %2d: Train=%.4f (No validation data)\n", epoch, avg_train_loss)
-        end
-    end
-    
-    println("\n✅ Training Complete!")
+# ========== Configuration ==========
+const LATENT_DIM = 32
+const BATCH_SIZE = 64
+const EPOCHS = 50
+const LEARNING_RATE = 1e-3
+const DATA_DIR = "data"
+const SAVE_DIR = "models"
+const β = 1.0f0  # KL divergence weight
+
+# ========== Setup ==========
+println("🚀 EPH VAE Training Script")
+println("=" ^ 50)
+println("Configuration:")
+println("  Latent Dim: $LATENT_DIM")
+println("  Batch Size: $BATCH_SIZE")
+println("  Epochs: $EPOCHS")
+println("  Learning Rate: $LEARNING_RATE")
+println("  β (KL weight): $β")
+println("=" ^ 50)
+
+# Create save directory
+mkpath(SAVE_DIR)
+
+# ========== Load Data ==========
+println("\n📂 Loading SPM data from $DATA_DIR...")
+data = load_spm_data(DATA_DIR)
+
+if data === nothing
+    error("❌ No data found. Please run simulation to generate data first.")
 end
 
-# Run
-if abspath(PROGRAM_FILE) == @__FILE__
-    train_vae()
+println("✅ Data loaded: $(size(data))")
+
+# Create data loaders
+train_loader, test_loader = get_data_loader(data, BATCH_SIZE, shuffle=true, split_ratio=0.8)
+println("✅ Train/Test split created")
+println("  Train batches: $(length(train_loader))")
+println("  Test batches: $(length(test_loader))")
+
+# ========== Initialize Model ==========
+println("\n🔧 Initializing VAE model...")
+model = VAE(LATENT_DIM)
+println("✅ Model initialized")
+
+# Setup optimizer
+opt_state = Flux.setup(Flux.Adam(LEARNING_RATE), model)
+println("✅ Optimizer configured (Adam, lr=$LEARNING_RATE)")
+
+# ========== Training Loop ==========
+println("\n🏋️  Starting training...")
+println("=" ^ 50)
+
+train_losses = Float32[]
+test_losses = Float32[]
+
+for epoch in 1:EPOCHS
+    epoch_start = now()
+    
+    # Training
+    train_loss_sum = 0.0f0
+    train_recon_sum = 0.0f0
+    train_kld_sum = 0.0f0
+    
+    for (batch_idx, x_batch) in enumerate(train_loader)
+        # Compute loss and gradients
+        loss, grads = Flux.withgradient(model) do m
+            total_loss, recon, kld = vae_loss(m, x_batch, β=β)
+            total_loss
+        end
+        
+        # Update parameters
+        Flux.update!(opt_state, model, grads[1])
+        
+        # Accumulate losses
+        total_loss, recon, kld = vae_loss(model, x_batch, β=β)
+        train_loss_sum += total_loss
+        train_recon_sum += recon
+        train_kld_sum += kld
+    end
+    
+    # Average training loss
+    n_train = length(train_loader)
+    avg_train_loss = train_loss_sum / n_train
+    avg_train_recon = train_recon_sum / n_train
+    avg_train_kld = train_kld_sum / n_train
+    push!(train_losses, avg_train_loss)
+    
+    # Validation
+    test_loss_sum = 0.0f0
+    for x_batch in test_loader
+        total_loss, _, _ = vae_loss(model, x_batch, β=β)
+        test_loss_sum += total_loss
+    end
+    avg_test_loss = test_loss_sum / length(test_loader)
+    push!(test_losses, avg_test_loss)
+    
+    # Timing
+    epoch_time = (now() - epoch_start).value / 1000  # seconds
+    
+    # Print progress
+    @printf("Epoch %3d/%d | Train Loss: %.4f (Recon: %.4f, KLD: %.4f) | Test Loss: %.4f | Time: %.2fs\n",
+            epoch, EPOCHS, avg_train_loss, avg_train_recon, avg_train_kld, avg_test_loss, epoch_time)
+    
+    # Save checkpoint every 10 epochs
+    if epoch % 10 == 0
+        checkpoint_path = joinpath(SAVE_DIR, "vae_epoch_$(epoch).bson")
+        BSON.@save checkpoint_path model
+        println("  💾 Checkpoint saved: $checkpoint_path")
+    end
 end
+
+println("=" ^ 50)
+println("✅ Training complete!")
+
+# ========== Save Final Model ==========
+final_path = joinpath(SAVE_DIR, "vae_latest.bson")
+BSON.@save final_path model
+println("\n💾 Final model saved: $final_path")
+
+# ========== Summary ==========
+println("\n📊 Training Summary:")
+println("  Initial Train Loss: $(train_losses[1])")
+println("  Final Train Loss: $(train_losses[end])")
+println("  Final Test Loss: $(test_losses[end])")
+println("  Improvement: $(train_losses[1] - train_losses[end])")
+
+println("\n🎉 Training script completed successfully!")
