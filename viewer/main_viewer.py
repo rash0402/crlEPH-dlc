@@ -19,6 +19,12 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from viewer.zmq_client import ZMQClient
 
+# Configuration constants (must match backend config in src/config.jl)
+SENSING_RATIO = 7.5  # Changed from 15.0 to 7.5 (halved)
+R_ROBOT = 1.5
+R_AGENT = 1.5
+MAX_SENSING_DISTANCE = SENSING_RATIO * (R_ROBOT + R_AGENT)  # 7.5 * 3.0 = 22.5
+
 
 class MainViewer:
     """Main visualization for 4-group simulation"""
@@ -103,7 +109,7 @@ class MainViewer:
         
         # FOV wedge for detail agent
         from matplotlib.patches import Wedge
-        self.fov_wedge = Wedge((0, 0), 20.0, 0, 210, alpha=0.15, facecolor='cyan', edgecolor='cyan', linewidth=2, visible=False)
+        self.fov_wedge = Wedge((0, 0), MAX_SENSING_DISTANCE, 0, 210, alpha=0.15, facecolor='cyan', edgecolor='cyan', linewidth=2, visible=False)
         self.ax.add_patch(self.fov_wedge)
         
         # Step counter

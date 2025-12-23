@@ -76,46 +76,13 @@ function publish_detail(
     step::Int,
     all_agents::Vector{Agent},
     world_params::WorldParams,
-    comm_params::CommParams=DEFAULT_COMM
+    comm_params::CommParams=DEFAULT_COMM,
+    spm_params::SPMParams=DEFAULT_SPM,
+    agent_params::AgentParams=DEFAULT_AGENT,
+    local_agents::Vector{Vector{Float64}}=Vector{Vector{Float64}}[]
 )
-    # Transform other agents to local coordinates (ego-centric frame)
-    # Local frame: ego at origin, velocity direction is +Y (forward/up)
-    
-    local_agents = []
-    
-    # Calculate ego heading for local transformation
-    heading = 0.0
-    rot_angle = π/2 # Default rotation (East=0 -> Up=90)
-    vel_norm = norm(agent.vel)
-    
-    # Use velocity for orientation if moving
-    # Lowered threshold to 0.001 to capture slow movements
-    if vel_norm > 0.001
-        heading = atan(agent.vel[2], agent.vel[1])
-        # We want velocity direction to be +Y (Up) in local frame
-        # Standard rotation: x' = x cosθ - y sinθ
-        # To map v_theta to +90deg (π/2), we rotate by π/2 - v_theta
-        rot_angle = -heading + π/2
-    end
-    
-    
-    cos_θ = cos(rot_angle)
-    sin_θ = sin(rot_angle)
-    
-    for other in all_agents
-        if other.id != agent.id
-            # Get relative position in world frame
-            rel_pos = relative_position(agent.pos, other.pos, world_params)
-            
-            # Rotate to local frame (velocity direction = +Y)
-            local_x = cos_θ * rel_pos[1] - sin_θ * rel_pos[2]
-            local_y = sin_θ * rel_pos[1] + cos_θ * rel_pos[2]
-            
-            # Include group ID for visualization coloring
-            # Note: Enum must be converted to Int first
-            push!(local_agents, [local_x, local_y, Float64(Int(other.group))])
-        end
-    end
+    # local_agents is already prepared in run_simulation.jl with [x, y, group] format
+    # and properly filtered and aligned with SPM input.
     
     # Prepare data
     data = Dict(

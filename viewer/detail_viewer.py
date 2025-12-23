@@ -18,6 +18,12 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from viewer.zmq_client import ZMQClient
 
+# Configuration constants (must match backend config in src/config.jl)
+SENSING_RATIO = 7.5  # Changed from 15.0 to 7.5 (halved)
+R_ROBOT = 1.5
+R_AGENT = 1.5
+MAX_SENSING_DISTANCE = SENSING_RATIO * (R_ROBOT + R_AGENT)  # 7.5 * 3.0 = 22.5
+
 
 class DetailViewer:
     """Detail visualization for selected agent"""
@@ -60,16 +66,18 @@ class DetailViewer:
         self.fig.suptitle("EPH Detail Viewer - Agent SPM & Metrics", fontsize=14, fontweight='bold')
         
         # Create grid layout: 4 rows x 4 columns
-        gs = GridSpec(4, 4, figure=self.fig, hspace=0.35, wspace=0.35)
+        gs = GridSpec(4, 4, figure=self.fig, hspace=0.4, wspace=0.3)
         
-        # Row 1: SPM channels (3 columns) + Local Map (1 column)
-        self.ax_spm1 = self.fig.add_subplot(gs[0, 0])
-        self.ax_spm2 = self.fig.add_subplot(gs[0, 1])
-        self.ax_spm3 = self.fig.add_subplot(gs[0, 2])
-        self.ax_local_map = self.fig.add_subplot(gs[0:2, 3])  # Spans 2 rows
+        # Row 1: Visualization Dashboard (Local Map + 3 SPMs)
+        # Column 0: Local Map
+        self.ax_local_map = self.fig.add_subplot(gs[0, 0])
+        # Column 1-3: SPM Channels
+        self.ax_spm1 = self.fig.add_subplot(gs[0, 1])
+        self.ax_spm2 = self.fig.add_subplot(gs[0, 2])
+        self.ax_spm3 = self.fig.add_subplot(gs[0, 3])
         
-        # Row 2: Free Energy plot (full width except local map)
-        self.ax_fe = self.fig.add_subplot(gs[1, 0:3])
+        # Row 2: Free Energy plot (full width)
+        self.ax_fe = self.fig.add_subplot(gs[1, :])
         
         # Row 3: Control Action plot (full width)
         self.ax_action = self.fig.add_subplot(gs[2, :])
@@ -140,17 +148,31 @@ class DetailViewer:
                 self.spm = data["spm"]
                 self.step = data["step"]
                 
+                # DEBUG: Check data reception
+                if frame % 30 == 0:
+                    print(f"Viewer received step {self.step}, SPM shape {np.shape(self.spm)}")
+
+                # SPM Visualization
+                # theta_grid: -105° (index 0, right) to +105° (index 15, left)
+                # Display: Left side of plot should show left (+105°), right side should show right (-105°)
+                # Therefore: extent = [-105, 105] and NO flip needed
                 spm_array = np.array(self.spm)
+                
+                # (Removed debug SPM statistics logging)
+                
                 action = data["action"]
                 fe = data["free_energy"]
                 
-                # Update SPM visualization
-                # if self.spm is not None: # This check is now redundant as spm is assigned above
-                    
+                # Extent: [Left_Val, Right_Val, Bottom, Top]
+                # Left side of plot = -105° (right in ego frame)
+                # Right side of plot = +105° (left in ego frame)
+                extent_args = [-105, 105, 0, 15]
+
                 # Update channel 1
                 if self.im1 is None:
                     self.im1 = self.ax_spm1.imshow(spm_array[:, :, 0], 
                                                    cmap='hot', origin='lower', 
+                                                   extent=extent_args,
                                                    vmin=0, vmax=1, aspect='auto')
                     self.fig.colorbar(self.im1, ax=self.ax_spm1, fraction=0.046)
                 else:
@@ -160,6 +182,7 @@ class DetailViewer:
                 if self.im2 is None:
                     self.im2 = self.ax_spm2.imshow(spm_array[:, :, 1], 
                                                    cmap='viridis', origin='lower', 
+                                                   extent=[105, -105, 0, 15],
                                                    vmin=0, vmax=1, aspect='auto')
                     self.fig.colorbar(self.im2, ax=self.ax_spm2, fraction=0.046)
                 else:
@@ -169,6 +192,7 @@ class DetailViewer:
                 if self.im3 is None:
                     self.im3 = self.ax_spm3.imshow(spm_array[:, :, 2], 
                                                    cmap='plasma', origin='lower', 
+                                                   extent=[105, -105, 0, 15],
                                                    vmin=0, vmax=1, aspect='auto')
                     self.fig.colorbar(self.im3, ax=self.ax_spm3, fraction=0.046)
                 else:
@@ -178,6 +202,10 @@ class DetailViewer:
                 # Get other agents' positions in local coordinates
                 if 'local_agents' in data:
                     local_agents = data['local_agents']  # List of [x, y] in local frame
+                    
+                    # DEBUG: Log received data - use print with flush for immediate output
+                    if self.step % 100 == 0:
+                        print(f"DEBUG: Step {self.step}: Received {len(local_agents)} local_agents", flush=True)
                     
                     # Clear and redraw
                     self.ax_local_map.clear()
@@ -194,8 +222,7 @@ class DetailViewer:
                     # Plot ego agent at origin
                     self.ax_local_map.plot(0, 0, 'ro', markersize=10, label='Ego')
                     
-                    # Filter and plot visible agents only
-                    # FOV: 210 degrees centered on +Y axis, sensing range: 40 units
+                    # Plot all agents (already filtered by backend for FOV and sensing range)
                     if len(local_agents) > 0:
                         visible_colors = []
                         visible_xs = []
@@ -203,28 +230,16 @@ class DetailViewer:
                         
                         for agent_data in local_agents:
                             try:
-                                # Parse data (now includes group id)
+                                # Parse data (includes group id)
                                 if len(agent_data) >= 3:
                                     x, y, group_id = agent_data[0], agent_data[1], int(agent_data[2])
                                 else:
                                     x, y = agent_data[0], agent_data[1]
-                                    group_id = 1 # Default
+                                    group_id = 1  # Default
                                 
-                                # Check distance (sensing range)
-                                dist = np.sqrt(x**2 + y**2)
-                                if dist > 40.0:
-                                    continue
-                                
-                                # Check if within FOV (210 degrees centered on +Y)
-                                # Angle from +Y axis (0 = forward, positive = counterclockwise)
-                                angle_rad = np.arctan2(x, y)  # Note: arctan2(x, y) for angle from +Y
-                                angle_deg = np.degrees(angle_rad)
-                                
-                                # FOV: -105 to +105 degrees from forward (+Y)
-                                if -105 <= angle_deg <= 105:
-                                    visible_xs.append(x)
-                                    visible_ys.append(y)
-                                    visible_colors.append(self.group_colors.get(group_id, 'grey'))
+                                visible_xs.append(x)
+                                visible_ys.append(y)
+                                visible_colors.append(self.group_colors.get(group_id, 'grey'))
                             except Exception as e:
                                 print(f"Error processing agent data: {e}")
                                 continue
@@ -238,7 +253,7 @@ class DetailViewer:
                     # +Y axis = 90 degrees
                     # FOV: 90 - 105 = -15 to 90 + 105 = 195 degrees
                     from matplotlib.patches import Wedge
-                    fov_cone = Wedge((0, 0), 40, -15, 195, alpha=0.1, facecolor='cyan', edgecolor='cyan', linewidth=1)
+                    fov_cone = Wedge((0, 0), MAX_SENSING_DISTANCE, -15, 195, alpha=0.1, facecolor='cyan', edgecolor='cyan', linewidth=1)
                     self.ax_local_map.add_patch(fov_cone)
                     
                     self.ax_local_map.legend(fontsize=8)

@@ -88,13 +88,23 @@ class ZMQClient:
                 data["action"] = np.array(data["action"])
             if "spm" in data:
                 # MsgPack flattens multidimensional arrays
-                # Reshape from 1D to (16, 16, 3)
-                spm_flat = np.array(data["spm"])
-                if spm_flat.ndim == 1:
-                    # Assume shape is (16, 16, 3) = 768 elements
-                    data["spm"] = spm_flat.reshape((16, 16, 3))
+                # Julia arrays are column-major (Fortran order), NumPy defaults to row-major (C order)
+                # Need to reshape with 'F' order to match Julia's layout
+                spm_raw = data["spm"]
+                if isinstance(spm_raw, list):
+                    # Convert nested list directly - NumPy handles this properly
+                    spm_array = np.array(spm_raw, dtype=np.float64)
+                    # Julia sends as (16, 16, 3) but we need to transpose axes
+                    # because Julia is column-major and Python viewers expect row-major indexing
+                    if spm_array.shape == (16, 16, 3):
+                        data["spm"] = spm_array
+                    elif spm_array.ndim == 1 and len(spm_array) == 768:
+                        # Reshape using Fortran order to match Julia's column-major layout
+                        data["spm"] = spm_array.reshape((16, 16, 3), order='F')
+                    else:
+                        data["spm"] = spm_array
                 else:
-                    data["spm"] = spm_flat
+                    data["spm"] = np.array(spm_raw)
             
             return topic, data
             

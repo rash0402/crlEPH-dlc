@@ -119,7 +119,7 @@ function CommParams(;
 end
 
 # ===== Default Configuration =====
-const DEFAULT_SPM = SPMParams()
+const DEFAULT_SPM = SPMParams(sensing_ratio=7.5)  # Halved from 15.0 to reduce sensing distance
 const DEFAULT_WORLD = WorldParams()
 const DEFAULT_AGENT = AgentParams()
 const DEFAULT_CONTROL = ControlParams()

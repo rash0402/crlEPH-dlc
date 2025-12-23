@@ -10,6 +10,7 @@ push!(LOAD_PATH, joinpath(@__DIR__, "..", "src"))
 
 using Printf
 using Dates
+using LinearAlgebra  # For norm, cos, sin functions
 
 # Load modules
 include("../src/config.jl")
@@ -31,7 +32,9 @@ Main simulation loop
 """
 function main()
     println("=" ^ 60)
-    println("EPH Simulation - M1 Baseline (Fixed β)")
+    println("=" ^ 60)
+    println("!!! EPH Simulation - VERSION 3 STARTING !!!")
+    println("!!! IF YOU DO NOT SEE THIS, OLD CODE IS RUNNING !!!")
     println("=" ^ 60)
     
     # Load configuration
@@ -69,10 +72,13 @@ function main()
     publisher = init_publisher(comm_params)
     println("  Listening on: $(comm_params.zmq_endpoint)")
     
-    # Initialize logger
+    # Initialize HDF5 logger
     println("\n💾 Initializing HDF5 logger...")
     timestamp = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
-    log_filename = "data_$(timestamp).h5"
+    if !isdir("log")
+        mkdir("log")
+    end
+    log_filename = joinpath("log", "data_$(timestamp).h5")
     data_logger = init_logger(log_filename, spm_params, world_params)
     println("  Output: $(log_filename)")
     
@@ -87,21 +93,91 @@ function main()
         for step in 1:world_params.max_steps
             # Update all agents
             for agent in agents
-                # Get relative positions and velocities
-                rel_pos = Vector{Float64}[]
+                # Calculate ego-centric transformation parameters
+                heading = 0.0
+                rot_angle = π/2  # Default: East → Up
+                vel_norm = norm(agent.vel)
+                
+                if vel_norm > 0.001
+                    heading = atan(agent.vel[2], agent.vel[1])
+                    rot_angle = -heading + π/2  # Rotate so velocity points to +Y
+                end
+                
+                cos_θ = cos(rot_angle)
+                sin_θ = sin(rot_angle)
+                
+                # Calculate FOV and sensing parameters
+                r_total = spm_params.r_robot + agent_params.r_agent
+                max_sensing_distance = spm_params.sensing_ratio * r_total
+                
+                # Get relative positions and velocities in EGO-CENTRIC frame
+                # Apply FOV and distance filtering BEFORE transformation
+                rel_pos_ego = Vector{Float64}[]
                 rel_vel = Vector{Float64}[]
+                local_agents = Vector{Float64}[]  # For visualization [x, y, group]
                 
                 for other in agents
                     if other.id != agent.id
-                        r_rel = relative_position(agent.pos, other.pos, world_params)
-                        v_rel = other.vel - agent.vel
-                        push!(rel_pos, r_rel)
-                        push!(rel_vel, v_rel)
+                        # World-frame relative position
+                        r_rel_world = relative_position(agent.pos, other.pos, world_params)
+                        
+                        # Pre-filter: Check distance BEFORE rotation (cheaper)
+                        dist = norm(r_rel_world)
+                        if dist > max_sensing_distance
+                            continue  # Skip agents beyond sensing range
+                        end
+                        
+                        # Transform to ego-centric frame (velocity = +Y)
+                        r_rel_ego = [
+                            cos_θ * r_rel_world[1] - sin_θ * r_rel_world[2],
+                            sin_θ * r_rel_world[1] + cos_θ * r_rel_world[2]
+                        ]
+                        
+                        # FOV check in ego-centric frame (angle from +Y axis)
+                        # atan(x, y) gives angle from +Y axis (forward), positive=left, negative=right
+                        # Standard atan2 is atan(y, x), Julia atan(x, y) is equivalent to atan2(x, y) in meaning?
+                        # Wait, Julia atan(y, x) computes angle of (x, y) from X-axis.
+                        # I want angle from Y-axis.
+                        # theta = atan(x, y) gives angle of (y, x) from X-axis (which is Y-axis).
+                        # Correct.
+                        theta_val = atan(r_rel_ego[1], r_rel_ego[2])
+                        if abs(theta_val) > spm_params.fov_rad / 2
+                            continue  # Skip agents outside FOV
+                        end
+                        
+                        # Add to filtered lists
+                        # Transform relative velocity to ego-centric frame (same rotation as position)
+                        v_rel_world = other.vel - agent.vel
+                        v_rel_ego = [
+                            cos_θ * v_rel_world[1] - sin_θ * v_rel_world[2],
+                            sin_θ * v_rel_world[1] + cos_θ * v_rel_world[2]
+                        ]
+                        
+                        push!(rel_pos_ego, r_rel_ego)
+                        push!(rel_vel, v_rel_ego)
+                        
+                        # Add to local_agents for visualization
+                        push!(local_agents, [r_rel_ego[1], r_rel_ego[2], Float64(Int(other.group))])
                     end
                 end
                 
-                # Generate SPM
-                spm = generate_spm_3ch(spm_config, rel_pos, rel_vel, agent_params.r_agent, agent.vel)
+                # DEBUG: Log filtering result for Agent 1
+                if agent.id == 1 && step % 100 == 0
+                    open(joinpath("log", "debug_filter.log"), "a") do io
+                        println(io, "Step $step: Agent 1 sees $(length(rel_pos_ego)) agents after filtering (max_dist=$max_sensing_distance, fov_rad=$(spm_params.fov_rad))")
+                        for (i, pos) in enumerate(rel_pos_ego)
+                            dist = norm(pos)
+                            theta = atan(pos[1], pos[2])
+                            println(io, "  Agent $i: pos=$pos, dist=$dist, theta=$(rad2deg(theta))°")
+                        end
+                    end
+                end
+                
+                # DEBUG: Log right before SPM generation for Agent 1
+                # (Removed debug logging)
+                
+                # Generate SPM using ego-centric coordinates
+                spm = generate_spm_3ch(spm_config, rel_pos_ego, rel_vel, agent_params.r_agent)
                 
                 # Compute action
                 action = compute_action(agent, spm, control_params, agent_params)
@@ -114,8 +190,8 @@ function main()
                     fe = free_energy(agent.vel, agent.goal_vel, spm, control_params)
                     log_step!(data_logger, spm, action, agent.pos, agent.vel)
                     
-                    # Publish detail packet
-                    publish_detail(publisher, agent, spm, action, fe, step, agents, world_params, comm_params)
+                    # Publish detail packet (pass prepared local_agents directly)
+                    publish_detail(publisher, agent, spm, action, fe, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
                 end
             end
             
