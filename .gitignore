@@ -36,6 +36,22 @@ env/
 *.jl.mem
 /Manifest.toml
 /src_julia/Manifest.toml
+Manifest*.toml
+
+# Julia package manager files
+deps/deps.jl
+deps/build.log
+deps/downloads/
+deps/usr/
+deps/src/
+
+# Julia documentation
+docs/build/
+docs/site/
+
+# Julia preferences
+LocalPreferences.toml
+JuliaLocalPreferences.toml
 
 # IDE
 .vscode/
@@ -55,15 +71,9 @@ env/
 *.avi
 recordings/
 
-# Archive directory (legacy code, keep in repo for reference)
-# archive/
-
 # macOS system files
 .DS_Store
 **/.DS_Store
-
-# JetBrains IDEs
-.idea/
 
 # Temporary directories
 log/
