@@ -1,123 +1,141 @@
 """
-HDF5 Data Logger
-Real-time buffered writing of simulation data
+HDF5 Data Logger - Multi-Agent Version
+Real-time buffered writing of simulation data for all agents
 """
 
 module Logger
 
 using HDF5
 using ..Config
+using ..Dynamics
 
 export DataLogger, init_logger, log_step!, close_logger
 
 """
-HDF5 data logger
+HDF5 data logger for multi-agent simulation
 """
 mutable struct DataLogger
     file::HDF5.File
-    spm_dataset::HDF5.Dataset
-    action_dataset::HDF5.Dataset
     position_dataset::HDF5.Dataset
     velocity_dataset::HDF5.Dataset
+    action_dataset::HDF5.Dataset
+    haze_dataset::HDF5.Dataset
+    precision_dataset::HDF5.Dataset
     step_count::Int
     max_steps::Int
+    num_agents::Int
 end
 
 """
-Initialize HDF5 logger with preallocated datasets
+Initialize HDF5 logger with preallocated datasets for all agents
 """
 function init_logger(
     filename::String,
-    spm_params::SPMParams=DEFAULT_SPM,
-    world_params::WorldParams=DEFAULT_WORLD
+    max_steps::Int,
+    num_agents::Int
 )
     # Create HDF5 file
     file = h5open(filename, "w")
     
     # Create datasets with chunking for efficient writing
-    spm_ds = create_dataset(
-        file,
-        "/data/spm",
-        datatype(Float32),
-        dataspace(spm_params.n_rho, spm_params.n_theta, 3, world_params.max_steps),
-        chunk=(spm_params.n_rho, spm_params.n_theta, 3, 1)
-    )
-    
-    action_ds = create_dataset(
-        file,
-        "/data/action",
-        datatype(Float32),
-        dataspace(2, world_params.max_steps),
-        chunk=(2, 100)
-    )
-    
+    # Shape: (dimension, agent_id, timestep)
     position_ds = create_dataset(
         file,
         "/data/position",
         datatype(Float32),
-        dataspace(2, world_params.max_steps),
-        chunk=(2, 100)
+        dataspace(2, num_agents, max_steps),
+        chunk=(2, min(num_agents, 10), min(max_steps, 100))
     )
     
     velocity_ds = create_dataset(
         file,
         "/data/velocity",
         datatype(Float32),
-        dataspace(2, world_params.max_steps),
-        chunk=(2, 100)
+        dataspace(2, num_agents, max_steps),
+        chunk=(2, min(num_agents, 10), min(max_steps, 100))
+    )
+    
+    action_ds = create_dataset(
+        file,
+        "/data/action",
+        datatype(Float32),
+        dataspace(2, num_agents, max_steps),
+        chunk=(2, min(num_agents, 10), min(max_steps, 100))
+    )
+    
+    haze_ds = create_dataset(
+        file,
+        "/data/haze",
+        datatype(Float32),
+        dataspace(num_agents, max_steps),
+        chunk=(min(num_agents, 10), min(max_steps, 100))
+    )
+    
+    precision_ds = create_dataset(
+        file,
+        "/data/precision",
+        datatype(Float32),
+        dataspace(num_agents, max_steps),
+        chunk=(min(num_agents, 10), min(max_steps, 100))
     )
     
     # Store metadata
-    attributes(file)["n_rho"] = spm_params.n_rho
-    attributes(file)["n_theta"] = spm_params.n_theta
-    attributes(file)["fov_deg"] = spm_params.fov_deg
-    attributes(file)["dt"] = world_params.dt
+    attributes(file)["num_agents"] = num_agents
+    attributes(file)["max_steps"] = max_steps
+    attributes(file)["description"] = "EPH Multi-Agent Simulation Data"
     
     return DataLogger(
         file,
-        spm_ds,
-        action_ds,
         position_ds,
         velocity_ds,
+        action_ds,
+        haze_ds,
+        precision_ds,
         0,
-        world_params.max_steps
+        max_steps,
+        num_agents
     )
 end
 
 """
-Log data for current step
+Log data for all agents at current step
 """
 function log_step!(
     logger::DataLogger,
-    spm::Array{Float64, 3},
-    action::Vector{Float64},
-    position::Vector{Float64},
-    velocity::Vector{Float64}
+    agents::Vector{Agent},
+    step::Int
 )
-    logger.step_count += 1
-    step = logger.step_count
-    
     if step > logger.max_steps
         @warn "Exceeded max_steps, skipping logging"
         return
     end
     
-    # Write data (HDF5 uses 1-based indexing)
-    logger.spm_dataset[:, :, :, step] = Float32.(spm)
-    logger.action_dataset[:, step] = Float32.(action)
-    logger.position_dataset[:, step] = Float32.(position)
-    logger.velocity_dataset[:, step] = Float32.(velocity)
+    # Extract data from all agents
+    for (i, agent) in enumerate(agents)
+        # Position and velocity
+        logger.position_dataset[:, i, step] = Float32.(agent.pos)
+        logger.velocity_dataset[:, i, step] = Float32.(agent.vel)
+        
+        # Action (stored in agent.acc for now, or zero if not available)
+        # Note: In actual simulation, action should be passed separately
+        logger.action_dataset[:, i, step] = Float32.(agent.acc)
+        
+        # Haze and Precision
+        # Note: Haze needs to be computed from agent state
+        # For now, using precision inverse
+        logger.precision_dataset[i, step] = Float32(agent.precision)
+        logger.haze_dataset[i, step] = Float32(1.0 / (agent.precision + 1e-6))
+    end
+    
+    logger.step_count = step
 end
 
 """
 Close logger and finalize file
 """
 function close_logger(logger::DataLogger)
-    # Trim datasets to actual step count
-    if logger.step_count < logger.max_steps
-        # Note: HDF5.jl doesn't support easy resizing, so we leave as is
-        attributes(logger.file)["actual_steps"] = logger.step_count
-    end
+    # Store actual step count
+    attributes(logger.file)["actual_steps"] = logger.step_count
     
     close(logger.file)
 end

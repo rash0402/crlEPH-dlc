@@ -18,7 +18,7 @@ using HDF5
 using Statistics
 using Printf
 using Dates
-using LinearAlgebra: norm
+using LinearAlgebra: norm, dot
 using JSON
 
 # Load freezing detection module

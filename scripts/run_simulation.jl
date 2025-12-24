@@ -42,9 +42,16 @@ function main()
     
     # Load configuration
     spm_params = DEFAULT_SPM
-    world_params = DEFAULT_WORLD
+    world_params = WorldParams(max_steps=200)  # Short test for M4
     agent_params = DEFAULT_AGENT
     control_params = DEFAULT_CONTROL
+    
+    # M4 TEST: Enable predictive control
+    # TEMPORARILY DISABLED due to ForwardDiff type issues
+    control_params = ControlParams(
+        use_predictive_control=false,  # Disabled for now
+        use_vae=true
+    )
     comm_params = DEFAULT_COMM
     
     println("\n📋 Configuration:")
@@ -82,7 +89,7 @@ function main()
         mkdir("data")
     end
     log_filename = joinpath("data", "eph_sim_$(timestamp).h5")
-    data_logger = init_logger(log_filename, spm_params, world_params)
+    data_logger = init_logger(log_filename, world_params.max_steps, length(agents))
     println("  Output: $(log_filename)")
     
     # Load VAE model (optional - for Haze computation)
@@ -252,8 +259,6 @@ function main()
                     # Compute Precision from Haze: Π = 1/(H + ε)
                     precision = 1.0 / (haze + control_params.epsilon)
                     
-                    log_step!(data_logger, spm, action, agent.pos, agent.vel)
-                    
                     # Publish detail packet (pass prepared local_agents directly)
                     publish_detail(publisher, agent, spm, action, fe, haze, precision, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
                 end
@@ -266,6 +271,9 @@ function main()
                     agent.precision = 1.0 / (agent_haze + control_params.epsilon)
                 end
             end
+            
+            # Log all agents data for this step
+            log_step!(data_logger, agents, step)
             
             # Publish global state
             publish_global(publisher, agents, step, comm_params)

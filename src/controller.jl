@@ -123,7 +123,7 @@ function compute_action_predictive(
     control_params::ControlParams,
     agent_params::AgentParams,
     world_params::WorldParams,
-    spm_config::SPMParams
+    spm_config::SPMConfig  # Changed from SPMParams
 )
     # Start with baseline action (current FEP)
     u_init = compute_action(agent, spm_current, control_params, agent_params)
