@@ -123,6 +123,7 @@ struct ControlParams
     exploration_noise::Float64 # Std of Gaussian noise added to actions
     experiment_condition::ExperimentCondition  # Ablation study condition
     use_vae::Bool          # Enable VAE for Haze computation
+    use_predictive_control::Bool  # Enable M4 predictive collision avoidance
 end
 
 function ControlParams(;
@@ -134,9 +135,10 @@ function ControlParams(;
     exploration_rate=0.0,  # Default: no exploration
     exploration_noise=0.0,  # Default: no noise
     experiment_condition=A4_EPH,  # Default: full EPH
-    use_vae=true  # Default: VAE enabled
+    use_vae=true,  # Default: VAE enabled
+    use_predictive_control=false  # Default: reactive control (M3 baseline)
 )
-    ControlParams(eta, sigma_safe, T_th, beta_ttc, epsilon, exploration_rate, exploration_noise, experiment_condition, use_vae)
+    ControlParams(eta, sigma_safe, T_th, beta_ttc, epsilon, exploration_rate, exploration_noise, experiment_condition, use_vae, use_predictive_control)
 end
 
 # ===== Communication Parameters =====

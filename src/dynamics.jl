@@ -9,7 +9,7 @@ using LinearAlgebra
 using Random
 using ..Config
 
-export Agent, AgentGroup, Obstacle, init_agents, init_obstacles, step!, wrap_torus, relative_position, check_collision
+export Agent, AgentGroup, Obstacle, init_agents, init_obstacles, step!, wrap_torus, relative_position, check_collision, predict_state, predict_other_agents
 
 """
 Agent group identifiers (N/S/E/W)
@@ -281,6 +281,80 @@ function relative_position(pos_self::Vector{Float64}, pos_other::Vector{Float64}
     end
     
     return [dx, dy]
+end
+
+# ===== Predictive Functions for M4 =====
+
+"""
+Predict agent state one step ahead given control input.
+Used for Expected Free Energy (EFE) computation.
+
+Args:
+    agent: Current agent state
+    u: Control input [ux, uy]
+    agent_params: Agent parameters
+    world_params: World parameters
+
+Returns:
+    (pos_next, vel_next): Predicted position and velocity
+"""
+function predict_state(
+    agent::Agent,
+    u::Vector{Float64},
+    agent_params::AgentParams,
+    world_params::WorldParams
+)
+    dt = world_params.dt
+    M = agent_params.mass
+    D = agent_params.damping
+    
+    # Current state
+    pos = agent.pos
+    vel = agent.vel
+    
+    # Predict acceleration
+    acc_next = (u - D .* vel) ./ M
+    
+    # Predict velocity (Euler integration)
+    vel_next = vel + acc_next .* dt
+    
+    # Predict position (Euler integration)
+    pos_next = pos + vel_next .* dt
+    
+    # Apply torus wrapping
+    pos_next = wrap_torus(pos_next, world_params)
+    
+    return pos_next, vel_next
+end
+
+"""
+Predict other agents' states assuming constant velocity.
+Simplified prediction for computational efficiency.
+
+Args:
+    agents: Vector of other agents
+    world_params: World parameters
+
+Returns:
+    Vector of predicted (position, velocity) tuples
+"""
+function predict_other_agents(
+    agents::Vector{Agent},
+    world_params::WorldParams
+)
+    dt = world_params.dt
+    predictions = Tuple{Vector{Float64}, Vector{Float64}}[]
+    
+    for agent in agents
+        # Constant velocity assumption
+        pos_next = agent.pos + agent.vel .* dt
+        pos_next = wrap_torus(pos_next, world_params)
+        vel_next = agent.vel  # Constant
+        
+        push!(predictions, (pos_next, vel_next))
+    end
+    
+    return predictions
 end
 
 end # module

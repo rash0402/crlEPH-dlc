@@ -202,8 +202,19 @@ function main()
                 # Use agent.precision from previous step (solves circular dependency)
                 spm = generate_spm_3ch(spm_config, rel_pos_ego, rel_vel, agent_params.r_agent, agent.precision)
                 
-                # Compute action with exploration
-                action = compute_action(agent, spm, control_params, agent_params)
+                # Compute action: predictive (M4) or reactive (M3)
+                if control_params.use_predictive_control
+                    # M4: Predictive collision avoidance with EFE
+                    # Get other agents (exclude self)
+                    other_agents = [a for a in agents if a.id != agent.id]
+                    action = compute_action_predictive(
+                        agent, spm, other_agents,
+                        control_params, agent_params, world_params, spm_config
+                    )
+                else
+                    # M3: Reactive control (baseline)
+                    action = compute_action(agent, spm, control_params, agent_params)
+                end
                 
                 # Apply exploration (for diverse VAE training data)
                 if control_params.exploration_rate > 0 || control_params.exploration_noise > 0
