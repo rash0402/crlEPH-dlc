@@ -78,10 +78,10 @@ function main()
     # Initialize HDF5 logger
     println("\n💾 Initializing HDF5 logger...")
     timestamp = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
-    if !isdir("log")
-        mkdir("log")
+    if !isdir("data")
+        mkdir("data")
     end
-    log_filename = joinpath("log", "data_$(timestamp).h5")
+    log_filename = joinpath("data", "eph_sim_$(timestamp).h5")
     data_logger = init_logger(log_filename, spm_params, world_params)
     println("  Output: $(log_filename)")
     
@@ -198,11 +198,28 @@ function main()
                 # DEBUG: Log right before SPM generation for Agent 1
                 # (Removed debug logging)
                 
-                # Generate SPM using ego-centric coordinates
-                spm = generate_spm_3ch(spm_config, rel_pos_ego, rel_vel, agent_params.r_agent)
+                # Generate SPM using ego-centric coordinates with adaptive β modulation
+                # Use agent.precision from previous step (solves circular dependency)
+                spm = generate_spm_3ch(spm_config, rel_pos_ego, rel_vel, agent_params.r_agent, agent.precision)
                 
-                # Compute action
+                # Compute action with exploration
                 action = compute_action(agent, spm, control_params, agent_params)
+                
+                # Apply exploration (for diverse VAE training data)
+                if control_params.exploration_rate > 0 || control_params.exploration_noise > 0
+                    if rand() < control_params.exploration_rate
+                        # Epsilon-greedy: Random action
+                        action = (rand(2) .* 2 .- 1) .* agent_params.u_max
+                    else
+                        # Gaussian noise on FEP action
+                        if control_params.exploration_noise > 0
+                            noise = randn(2) .* control_params.exploration_noise .* agent_params.u_max
+                            action = action .+ noise
+                        end
+                    end
+                    # Clamp to valid range
+                    action = clamp.(action, -agent_params.u_max, agent_params.u_max)
+                end
                 
                 # Step dynamics (with agent-agent collision detection)
                 step!(agent, action, agent_params, world_params, obstacles, agents)
@@ -221,10 +238,21 @@ function main()
                         0.0  # Placeholder when no model available
                     end
                     
+                    # Compute Precision from Haze: Π = 1/(H + ε)
+                    precision = 1.0 / (haze + control_params.epsilon)
+                    
                     log_step!(data_logger, spm, action, agent.pos, agent.vel)
                     
                     # Publish detail packet (pass prepared local_agents directly)
-                    publish_detail(publisher, agent, spm, action, fe, haze, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
+                    publish_detail(publisher, agent, spm, action, fe, haze, precision, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
+                end
+                
+                # Update agent's precision for next iteration (all agents)
+                if vae_model !== nothing
+                    spm_input = reshape(spm, 16, 16, 3, 1)
+                    haze_val = compute_haze(vae_model, spm_input)
+                    agent_haze = Float64(haze_val[1])
+                    agent.precision = 1.0 / (agent_haze + control_params.epsilon)
                 end
             end
             

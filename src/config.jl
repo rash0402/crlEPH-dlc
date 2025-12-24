@@ -19,6 +19,11 @@ struct SPMParams
     sigma_spm::Float64      # Gaussian blur sigma for region projection
     beta_r_fixed::Float64   # Fixed beta for proximity softmin (M1 baseline)
     beta_nu_fixed::Float64  # Fixed beta for velocity softmax (M1 baseline)
+    # Adaptive β(H) modulation parameters (M2)
+    beta_r_min::Float64     # Minimum β_r (high uncertainty → smooth aggregation)
+    beta_r_max::Float64     # Maximum β_r (low uncertainty → sharp aggregation)
+    beta_nu_min::Float64    # Minimum β_ν (high uncertainty → smooth aggregation)
+    beta_nu_max::Float64    # Maximum β_ν (low uncertainty → sharp aggregation)
 end
 
 function SPMParams(;
@@ -29,7 +34,11 @@ function SPMParams(;
     sensing_ratio=15.0,
     sigma_spm=0.25,
     beta_r_fixed=5.0,
-    beta_nu_fixed=5.0
+    beta_nu_fixed=5.0,
+    beta_r_min=1.0,      # Smooth aggregation when uncertain
+    beta_r_max=10.0,     # Sharp aggregation when confident
+    beta_nu_min=1.0,     # Smooth aggregation when uncertain
+    beta_nu_max=10.0     # Sharp aggregation when confident
 )
     SPMParams(
         n_rho,
@@ -40,8 +49,27 @@ function SPMParams(;
         sensing_ratio,
         sigma_spm,
         beta_r_fixed,
-        beta_nu_fixed
+        beta_nu_fixed,
+        beta_r_min,
+        beta_r_max,
+        beta_nu_min,
+        beta_nu_max
     )
+end
+
+# ===== Experiment Conditions (Ablation Study) =====
+"""
+Experiment conditions for ablation study (EPH Proposal 4.3)
+- A1_BASELINE: Fixed β, no SPM, Cartesian (complete baseline)
+- A2_SPM_ONLY: Fixed β, SPM, Polar (SPM contribution)
+- A3_ADAPTIVE_BETA: Adaptive β(H), no SPM, Cartesian (β modulation contribution)
+- A4_EPH: Adaptive β(H), SPM, Polar (full EPH - proposed method)
+"""
+@enum ExperimentCondition begin
+    A1_BASELINE = 1
+    A2_SPM_ONLY = 2
+    A3_ADAPTIVE_BETA = 3
+    A4_EPH = 4
 end
 
 # ===== World Parameters =====
@@ -91,6 +119,10 @@ struct ControlParams
     T_th::Float64           # TTC threshold for risk calculation
     beta_ttc::Float64       # Sigmoid steepness for TTC
     epsilon::Float64        # Small value for numerical stability
+    exploration_rate::Float64  # Probability of random action (0.0 = no exploration)
+    exploration_noise::Float64 # Std of Gaussian noise added to actions
+    experiment_condition::ExperimentCondition  # Ablation study condition
+    use_vae::Bool          # Enable VAE for Haze computation
 end
 
 function ControlParams(;
@@ -98,9 +130,13 @@ function ControlParams(;
     sigma_safe=3.0,
     T_th=2.0,
     beta_ttc=2.0,
-    epsilon=1e-6
+    epsilon=1e-6,
+    exploration_rate=0.0,  # Default: no exploration
+    exploration_noise=0.0,  # Default: no noise
+    experiment_condition=A4_EPH,  # Default: full EPH
+    use_vae=true  # Default: VAE enabled
 )
-    ControlParams(eta, sigma_safe, T_th, beta_ttc, epsilon)
+    ControlParams(eta, sigma_safe, T_th, beta_ttc, epsilon, exploration_rate, exploration_noise, experiment_condition, use_vae)
 end
 
 # ===== Communication Parameters =====

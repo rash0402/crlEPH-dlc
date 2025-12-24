@@ -1,0 +1,19 @@
+{
+  "performance": {
+    "success_rate": 77.03302480346616,
+    "collision_rate": 2.214803182485976,
+    "num_successes": 8,
+    "num_collisions": 2
+  },
+  "simulation": {
+    "num_agents": 10,
+    "total_time": 99.0,
+    "total_steps": 3000
+  },
+  "motion_quality": {
+    "num_freezing_events": 3,
+    "avg_jerk": 3.5387417634981033,
+    "freezing_rate": 17.856985389363818,
+    "min_ttc": 3.8526130532194323
+  }
+}

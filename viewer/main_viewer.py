@@ -58,7 +58,7 @@ class MainViewer:
         self.step = 0
         
         # Setup plot
-        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        self.fig, self.ax = plt.subplots(figsize=(8, 8))  # Reduced from (10, 10) for compact display
         self.fig.suptitle("EPH Simulation - 4-Group Scramble Crossing", fontsize=14, fontweight='bold')
         
         self.ax.set_xlim(0, world_width)

@@ -77,8 +77,11 @@ end
 """
 Generate 3-channel SPM image
 - ch1: Occupancy (density)
-- ch2: Proximity Saliency (surface distance based, fixed β softmin)
-- ch3: Dynamic Collision Risk (TTC based)
+- ch2: Proximity Saliency (surface distance based, adaptive β softmin)
+- ch3: Dynamic Collision Risk (TTC based, adaptive β softmax)
+
+Args:
+    precision: Precision (Π = 1/H) for adaptive β modulation (default 1.0 = no modulation)
 
 Returns: Array{Float64, 3} of shape (n_rho, n_theta, 3)
 """
@@ -86,11 +89,22 @@ function generate_spm_3ch(
     config::SPMConfig,
     agents_rel_pos::Vector{Vector{Float64}},
     agents_rel_vel::Vector{Vector{Float64}},
-    r_agent::Float64
+    r_agent::Float64,
+    precision::Float64 = 1.0  # Default: no modulation (baseline mode)
 )
     params = config.params
     spm = zeros(Float64, params.n_rho, params.n_theta, 3)
     r_total = params.r_robot + r_agent
+    
+    # Adaptive β modulation (EPH proposal equations 3.3.2 and 3.3.3)
+    # Clamp precision to avoid extreme values
+    precision_clamped = clamp(precision, 0.01, 100.0)
+    
+    # β_r[k] = β_r^min + (β_r^max - β_r^min) * Π[k]
+    beta_r = params.beta_r_min + (params.beta_r_max - params.beta_r_min) * precision_clamped
+    
+    # β_ν[k] = β_ν^min + (β_ν^max - β_ν^min) * Π[k]
+    beta_nu = params.beta_nu_min + (params.beta_nu_max - params.beta_nu_min) * precision_clamped
     
     for (idx, p_rel) in enumerate(agents_rel_pos)
         # 1. Basic coordinates
@@ -112,13 +126,17 @@ function generate_spm_3ch(
         
         # 2. Physical quantities
         # Proximity saliency: closer = higher value
-        saliency = exp(-rho_val)
+        # Adaptive β_r modulation: high β_r → sharp decay (emphasize closest), low β_r → smooth decay (average)
+        # Use β_r as temperature parameter: divide distance by β_r before exponential
+        saliency = exp(-rho_val / max(beta_r, 0.1))
         
-        # Collision risk: TTC approximation
+        # Collision risk: TTC approximation with adaptive β_ν modulation
         v_rel = agents_rel_vel[idx]
         radial_vel = -dot(p_rel, v_rel) / (norm(p_rel) + 1e-6)  # Approach velocity
         ttc_inv = max(0.0, radial_vel) / (exp(rho_val) + 1e-6)  # Inverse TTC
-        risk = min(1.0, ttc_inv)
+        # Adaptive β_ν modulation: high β_ν → sharp response, low β_ν → smooth averaging
+        # Use β_ν as temperature parameter for consistency with Ch2
+        risk = min(1.0, exp(beta_nu * ttc_inv) - 1.0)  # exp(β*x) - 1 for soft thresholding
         
         # 3. Region projection (Blurred Gaussian)
         for j in 1:params.n_theta, i in 1:params.n_rho
@@ -128,12 +146,26 @@ function generate_spm_3ch(
             # Gaussian weight
             weight = exp(-(d_rh^2 + d_th^2) / (2 * params.sigma_spm^2))
             
-            # Write to channels (max aggregation)
-            spm[i, j, 1] = max(spm[i, j, 1], weight)              # Occupancy
-            spm[i, j, 2] = max(spm[i, j, 2], weight * saliency)   # Saliency
-            spm[i, j, 3] = max(spm[i, j, 3], weight * risk)       # Risk
+            # Write to channels
+            # Ch1: Occupancy (normalized count, binary presence in cell)
+            # EPH proposal 3.3.1: clip(1/Z * Σ 1, 0, 1)
+            # Count agent presence: if weight > threshold, agent contributes 1 to this cell
+            if weight > 0.1
+                spm[i, j, 1] += 1.0  # Count presence (will normalize later)
+            end
+            
+            # Ch2: Proximity Saliency (distance-weighted)
+            spm[i, j, 2] = max(spm[i, j, 2], weight * saliency)
+            
+            # Ch3: Collision Risk (velocity-weighted)
+            spm[i, j, 3] = max(spm[i, j, 3], weight * risk)
         end
     end
+    
+    # Normalize and clip Ch1 to [0, 1]
+    # Divide by a reasonable maximum count (e.g., 5 agents per cell)
+    max_count = 5.0
+    spm[:, :, 1] = min.(1.0, spm[:, :, 1] ./ max_count)
     
     return spm
 end

@@ -74,6 +74,7 @@ function publish_detail(
     action::Vector{Float64},
     free_energy::Float64,
     haze::Float64,
+    precision::Float64,  # NEW: Precision (Π = 1/H)
     step::Int,
     all_agents::Vector{Agent},
     world_params::WorldParams,
@@ -96,6 +97,7 @@ function publish_detail(
         "action" => action,
         "free_energy" => free_energy,
         "haze" => haze,  # VAE uncertainty estimate
+        "precision" => precision,  # Precision (Π = 1/H)
         "local_agents" => local_agents  # Other agents in local coordinates
     )
     

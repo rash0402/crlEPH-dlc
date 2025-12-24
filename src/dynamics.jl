@@ -43,6 +43,7 @@ mutable struct Agent
     goal::Vector{Float64}     # [gx, gy] - for reference
     goal_vel::Vector{Float64} # [vx_goal, vy_goal] - desired velocity
     color::String             # For visualization
+    precision::Float64        # Precision (Π = 1/H) for adaptive β modulation
 end
 
 """
@@ -97,7 +98,7 @@ function init_agents(
         vel = [0.0, -2.0 + randn() * 0.5]  # Moving down
         goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
         goal_vel = [0.0, -2.0]  # Constant downward velocity
-        push!(agents, Agent(agent_id, NORTH, pos, vel, [0.0, 0.0], goal, goal_vel, colors[NORTH]))
+        push!(agents, Agent(agent_id, NORTH, pos, vel, [0.0, 0.0], goal, goal_vel, colors[NORTH], 1.0))
         agent_id += 1
     end
     
@@ -107,7 +108,7 @@ function init_agents(
         vel = [0.0, 2.0 + randn() * 0.5]  # Moving up
         goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
         goal_vel = [0.0, 2.0]  # Constant upward velocity
-        push!(agents, Agent(agent_id, SOUTH, pos, vel, [0.0, 0.0], goal, goal_vel, colors[SOUTH]))
+        push!(agents, Agent(agent_id, SOUTH, pos, vel, [0.0, 0.0], goal, goal_vel, colors[SOUTH], 1.0))
         agent_id += 1
     end
     
@@ -117,7 +118,7 @@ function init_agents(
         vel = [2.0 + randn() * 0.5, 0.0]  # Moving right
         goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
         goal_vel = [2.0, 0.0]  # Constant rightward velocity
-        push!(agents, Agent(agent_id, EAST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[EAST]))
+        push!(agents, Agent(agent_id, EAST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[EAST], 1.0))
         agent_id += 1
     end
     
@@ -127,7 +128,7 @@ function init_agents(
         vel = [-2.0 + randn() * 0.5, 0.0]  # Moving left
         goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
         goal_vel = [-2.0, 0.0]  # Constant leftward velocity
-        push!(agents, Agent(agent_id, WEST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[WEST]))
+        push!(agents, Agent(agent_id, WEST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[WEST], 1.0))
         agent_id += 1
     end
     

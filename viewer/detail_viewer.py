@@ -51,7 +51,7 @@ class DetailViewer:
         self.fe_history = []
         self.action_x_history = []
         self.action_y_history = []
-        self.vae_error_history = []  # Placeholder for M2
+        self.vae_error_history = []  # Stores Precision (Π = 1/H) values
         
         # Group colors matches MainViewer
         self.group_colors = {
@@ -62,7 +62,7 @@ class DetailViewer:
         }
         
         # Setup plot
-        self.fig = plt.figure(figsize=(16, 12))
+        self.fig = plt.figure(figsize=(12, 9))  # Reduced from (16, 12) for compact display
         self.fig.suptitle("EPH Detail Viewer - Agent SPM & Metrics", fontsize=14, fontweight='bold')
         
         # Create grid layout: 4 rows x 4 columns
@@ -117,9 +117,9 @@ class DetailViewer:
         self.ax_action.set_ylabel('u', fontsize=8)
         self.ax_action.grid(True, alpha=0.3)
         
-        self.ax_vae.set_title('Haze (VAE Uncertainty)', fontsize=9, fontweight='bold')
+        self.ax_vae.set_title('Precision (Π = 1/H)', fontsize=9, fontweight='bold')
         self.ax_vae.set_xlabel('Step', fontsize=8)
-        self.ax_vae.set_ylabel('Haze', fontsize=8)
+        self.ax_vae.set_ylabel('Precision', fontsize=8)
         self.ax_vae.grid(True, alpha=0.3)
         
         # Initialize plots
@@ -163,6 +163,9 @@ class DetailViewer:
                 action = data["action"]
                 fe = data["free_energy"]
                 haze = data.get("haze", 0.0)  # Default to 0.0 if not present
+                # Compute Precision from Haze: Π = 1/(H + ε)
+                epsilon = 1e-6
+                precision = 1.0 / (haze + epsilon) if haze > 0 else 1.0 / epsilon
                 
                 # Extent: [Left_Val, Right_Val, Bottom, Top]
                 # Left side of plot = -105° (right in ego frame)
@@ -264,7 +267,7 @@ class DetailViewer:
                 self.fe_history.append(fe)
                 self.action_x_history.append(action[0])
                 self.action_y_history.append(action[1])
-                self.vae_error_history.append(haze)  # Now stores Haze values
+                self.vae_error_history.append(precision)  # Now stores Precision values (Π = 1/H)
                 
                 # Trim history
                 if len(self.step_history) > self.history_length:
@@ -297,10 +300,10 @@ class DetailViewer:
                     self.ax_action.relim()
                     self.ax_action.autoscale_view()
                 
-                # Update Haze plot
+                # Update Precision plot
                 if self.line_vae is None:
                     self.line_vae, = self.ax_vae.plot(self.step_history, self.vae_error_history,
-                                                      'm-', linewidth=1.5, label='Haze')
+                                                      'm-', linewidth=1.5, label='Precision')
                     self.ax_vae.legend(fontsize=8)
                 else:
                     self.line_vae.set_data(self.step_history, self.vae_error_history)

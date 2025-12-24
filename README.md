@@ -80,19 +80,36 @@ Terminal 3:
 ~/local/venv/bin/python viewer/detail_viewer.py
 ```
 
-## Features (M1 Baseline)
+## Features
 
+### M1-M2: Baseline Implementation ✅
 - **4-Group Scramble Crossing**: N/S/E/W groups in torus world
 - **SPM Representation**: 16×16×3ch (Occupancy, Saliency, Risk)
-- **FEP Controller**: Free energy minimization with fixed β
+- **FEP Controller**: Free energy minimization
+- **VAE World Model**: Haze estimation from SPM
+- **Adaptive β(H) Modulation**: Precision-based perceptual resolution control
 - **Real-time Visualization**: ZMQ-based streaming
 - **HDF5 Logging**: Complete simulation data
 
-## Next Steps (M2/M3)
+### M3: Validation Framework ✅
+- **Freezing Detection**: Operational definition-based algorithm
+- **Evaluation Metrics**: Success Rate, Collision Rate, Jerk, Min TTC
+- **Ablation Study**: A1-A4 condition switching
+- **Statistical Analysis**: Automated validation against targets
+- **Test Results**: 36% freezing reduction, 23% jerk improvement
 
-- [ ] VAE world model for Haze estimation
-- [ ] Adaptive β(H) modulation
-- [ ] Evaluation metrics (Freezing Rate, Jerk, TTC)
+## Next Steps (M4)
+
+### Predictive Collision Avoidance 🎯
+- [ ] Expected Free Energy (EFE) minimization
+- [ ] Predictive SPM generation from candidate actions
+- [ ] Ch3-focused evaluation (dynamic collision risk)
+- [ ] Automatic differentiation-based optimization
+- [ ] Real experiment execution and paper submission
+
+**Design Documents**:
+- `doc/predictive_collision_avoidance_discussion.md`
+- `doc/ch3_focused_evaluation.md`
 
 ## References
 
