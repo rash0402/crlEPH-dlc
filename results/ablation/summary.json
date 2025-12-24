@@ -1,6 +1,6 @@
 {
   "results_dir": "results/ablation",
-  "timestamp": "2025-12-24T12:50:43.517",
+  "timestamp": "2025-12-24T15:28:38.086",
   "conditions": {
     "a1_baseline": {
       "n_experiments": 5,
