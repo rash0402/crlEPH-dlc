@@ -20,7 +20,6 @@ include("../src/controller.jl")
 include("../src/communication.jl")
 include("../src/logger.jl")
 include("../src/vae.jl")
-include("../src/autoencoder.jl")
 
 using Statistics
 using Dates
@@ -36,7 +35,6 @@ using .Controller
 using .Communication
 using .Logger
 using .VAEModel
-using .AutoencoderModel
 
 """
 Main simulation loop
@@ -94,23 +92,24 @@ function main()
     data_logger = init_logger(log_filename, world_params.max_steps, length(agents))
     println("  Output: $(log_filename)")
     
-    # Load Autoencoder model (for SPM reconstruction and Haze computation)
-    println("\n🧠 Loading Autoencoder model...")
-    ae_model = nothing
-    model_path = "models/autoencoder_latest.bson"
+    # Load VAE model for Haze estimation (EPH theoretical requirement)
+    # VAE's latent variance σ²_z provides epistemic uncertainty: H[k] = Agg(σ²_z[k])
+    println("\n🧠 Loading VAE model...")
+    vae_model = nothing
+    model_path = "models/vae_latest.bson"
     if isfile(model_path)
         try
             BSON.@load model_path model
-            ae_model = model
-            println("  ✅ Autoencoder model loaded from: $model_path")
+            vae_model = model
+            println("  ✅ VAE model loaded from: $model_path")
         catch e
-            @warn "Failed to load Autoencoder model: $e"
-            println("  ⚠️  Autoencoder model load failed. Haze will be set to 0.0")
+            @warn "Failed to load VAE model: $e"
+            println("  ⚠️  VAE model load failed. Haze will be set to 0.0")
         end
     else
-        println("  ℹ️  No trained model found. Haze will be set to 0.0")
+        println("  ℹ️  No trained VAE model found. Haze will be set to 0.0")
         println("     Run simulation first to collect data, then train with:")
-        println("     julia --project=. scripts/train_autoencoder.jl")
+        println("     julia --project=. scripts/train_vae.jl")
     end
     
     # Select agent for detailed logging (first agent from NORTH group)
@@ -248,34 +247,35 @@ function main()
                 if agent.id == detail_agent_id
                     fe = free_energy(agent.vel, agent.goal_vel, spm, control_params)
                     
-                    # Compute Haze (uncertainty estimate from Autoencoder)
-                    # Compute Haze and Reconstruction from Autoencoder
+                    # Compute Haze (uncertainty estimate from VAE latent variance)
+                    # VAE provides theoretically grounded epistemic uncertainty via σ²_z
                     haze = 0.0
                     spm_recon = zeros(16, 16, 3)
                     
-                    if ae_model !== nothing
+                    if vae_model !== nothing
                         try
                             # Reshape SPM to (16, 16, 3, 1) and convert to Float32 for Flux
                             spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
                             
-                            # Get reconstruction and haze directly from Autoencoder
-                            # Autoencoder returns: x_hat, haze
-                            x_hat, haze_out = ae_model(spm_input)
+                            # VAE forward pass: returns (x_hat, μ, logσ)
+                            x_hat, μ, logσ = vae_model(spm_input)
                             
-                            # Get haze value
-                            haze = Float64(haze_out[1])
+                            # Compute Haze from latent variance σ²_z (EPH Eq. 3.2)
+                            # H[k] = Agg(σ²_z[k])
+                            haze_val = VAEModel.compute_haze(vae_model, spm_input)
+                            haze = Float64(haze_val[1])
                             
                             # Get reconstructed SPM (remove batch dim) and convert back to Float64
                             spm_recon = Float64.(x_hat[:, :, :, 1])
                         catch e
                             # Log error to file for debugging
                             if step % 50 == 0
-                                open("log/ae_error.log", "a") do io
-                                    println(io, "[Step $step] Autoencoder Error: $e")
+                                open("log/vae_error.log", "a") do io
+                                    println(io, "[Step $step] VAE Error: $e")
                                     showerror(io, e)
                                     println(io, "")
                                 end
-                                @warn "Autoencoder inference failed: $e"
+                                @warn "VAE inference failed: $e"
                             end
                             haze = 0.0
                             spm_recon = zeros(16, 16, 3)
@@ -290,9 +290,10 @@ function main()
                 end
                 
                 # Update agent's precision for next iteration (all agents)
-                if ae_model !== nothing
+                # Precision Π = 1/(H + ε) where H is VAE latent variance
+                if vae_model !== nothing
                     spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
-                    haze_val = AutoencoderModel.compute_haze(ae_model, spm_input)
+                    haze_val = VAEModel.compute_haze(vae_model, spm_input)
                     agent_haze = Float64(haze_val[1])
                     agent.precision = 1.0 / (agent_haze + control_params.epsilon)
                 end
