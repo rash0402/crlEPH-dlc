@@ -74,34 +74,37 @@
 2. **M1-B (Python)**: ✅ メインビューアー（色分け）と詳細ビューアー（SPM/グラフ）の実装。
     
 3. **M2 (Julia/Flux)**: ✅ 16x16対応 VAE の定義と、シミュレーションデータを用いた Haze 推定の訓練。
-    
+    - ✅ VAE モデル (v5.2準拠: Haze = Agg(σ²)) の実装完了
+
 4. **M3 (Integration)**: ✅ Haze による β 変調を組み込んだ完全な EPH コントローラの検証。
    - ✅ Freezing検出アルゴリズム
    - ✅ 評価メトリクス（Success Rate, Collision Rate, Jerk, TTC）
    - ✅ アブレーションスタディフレームワーク（A1-A4条件）
    - ✅ 統計解析ツール（目標達成確認：Freezing 36%減、Jerk 23%改善）
+   - ✅ **Proposal v5.2 Alignment**: VAE潜在分散からのHaze計算、Precision分離の実装完了
 
 5. **M4 (Future Enhancements)**: 🔄 計画中
    - 🎯 **予測的衝突回避**: Expected Free Energy (EFE) 最小化
    - 🎯 **Ch3中心評価**: 動的衝突リスク予測（TTC-based）
+   - 🎯 **Swarm Extension**: 群知能指標（渋滞・分断）による検証
    - 実験実行と論文投稿準備
    - 可視化ツールの強化
-
 
 ## 6. 次のAIへの指示 (Next Step Prompt)
 
 > 「あなたは Julia と Python のエキスパートとして EPH プロジェクトを引き継ぎます。
 > 
-> **現在の状態**: M3（検証フレームワーク）まで完了。全ツールが実装済み。
+> **現在の状態**: M3（検証フレームワーク）完了および Proposal v5.2 への準拠完了。
+> - VAE が実装され、Haze は潜在分散の算術平均として計算されています。
+> - Precision は推論用（固定）と知覚用（可変）に分離実装済みです。
 > 
-> **次のステップ（M4）**: 予測的衝突回避の実装
-> 1. 予測SPM生成機能の追加
-> 2. Expected Free Energy (EFE) の定式化
-> 3. Ch3（動的衝突リスク）中心の評価関数
-> 4. 自動微分による勾配計算と最適化
+> **次のステップ（M4）**: 以下の機能拡張と検証
+> 1. 予測的衝突回避 (EFE最小化) の実装
+> 2. Ch3（動的衝突リスク）中心の評価
+> 3. 群知能拡張 (Swarm Extension) の予備検証
 > 
-> 詳細は `predictive_collision_avoidance_discussion.md` および `ch3_focused_evaluation.md` を参照。」
+> 詳細は `predictive_collision_avoidance_discussion.md` および `doc/EPH-proposal_all_v5.2.md` を参照。」
 
 作成者: Gemini (AI-DLC Navigator)
 
-ステータス: ハンドオーバー準備完了
+ステータス: ハンドオーバー準備完了 (v5.2 Aligned)
