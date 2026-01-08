@@ -50,13 +50,11 @@ function VAE(latent_dim::Int=32)
         # Reshape to 4x4x32
         x -> reshape(x, 4, 4, 32, :),
         
-        # 4x4x32 -> 8x8x16
-        Upsample(2),
-        Conv((3, 3), 32 => 16, relu, pad=1),
+        # 4x4x32 -> 8x8x16 using ConvTranspose (stride=2 for upsampling)
+        ConvTranspose((4, 4), 32 => 16, relu, stride=2, pad=1),
         
-        # 8x8x16 -> 16x16x3
-        Upsample(2),
-        Conv((3, 3), 16 => 3, sigmoid, pad=1)
+        # 8x8x16 -> 16x16x3 using ConvTranspose (stride=2 for upsampling)
+        ConvTranspose((4, 4), 16 => 3, sigmoid, stride=2, pad=1)
     )
     
     decoder = Chain(dec_dense, dec_conv)

@@ -51,7 +51,13 @@ class DetailViewer:
         self.fe_history = []
         self.action_x_history = []
         self.action_y_history = []
+        # History buffers
+        self.step_history = []
+        self.fe_history = []
+        self.action_x_history = []
+        self.action_y_history = []
         self.vae_error_history = []  # Stores Precision (Π = 1/H) values
+        self.spm_recon = None
         
         # Group colors matches MainViewer
         self.group_colors = {
@@ -63,42 +69,58 @@ class DetailViewer:
         
         # Setup plot
         self.fig = plt.figure(figsize=(12, 9))  # Reduced from (16, 12) for compact display
+        # Suppress system bell
+        try:
+            self.fig.canvas.manager.window.bell = lambda: None
+        except:
+            pass
         self.fig.suptitle("EPH Detail Viewer - Agent SPM & Metrics", fontsize=14, fontweight='bold')
         
-        # Create grid layout: 4 rows x 4 columns
-        gs = GridSpec(4, 4, figure=self.fig, hspace=0.4, wspace=0.3)
+        # Create grid layout: 3 rows x 4 columns
+        gs = GridSpec(3, 4, figure=self.fig, hspace=0.3, wspace=0.3)
         
         # Row 1: Visualization Dashboard (Local Map + 3 SPMs)
         # Column 0: Local Map
+        # Row 1 (Top): Local Map + Real SPM Channels
         self.ax_local_map = self.fig.add_subplot(gs[0, 0])
-        # Column 1-3: SPM Channels
-        self.ax_spm1 = self.fig.add_subplot(gs[0, 1])
-        self.ax_spm2 = self.fig.add_subplot(gs[0, 2])
-        self.ax_spm3 = self.fig.add_subplot(gs[0, 3])
+        self.ax_spm1_real = self.fig.add_subplot(gs[0, 1])
+        self.ax_spm2_real = self.fig.add_subplot(gs[0, 2])
+        self.ax_spm3_real = self.fig.add_subplot(gs[0, 3])
         
-        # Row 2: Free Energy plot (full width)
-        self.ax_fe = self.fig.add_subplot(gs[1, :])
+        # Row 2 (Middle): Error Map + Pred (Recon) SPM Channels
+        self.ax_error_map = self.fig.add_subplot(gs[1, 0])
+        self.ax_spm1_pred = self.fig.add_subplot(gs[1, 1])
+        self.ax_spm2_pred = self.fig.add_subplot(gs[1, 2])
+        self.ax_spm3_pred = self.fig.add_subplot(gs[1, 3])
         
-        # Row 3: Control Action plot (full width)
-        self.ax_action = self.fig.add_subplot(gs[2, :])
+        # Row 3 (Bottom): Metrics Plots (Side-by-side)
+        self.ax_fe = self.fig.add_subplot(gs[2, 0:1])      # Column 0
+        self.ax_action = self.fig.add_subplot(gs[2, 1:3])  # Column 1-2 (slightly wider)
+        self.ax_vae = self.fig.add_subplot(gs[2, 3:4])     # Column 3
         
-        # Row 4: VAE Prediction Error plot (full width)
-        self.ax_vae = self.fig.add_subplot(gs[3, :])
+        # Configure SPM axes (both Real and Pred)
+        spm_axes = [
+            (self.ax_spm1_real, 'Real Ch1: Occupancy'),
+            (self.ax_spm2_real, 'Real Ch2: Prox Saliency'),
+            (self.ax_spm3_real, 'Real Ch3: Collision Risk'),
+            (self.ax_spm1_pred, 'Pred Ch1: Occupancy'),
+            (self.ax_spm2_pred, 'Pred Ch2: Prox Saliency'),
+            (self.ax_spm3_pred, 'Pred Ch3: Collision Risk')
+        ]
         
-        # Configure SPM axes
-        for ax, title in zip(
-            [self.ax_spm1, self.ax_spm2, self.ax_spm3],
-            ['Ch1: Occupancy', 'Ch2: Proximity Saliency', 'Ch3: Collision Risk']
-        ):
+        for ax, title in spm_axes:
             ax.set_title(title, fontsize=9, fontweight='bold')
-            ax.set_xlabel('θ (angle)', fontsize=8)
-            ax.set_ylabel('ρ (log distance)', fontsize=8)
-            ax.set_aspect('equal')
+            ax.set_xticks([]) # Hide x ticks for cleanliness
+            ax.set_yticks([]) # Hide y ticks
+            ax.set_aspect('auto') # changed from equal for better fit
+            
+        # Configure Error Map
+        self.ax_error_map.set_title('Synth Error Map', fontsize=9, fontweight='bold')
+        self.ax_error_map.set_xticks([])
+        self.ax_error_map.set_yticks([])
         
         # Configure local map
-        self.ax_local_map.set_title('Local View (Forward=Up)', fontsize=9, fontweight='bold')
-        self.ax_local_map.set_xlabel('X (local)', fontsize=8)
-        self.ax_local_map.set_ylabel('Y (local)', fontsize=8)
+        self.ax_local_map.set_title('Local View', fontsize=9, fontweight='bold')
         self.ax_local_map.set_xlim(-25, 25)
         self.ax_local_map.set_ylim(-10, 40)
         self.ax_local_map.set_aspect('equal')
@@ -107,25 +129,23 @@ class DetailViewer:
         self.ax_local_map.axvline(0, color='k', linewidth=0.5)
         
         # Configure metrics axes
+        # Configure metrics axes (Compact)
         self.ax_fe.set_title('Free Energy', fontsize=9, fontweight='bold')
-        self.ax_fe.set_xlabel('Step', fontsize=8)
         self.ax_fe.set_ylabel('F', fontsize=8)
         self.ax_fe.grid(True, alpha=0.3)
         
-        self.ax_action.set_title('Control Action', fontsize=9, fontweight='bold')
-        self.ax_action.set_xlabel('Step', fontsize=8)
+        self.ax_action.set_title('Action', fontsize=9, fontweight='bold')
         self.ax_action.set_ylabel('u', fontsize=8)
         self.ax_action.grid(True, alpha=0.3)
         
-        self.ax_vae.set_title('Precision (Π = 1/H)', fontsize=9, fontweight='bold')
+        self.ax_vae.set_title('Precision', fontsize=9, fontweight='bold')
         self.ax_vae.set_xlabel('Step', fontsize=8)
-        self.ax_vae.set_ylabel('Precision', fontsize=8)
         self.ax_vae.grid(True, alpha=0.3)
         
         # Initialize plots
-        self.im1 = None
-        self.im2 = None
-        self.im3 = None
+        self.ims_real = [None, None, None]
+        self.ims_pred = [None, None, None]
+        self.im_error = None
         self.local_scatter = None
         self.ego_marker = None
         self.line_fe = None
@@ -145,14 +165,26 @@ class DetailViewer:
                 topic, data = msg
                 
                 self.agent_id = data["agent_id"]
-                self.spm = data["spm"]
+                
+                # Handle SPM (might be flattened)
+                spm_raw = np.array(data["spm"])
+                if spm_raw.ndim == 1 and spm_raw.size == 16*16*3:
+                    # Julia uses column-major (Fortran) order, so we need order='F'
+                    self.spm = spm_raw.reshape(16, 16, 3, order='F')
+                else:
+                    self.spm = spm_raw
+
+                # Handle SPM Recon
+                spm_recon_raw = np.array(data.get("spm_recon", np.zeros_like(spm_raw)))
+                if spm_recon_raw.ndim == 1 and spm_recon_raw.size == 16*16*3:
+                    # Julia uses column-major (Fortran) order, so we need order='F'
+                    self.spm_recon = spm_recon_raw.reshape(16, 16, 3, order='F')
+                else:
+                    self.spm_recon = spm_recon_raw
+                
                 self.step = data["step"]
                 
-                # DEBUG: Check data reception
-                if frame % 30 == 0:
-                    print(f"Viewer received step {self.step}, SPM shape {np.shape(self.spm)}")
-
-                # SPM Visualization
+                # Check spm_recon shape compatibility
                 # theta_grid: -105° (index 0, right) to +105° (index 15, left)
                 # Display: Left side of plot should show left (+105°), right side should show right (-105°)
                 # Therefore: extent = [-105, 105] and NO flip needed
@@ -162,54 +194,73 @@ class DetailViewer:
                 
                 action = data["action"]
                 fe = data["free_energy"]
-                haze = data.get("haze", 0.0)  # Default to 0.0 if not present
-                # Compute Precision from Haze: Π = 1/(H + ε)
+                haze = data.get("haze", 0.0)
                 epsilon = 1e-6
-                precision = 1.0 / (haze + epsilon) if haze > 0 else 1.0 / epsilon
+                precision = data.get("precision", 1.0 / (haze + epsilon) if haze > 0 else 1.0 / epsilon)
                 
+                # Check spm_recon shape compatibility
+                if self.spm_recon.shape != self.spm.shape:
+                    if self.spm_recon.size == self.spm.size:
+                        # Reshape flattened array
+                        try:
+                            self.spm_recon = self.spm_recon.reshape(self.spm.shape)
+                        except Exception:
+                            print(f"⚠️ Failed to reshape spm_recon from {self.spm_recon.shape} to {self.spm.shape}")
+                            self.spm_recon = np.zeros_like(self.spm)
+                    else:
+                        print(f"⚠️ Resizing spm_recon from {self.spm_recon.shape} to {self.spm.shape}")
+                        self.spm_recon = np.zeros_like(self.spm)
+
                 # Extent: [Left_Val, Right_Val, Bottom, Top]
                 # Left side of plot = -105° (right in ego frame)
                 # Right side of plot = +105° (left in ego frame)
                 extent_args = [-105, 105, 0, 15]
 
                 # Update channel 1
-                if self.im1 is None:
-                    self.im1 = self.ax_spm1.imshow(spm_array[:, :, 0], 
-                                                   cmap='hot', origin='lower', 
-                                                   extent=extent_args,
-                                                   vmin=0, vmax=1, aspect='auto')
-                    self.fig.colorbar(self.im1, ax=self.ax_spm1, fraction=0.046)
-                else:
-                    self.im1.set_data(spm_array[:, :, 0])
+                # Update Real SPM Channels
+                axes_real = [self.ax_spm1_real, self.ax_spm2_real, self.ax_spm3_real]
+                cmaps = ['hot', 'viridis', 'plasma']
                 
-                # Update channel 2
-                if self.im2 is None:
-                    self.im2 = self.ax_spm2.imshow(spm_array[:, :, 1], 
-                                                   cmap='viridis', origin='lower', 
-                                                   extent=[105, -105, 0, 15],
-                                                   vmin=0, vmax=1, aspect='auto')
-                    self.fig.colorbar(self.im2, ax=self.ax_spm2, fraction=0.046)
-                else:
-                    self.im2.set_data(spm_array[:, :, 1])
+                for i, ax in enumerate(axes_real):
+                    if self.ims_real[i] is None:
+                        self.ims_real[i] = ax.imshow(self.spm[:, :, i], 
+                                                       cmap=cmaps[i], origin='lower', 
+                                                       extent=extent_args,
+                                                       vmin=0, vmax=1, aspect='auto')
+                    else:
+                        self.ims_real[i].set_data(self.spm[:, :, i])
+
+                # Update Pred SPM Channels
+                axes_pred = [self.ax_spm1_pred, self.ax_spm2_pred, self.ax_spm3_pred]
                 
-                # Update channel 3
-                if self.im3 is None:
-                    self.im3 = self.ax_spm3.imshow(spm_array[:, :, 2], 
-                                                   cmap='plasma', origin='lower', 
-                                                   extent=[105, -105, 0, 15],
-                                                   vmin=0, vmax=1, aspect='auto')
-                    self.fig.colorbar(self.im3, ax=self.ax_spm3, fraction=0.046)
+                for i, ax in enumerate(axes_pred):
+                    if self.ims_pred[i] is None:
+                        self.ims_pred[i] = ax.imshow(self.spm_recon[:, :, i], 
+                                                       cmap=cmaps[i], origin='lower', 
+                                                       extent=extent_args,
+                                                       vmin=0, vmax=1, aspect='auto')
+                    else:
+                        self.ims_pred[i].set_data(self.spm_recon[:, :, i])
+
+                # Update Error Map
+                # Compute absolute error
+                error_map = np.abs(self.spm - self.spm_recon)
+                # Synth: Mean error across channels
+                synth_error = np.mean(error_map, axis=2)
+                
+                if self.im_error is None:
+                    self.im_error = self.ax_error_map.imshow(synth_error,
+                                                           cmap='inferno', origin='lower',
+                                                           extent=extent_args,
+                                                           vmin=0, vmax=0.5, aspect='auto') # Error usually small
+                    self.fig.colorbar(self.im_error, ax=self.ax_error_map, fraction=0.046)
                 else:
-                    self.im3.set_data(spm_array[:, :, 2])
+                    self.im_error.set_data(synth_error)
             
                 # Update local map (agent-centric view)
                 # Get other agents' positions in local coordinates
                 if 'local_agents' in data:
                     local_agents = data['local_agents']  # List of [x, y] in local frame
-                    
-                    # DEBUG: Log received data - use print with flush for immediate output
-                    if self.step % 100 == 0:
-                        print(f"DEBUG: Step {self.step}: Received {len(local_agents)} local_agents", flush=True)
                     
                     # Clear and redraw
                     self.ax_local_map.clear()
@@ -314,13 +365,18 @@ class DetailViewer:
                 self.fig.suptitle(f"EPH Detail Viewer - Agent {self.agent_id} | Step {self.step}", 
                                  fontsize=14, fontweight='bold')
         except Exception as e:
-            print(f"Error in update loop: {e}")
-            traceback.print_exc()
+            # Silent error handling to prevent beep spam
+            # Only print unique errors or rate-limit them
+            error_msg = str(e)
+            if not hasattr(self, '_last_error') or self._last_error != error_msg:
+                print(f"❌ Error in update loop: {error_msg}")
+                # traceback.print_exc() # detailed trace
+                self._last_error = error_msg
         
         artists = []
-        if self.im1: artists.append(self.im1)
-        if self.im2: artists.append(self.im2)
-        if self.im3: artists.append(self.im3)
+        if self.ims_real[0]: artists.extend(self.ims_real)
+        if self.ims_pred[0]: artists.extend(self.ims_pred)
+        if self.im_error: artists.append(self.im_error)
         if self.line_fe: artists.append(self.line_fe)
         if self.line_ux: artists.append(self.line_ux)
         if self.line_uy: artists.append(self.line_uy)

@@ -74,7 +74,8 @@ function publish_detail(
     action::Vector{Float64},
     free_energy::Float64,
     haze::Float64,
-    precision::Float64,  # NEW: Precision (Π = 1/H)
+    precision::Float64,
+    spm_recon::Array{Float64, 3},  # NEW: Reconstructed SPM from VAE
     step::Int,
     all_agents::Vector{Agent},
     world_params::WorldParams,
@@ -93,11 +94,12 @@ function publish_detail(
         "group" => Int(agent.group),
         "position" => agent.pos,
         "velocity" => agent.vel,
-        "spm" => spm,  # 16x16x3 array
+        "spm" => vec(spm),  # Flatten to ensure consistent serialization
         "action" => action,
         "free_energy" => free_energy,
         "haze" => haze,  # VAE uncertainty estimate
         "precision" => precision,  # Precision (Π = 1/H)
+        "spm_recon" => vec(spm_recon),  # Flatten to ensure consistent serialization
         "local_agents" => local_agents  # Other agents in local coordinates
     )
     

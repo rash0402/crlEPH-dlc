@@ -59,6 +59,12 @@ class MainViewer:
         
         # Setup plot
         self.fig, self.ax = plt.subplots(figsize=(8, 8))  # Reduced from (10, 10) for compact display
+        # Suppress system bell on error (Tkinter specific prevention if possible)
+        try:
+            self.fig.canvas.manager.window.bell = lambda: None
+        except:
+            pass
+            
         self.fig.suptitle("EPH Simulation - 4-Group Scramble Crossing", fontsize=14, fontweight='bold')
         
         self.ax.set_xlim(0, world_width)
