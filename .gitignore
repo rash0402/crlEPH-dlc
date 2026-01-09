@@ -90,3 +90,4 @@ data/models/*.jld2
 src_julia/data/
 *.h5
 **/Manifest.toml
+models/action_vae_epoch_*.bson

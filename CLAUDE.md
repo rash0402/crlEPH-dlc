@@ -76,3 +76,35 @@ Parameters are defined as structs in `src/config.jl`:
 
 - Logs saved to `log/data_YYYYMMDD_HHMMSS.h5` (HDF5 format)
 - Contains SPM tensors, actions, positions, velocities per timestep
+
+## Development Status (v5.5 Aligned)
+
+### Completed Milestones
+
+- **M1-A (Julia Backend)**: ✅ 4-group scramble crossing simulator, SPM generation, ZMQ streaming
+- **M1-B (Python Viewers)**: ✅ Main viewer (color-coded groups) and detail viewer (SPM/metrics)
+- **M2 (World Model)**: ✅ Action-Conditioned VAE (Pattern B)
+  - Encoder: Estimates latent distribution from y[k] only (u-independent)
+  - Decoder: Predicts future SPM from (z, u) (u-conditioned)
+  - Haze calculation: H[k] = (1/D) Σ σ²_z[k-1] (temporal delay avoids circular dependency)
+- **M3 (Integration & Validation)**: ✅ Complete EPH controller with Haze-based β modulation
+  - Freezing detection algorithm
+  - Evaluation metrics (Success Rate, Collision Rate, Jerk, TTC)
+  - Ablation study framework (A1-A4 conditions)
+  - Statistical analysis (achieved: 36% Freezing reduction, 23% Jerk improvement)
+  - **v5.5 Alignment**: Pattern B implementation, temporal Haze definition, Precision separation
+
+### Current Focus (M4 - Planned)
+
+- 🎯 Predictive collision avoidance: Expected Free Energy (EFE) minimization
+- 🎯 Ch3-centric evaluation: Dynamic collision risk prediction (TTC-based)
+- 🎯 Swarm extension: Emergent coordination via local Haze modulation
+
+### Technical Specifications (v5.5)
+
+**Pattern B Structure**:
+- Causal flow: y[k] → σ²_z[k] → H[k+1] → β[k+1] → y[k+1]
+- Gradient computation: Through decoder only (∂F/∂u), encoder fixed during u-optimization
+- Precision separation: Inference (fixed) vs Perceptual Resolution β (adaptive)
+
+For detailed research context, see `doc/EPH-proposal_all_v5.5.md` and `doc/EPH_AI_DLC_Proposal.md`.

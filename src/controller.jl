@@ -10,6 +10,7 @@ using ForwardDiff
 using ..Config
 using ..SPM
 using ..Dynamics
+using ..Prediction
 
 export compute_action, free_energy, evaluate_collision_risk_ch3, compute_action_predictive
 
@@ -82,12 +83,12 @@ Evaluate collision risk from predicted SPM (Ch3-focused).
 Lower risk = better (safer future state).
 
 Args:
-    spm_pred: Predicted SPM (16×16×3)
+    spm_pred: Predicted SPM (16×16×3) - generic for Dual support
 
 Returns:
     risk: Scalar collision risk value
 """
-function evaluate_collision_risk_ch3(spm_pred::Array{Float64, 3})
+function evaluate_collision_risk_ch3(spm_pred::AbstractArray{T, 3}) where T
     # Primary: Ch3 (dynamic collision risk) - maximum value
     risk_ch3 = maximum(spm_pred[:, :, 3])
     
@@ -129,42 +130,33 @@ function compute_action_predictive(
     u_init = compute_action(agent, spm_current, control_params, agent_params)
     
     # Define Expected Free Energy function
-    function expected_free_energy(u::Vector{Float64})
-        # 1. Predict future state
+    function expected_free_energy(u::AbstractVector{T}) where T
+        # 1. Predict future state (ego-motion only for goal tracking)
+        # We need next velocity for goal tracking
+        # Simple dynamics model: vel_next = (1 - damping/mass*dt) * vel + u/mass*dt
+        # Or reuse Dynamics.predict_state which is deterministic for the agent itself
         pos_next, vel_next = Dynamics.predict_state(agent, u, agent_params, world_params)
         
-        # 2. Predict other agents (constant velocity)
-        other_predictions = Dynamics.predict_other_agents(other_agents, world_params)
-        
-        # 3. Generate predicted SPM
-        # Compute relative positions and velocities
-        rel_positions = Vector{Float64}[]
-        rel_velocities = Vector{Float64}[]
-        
-        for (other_pos, other_vel) in other_predictions
-            rel_pos = Dynamics.relative_position(pos_next, other_pos, world_params)
-            rel_vel = other_vel - vel_next
-            push!(rel_positions, rel_pos)
-            push!(rel_velocities, rel_vel)
-        end
-        
-        # Generate predicted SPM
-        spm_pred = SPM.generate_spm_3ch(
+        # 2. Predict SPM using instrumental model (Ego-Warp)
+        # This uses the pure visual prediction without accessing other agents' states
+        spm_pred = Prediction.predict_next_spm(
+            spm_current,
+            u,
             spm_config,
-            rel_positions,
-            rel_velocities,
-            agent_params.r_agent,
-            precision=agent.precision
+            world_params.dt
         )
         
-        # 4. Goal tracking term
+        # 3. Goal tracking term (Instrumental)
+        # Prefer states where velocity matches goal
         F_goal = 0.5 * norm(vel_next - agent.goal_vel)^2
         
-        # 5. Collision risk term (Ch3-focused)
+        # 4. Collision risk term (Instrumental - Safety)
+        # Ch3-focused evaluation on predicted SPM
         F_collision = evaluate_collision_risk_ch3(spm_pred)
         
-        # 6. Expected Free Energy
-        lambda_collision = 5.0  # Weight for collision avoidance
+        # 5. Expected Free Energy
+        # G = Risk + Ambiguity. (Here we focus on Risk/Instrumental)
+        lambda_collision = 10.0  # Weight for collision avoidance (tuned for safety)
         G = F_goal + lambda_collision * F_collision
         
         return G
@@ -182,5 +174,97 @@ function compute_action_predictive(
     
     return u_clamped
 end
+
+# ===== v5.4: Action-Conditioned VAE Based Control =====
+
+"""
+Compute action using v5.4 Action-Conditioned VAE (Pattern B).
+- Encoder is u-independent → Haze/β fixed during optimization
+- Decoder is u-conditioned → ∂F/∂u computed through decoder
+
+Args:
+    agent: Current agent
+    spm_current: Current SPM y[k]
+    action_vae: Trained Action-Conditioned VAE model
+    control_params: Control parameters
+    agent_params: Agent parameters
+    world_params: World parameters
+    n_iters: Number of gradient descent iterations (default 5)
+
+Returns:
+    u: Optimal control input
+"""
+function compute_action_v54(
+    agent::Agent,
+    spm_current::Array{Float64, 3},
+    action_vae,  # ActionConditionedVAE (not typed to avoid import)
+    control_params::ControlParams,
+    agent_params::AgentParams,
+    world_params::WorldParams;
+    n_iters::Int=5,
+    learning_rate::Float64=0.5,
+    lambda_collision::Float64=10.0
+)
+    # 1. Encode current SPM (u-independent)
+    # Reshape for Flux: (16, 16, 3) → (16, 16, 3, 1)
+    spm_input = Float32.(reshape(spm_current, 16, 16, 3, 1))
+    
+    # Get latent distribution (fixed during u optimization)
+    μ, logσ = action_vae.encode(action_vae, spm_input)
+    z = μ  # Use mean for deterministic inference
+    
+    # 2. Compute Haze (u-independent, used for β modulation)
+    variance = exp.(2 .* logσ)
+    haze = mean(variance)
+    
+    # Update agent's precision based on Haze (v5.4: fixed during u search)
+    agent.precision = 1.0 / (Float64(haze) + control_params.epsilon)
+    
+    # 3. Initialize u with baseline FEP action
+    u_init = compute_action(agent, spm_current, control_params, agent_params)
+    u = copy(u_init)
+    
+    # 4. Gradient descent on u through decoder
+    for iter in 1:n_iters
+        # Predict future SPM via decoder: (z, u) → ŷ[k+1]
+        u_input = Float32.(reshape(u, 2, 1))
+        spm_pred = action_vae.decode_with_u(action_vae, z, u_input)
+        
+        # Compute Free Energy
+        # Goal tracking term
+        pos_next, vel_next = Dynamics.predict_state(agent, u, agent_params, world_params)
+        F_goal = 0.5 * norm(vel_next - agent.goal_vel)^2
+        
+        # Collision risk from predicted SPM
+        F_collision = evaluate_collision_risk_ch3(spm_pred[:, :, :, 1])
+        
+        # Total Free Energy
+        F = F_goal + lambda_collision * Float64(F_collision)
+        
+        # Compute gradient ∂F/∂u via ForwardDiff
+        function F_of_u(u_vec)
+            u_input_ad = Float32.(reshape(u_vec, 2, 1))
+            spm_pred_ad = action_vae.decode_with_u(action_vae, z, u_input_ad)
+            
+            _, vel_next_ad = Dynamics.predict_state(agent, u_vec, agent_params, world_params)
+            F_goal_ad = 0.5 * norm(vel_next_ad - agent.goal_vel)^2
+            F_collision_ad = evaluate_collision_risk_ch3(spm_pred_ad[:, :, :, 1])
+            
+            return F_goal_ad + lambda_collision * Float64(F_collision_ad)
+        end
+        
+        grad_F = ForwardDiff.gradient(F_of_u, u)
+        
+        # Update u
+        u = u - learning_rate .* grad_F
+        
+        # Clamp to limits
+        u = clamp.(u, -agent_params.u_max, agent_params.u_max)
+    end
+    
+    return u
+end
+
+export compute_action_v54
 
 end # module

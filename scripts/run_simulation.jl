@@ -15,11 +15,12 @@ using LinearAlgebra  # For norm, cos, sin functions
 # Load modules
 include("../src/config.jl")
 include("../src/spm.jl")
+include("../src/prediction.jl")
 include("../src/dynamics.jl")
 include("../src/controller.jl")
 include("../src/communication.jl")
 include("../src/logger.jl")
-include("../src/vae.jl")
+include("../src/action_vae.jl")
 
 using Statistics
 using Dates
@@ -34,7 +35,7 @@ using .Dynamics
 using .Controller
 using .Communication
 using .Logger
-using .VAEModel
+using .ActionVAEModel
 
 """
 Main simulation loop
@@ -48,7 +49,7 @@ function main()
     
     # Load configuration
     # Initialize parameters
-    control_params = ControlParams(experiment_condition=Config.A4_EPH, use_predictive_control=false)
+    control_params = ControlParams(experiment_condition=Config.A4_EPH, use_predictive_control=true)
     world_params = WorldParams(max_steps=1000) # Extended steps for viewing
     comm_params = CommParams()
     spm_params = SPMParams()
@@ -258,11 +259,13 @@ function main()
                             spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
                             
                             # VAE forward pass: returns (x_hat, μ, logσ)
-                            x_hat, μ, logσ = vae_model(spm_input)
+                            # Needs action u for Pattern B prediction
+                            action_input = Float32.(reshape(action, 2, 1))
+                            x_hat, μ, logσ = vae_model(spm_input, action_input)
                             
                             # Compute Haze from latent variance σ²_z (EPH Eq. 3.2)
                             # H[k] = Agg(σ²_z[k])
-                            haze_val = VAEModel.compute_haze(vae_model, spm_input)
+                            haze_val = ActionVAEModel.compute_haze(vae_model, spm_input)
                             haze = Float64(haze_val[1])
                             
                             # Get reconstructed SPM (remove batch dim) and convert back to Float64
@@ -293,7 +296,7 @@ function main()
                 # Precision Π = 1/(H + ε) where H is VAE latent variance
                 if vae_model !== nothing
                     spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
-                    haze_val = VAEModel.compute_haze(vae_model, spm_input)
+                    haze_val = ActionVAEModel.compute_haze(vae_model, spm_input)
                     agent_haze = Float64(haze_val[1])
                     agent.precision = 1.0 / (agent_haze + control_params.epsilon)
                 end

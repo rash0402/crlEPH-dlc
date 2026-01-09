@@ -49,7 +49,7 @@ end
 """
 Wrap position to torus topology
 """
-function wrap_torus(pos::Vector{Float64}, world::WorldParams)
+function wrap_torus(pos::AbstractVector, world::WorldParams)
     return [
         mod(pos[1], world.width),
         mod(pos[2], world.height)
@@ -300,7 +300,7 @@ Returns:
 """
 function predict_state(
     agent::Agent,
-    u::Vector{Float64},
+    u::AbstractVector,
     agent_params::AgentParams,
     world_params::WorldParams
 )
