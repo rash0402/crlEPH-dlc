@@ -322,7 +322,7 @@ Update agent state using 2nd-order dynamics with collision detection
 M * a + D * v = u
 
 Returns:
-    collision_occurred::Bool - True if a collision was detected this step
+    collision_count::Int - Number of collisions detected this step
 """
 function step!(
     agent::Agent,
@@ -332,59 +332,80 @@ function step!(
     obstacles::Vector{Obstacle},
     all_agents::Vector{Agent}
 )
-    collision_occurred = false
+    collision_count = 0
     
     # Clamp control input
     u_clamped = clamp.(u, -agent_params.u_max, agent_params.u_max)
     
-    # Emergency repulsion force (only activated when very close to collision)
+    # Emergency repulsion force (configurable parameters)
     emergency_repulsion = [0.0, 0.0]
-    k_emergency = 100.0  # Strong emergency repulsion
-    emergency_threshold_obs = 0.5  # Activate when within 0.5 units of obstacle
-    emergency_threshold_agent = 0.3  # Activate when within 0.3 units of other agent
     
-    # Check for emergency collision with obstacles
-    for obs in obstacles
-        # Check if agent is inside or very close to obstacle
-        if (agent.pos[1] + agent_params.r_agent > obs.x_min - emergency_threshold_obs && 
-            agent.pos[1] - agent_params.r_agent < obs.x_max + emergency_threshold_obs &&
-            agent.pos[2] + agent_params.r_agent > obs.y_min - emergency_threshold_obs && 
-            agent.pos[2] - agent_params.r_agent < obs.y_max + emergency_threshold_obs)
-            
-            # Calculate repulsion away from obstacle center
-            obs_center = [(obs.x_min + obs.x_max)/2, (obs.y_min + obs.y_max)/2]
-            to_obs = obs_center - agent.pos
-            dist_to_obs = norm(to_obs)
-            
-            if dist_to_obs > 0.1
-                # Strong repulsion away from obstacle
-                emergency_repulsion -= (to_obs / dist_to_obs) * k_emergency
-            end
-            
-            # Check for actual collision (inside obstacle)
-            if check_collision(agent.pos, obstacles, agent_params.r_agent)
-                collision_occurred = true
+    if agent_params.enable_emergency
+        k_emergency = agent_params.k_emergency
+        emergency_threshold_obs = agent_params.emergency_threshold_obs
+        emergency_threshold_agent = agent_params.emergency_threshold_agent
+        
+        # Check for emergency collision with obstacles
+        for obs in obstacles
+            # Check if agent is inside or very close to obstacle
+            if (agent.pos[1] + agent_params.r_agent > obs.x_min - emergency_threshold_obs && 
+                agent.pos[1] - agent_params.r_agent < obs.x_max + emergency_threshold_obs &&
+                agent.pos[2] + agent_params.r_agent > obs.y_min - emergency_threshold_obs && 
+                agent.pos[2] - agent_params.r_agent < obs.y_max + emergency_threshold_obs)
+                
+                # Calculate repulsion away from obstacle center
+                obs_center = [(obs.x_min + obs.x_max)/2, (obs.y_min + obs.y_max)/2]
+                to_obs = obs_center - agent.pos
+                dist_to_obs = norm(to_obs)
+                
+                if dist_to_obs > 0.1
+                    # Repulsion away from obstacle
+                    emergency_repulsion -= (to_obs / dist_to_obs) * k_emergency
+                end
+                
+                # Check for actual collision (inside obstacle)
+                if check_collision(agent.pos, obstacles, agent_params.r_agent)
+                    collision_count += 1
+                end
             end
         end
-    end
-    
-    # Check for emergency collision with other agents
-    for other in all_agents
-        if other.id != agent.id
-            rel_pos = relative_position(agent.pos, other.pos, world_params)
-            dist = norm(rel_pos)
-            min_dist = 2.0 * agent_params.r_agent
-            
-            # Check for actual collision (overlapping)
-            if dist < min_dist
-                collision_occurred = true
+        
+        # Check for emergency collision with other agents
+        for other in all_agents
+            if other.id != agent.id
+                rel_pos = relative_position(agent.pos, other.pos, world_params)
+                dist = norm(rel_pos)
+                min_dist = 2.0 * agent_params.r_agent
+                
+                # Check for actual collision (overlapping)
+                if dist < min_dist
+                    collision_count += 1
+                end
+                
+                # Emergency repulsion only when very close (within threshold)
+                if dist < min_dist + emergency_threshold_agent
+                    if dist > 0.1
+                        # Repulsion away from other agent (scaled by proximity)
+                        proximity_factor = 1.0 - dist / (min_dist + emergency_threshold_agent)
+                        emergency_repulsion -= (rel_pos / dist) * k_emergency * proximity_factor
+                    end
+                end
             end
-            
-            # Emergency repulsion only when very close (within threshold)
-            if dist < min_dist + emergency_threshold_agent
-                if dist > 0.1
-                    # Strong repulsion away from other agent
-                    emergency_repulsion -= (rel_pos / dist) * k_emergency * (1.0 - dist / (min_dist + emergency_threshold_agent))
+        end
+    else
+        # Emergency avoidance disabled - only count collisions
+        # Obstacle collisions
+        if check_collision(agent.pos, obstacles, agent_params.r_agent)
+            collision_count += 1
+        end
+        
+        # Agent collisions
+        for other in all_agents
+            if other.id != agent.id
+                rel_pos = relative_position(agent.pos, other.pos, world_params)
+                dist = norm(rel_pos)
+                if dist < 2.0 * agent_params.r_agent
+                    collision_count += 1
                 end
             end
         end
@@ -408,7 +429,7 @@ function step!(
     # Torus wrapping
     agent.pos = wrap_torus(agent.pos, world_params)
     
-    return collision_occurred
+    return collision_count
 end
 
 """

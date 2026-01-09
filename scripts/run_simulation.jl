@@ -69,6 +69,17 @@ function parse_commandline()
             help = "Simulation scenario: 'scramble' (4-way crossing) or 'corridor' (bidirectional)"
             arg_type = String
             default = "scramble"
+        "--corridor-width"
+            help = "Corridor width in meters (only for corridor scenario)"
+            arg_type = Float64
+            default = 4.0
+        "--k-emergency"
+            help = "Emergency repulsion strength (lower = more freezing possible)"
+            arg_type = Float64
+            default = 20.0
+        "--no-emergency"
+            help = "Disable emergency avoidance entirely"
+            action = :store_true
     end
 
     return parse_args(s)
@@ -102,8 +113,12 @@ function main()
     comm_params = CommParams()
     spm_params = SPMParams()
     
-    # Override agent density
-    agent_params = AgentParams(n_agents_per_group=args["density"])
+    # Override agent density and emergency parameters
+    agent_params = AgentParams(
+        n_agents_per_group=args["density"],
+        k_emergency=args["k-emergency"],
+        enable_emergency=!args["no-emergency"]
+    )
     
     println("\n📋 Configuration (Seed: $(args["seed"])):")
     println("  Condition: $(condition_enum)")
@@ -128,7 +143,7 @@ function main()
     # Initialize agents based on scenario
     println("\n🤖 Initializing agents...")
     if scenario == "corridor"
-        agents = init_corridor_agents(agent_params, world_params, seed=args["seed"])
+        agents = init_corridor_agents(agent_params, world_params, corridor_width=args["corridor-width"], seed=args["seed"])
     else
         agents = init_agents(agent_params, world_params, seed=args["seed"])
     end
@@ -137,8 +152,8 @@ function main()
     # Initialize obstacles based on scenario
     println("\n🚧 Initializing obstacles...")
     if scenario == "corridor"
-        obstacles = init_corridor_obstacles(world_params)
-        println("  Corridor walls: $(length(obstacles))")
+        obstacles = init_corridor_obstacles(world_params, corridor_width=args["corridor-width"])
+        println("  Corridor walls: $(length(obstacles)), width=$(args["corridor-width"])m")
     else
         obstacles = init_obstacles(world_params)
         println("  Corner obstacles: $(length(obstacles))")
@@ -326,11 +341,9 @@ function main()
                     action = clamp.(action, -agent_params.u_max, agent_params.u_max)
                 end
                 
-                # Step dynamics (with agent-agent collision detection)
-                collision_this_step = step!(agent, action, agent_params, world_params, obstacles, agents)
-                if collision_this_step
-                    collision_count[agent.id] += 1
-                end
+                # Step dynamics (with collision detection - returns collision count)
+                collisions_this_step = step!(agent, action, agent_params, world_params, obstacles, agents)
+                collision_count[agent.id] += collisions_this_step
                 
                 # Log detail for selected agent
                 if agent.id == detail_agent_id
@@ -382,7 +395,12 @@ function main()
                 
                 # Update agent's precision for next iteration (all agents)
                 # Precision Π = 1/(H + ε) where H is VAE latent variance
-                if vae_model !== nothing
+                # A1_BASELINE: Fixed precision (no Haze modulation)
+                # A3_ADAPTIVE_BETA / A4_EPH: VAE-based Haze modulation
+                if control_params.experiment_condition == Config.A1_BASELINE || control_params.experiment_condition == Config.A2_SPM_ONLY
+                    # Fixed precision for baseline conditions
+                    agent.precision = 1.0
+                elseif vae_model !== nothing
                     spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
                     action_input = Float32.(reshape(action, 2, 1))
                     haze_val = ActionVAEModel.compute_haze(vae_model, spm_input, action_input)

@@ -100,6 +100,11 @@ struct AgentParams
     r_agent::Float64        # Agent radius
     n_agents_per_group::Int # Number of agents per group (N/S/E/W)
     u_max::Float64          # Maximum control input magnitude
+    # Emergency avoidance parameters
+    k_emergency::Float64          # Emergency repulsion strength (lower = more freezing possible)
+    emergency_threshold_obs::Float64   # Distance threshold for obstacle avoidance
+    emergency_threshold_agent::Float64 # Distance threshold for agent avoidance
+    enable_emergency::Bool        # Enable/disable emergency avoidance
 end
 
 function AgentParams(;
@@ -107,9 +112,14 @@ function AgentParams(;
     damping=0.5,
     r_agent=1.5,
     n_agents_per_group=10,
-    u_max=10.0
+    u_max=10.0,
+    k_emergency=20.0,           # Reduced from 100.0 to allow more natural behavior
+    emergency_threshold_obs=0.3,
+    emergency_threshold_agent=0.2,
+    enable_emergency=true
 )
-    AgentParams(mass, damping, r_agent, n_agents_per_group, u_max)
+    AgentParams(mass, damping, r_agent, n_agents_per_group, u_max, 
+                k_emergency, emergency_threshold_obs, emergency_threshold_agent, enable_emergency)
 end
 
 # ===== Control Parameters =====
