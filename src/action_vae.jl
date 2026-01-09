@@ -1,10 +1,14 @@
 """
-Action-Conditioned VAE Module for EPH v5.4
-Pattern B: Encoder is u-independent, Decoder is u-conditioned.
+Action-Dependent Uncertainty VAE Module for EPH v5.5 (Pattern D)
+Pattern D: Encoder is u-dependent, Decoder is u-conditioned.
 
-Key differences from standard VAE:
-- Encoder: y[k] → q(z|y) = N(μ_z, σ_z²)  (u-independent)
-- Decoder: (z, u) → ŷ[k+1]  (u-conditioned, predicts future SPM)
+Key differences from Pattern B:
+- Encoder: (y[k], u[k]) → q(z|y, u) = N(μ_z, σ_z²)
+  - Latent distribution depends on ACTION as well as state.
+  - This allows "Haze" (uncertainty) to be action-dependent (Counterfactual Haze).
+  
+- Decoder: (z, u[k]) → ŷ[k+1]
+  - Predicts future SPM given latent state and action.
 """
 module ActionVAEModel
 
@@ -15,15 +19,25 @@ using Random
 export ActionConditionedVAE, encode, decode, decode_with_u, reparameterize, action_vae_loss, compute_haze
 
 """
-Action-Conditioned VAE struct.
-- encoder: Maps y[k] → (μ_z, logσ_z) (u-independent)
-- decoder: Maps (z, u) → ŷ[k+1] (u-conditioned)
+Action-Dependent VAE struct.
+- encoder_conv: Process SPM component of input
+- encoder_u: Process action component of input
+- encoder_joint: Combine features → (μ, logσ)
+- z_to_features: z → features (first part of decoder)
+- u_projection: u → u_features (project control input for decoder)
+- decoder_conv: combined features → ŷ
 """
 struct ActionConditionedVAE
-    encoder          # y → (μ, logσ)
-    z_to_features    # z → features (first part of decoder)
-    u_projection     # u → u_features (project control input)
-    decoder_conv     # combined features → ŷ
+    # Encoder components
+    encoder_conv     # y → y_features
+    encoder_u        # u → u_enc_features
+    encoder_joint    # (y_feat, u_enc_feat) → (μ, logσ)
+    
+    # Decoder components
+    z_to_features    # z → z_features
+    u_projection     # u → u_dec_features
+    decoder_conv     # (z_feat, u_dec_feat) → ŷ
+    
     latent_dim::Int
     u_dim::Int
 end
@@ -34,13 +48,11 @@ Flux.@layer ActionConditionedVAE
 """
     ActionConditionedVAE(latent_dim::Int=32, u_dim::Int=2)
 
-Constructs an Action-Conditioned VAE for 16x16x3 SPM input.
-- latent_dim: Dimension of latent space
-- u_dim: Dimension of control input (default 2 for [ux, uy])
+Constructs an Action-Dependent VAE (Pattern D).
 """
 function ActionConditionedVAE(latent_dim::Int=32, u_dim::Int=2)
-    # ===== Encoder (u-independent) =====
-    # Same structure as standard VAE
+    # ===== Encoder (Action-Dependent) =====
+    # 1. Process SPM
     enc_conv = Chain(
         Conv((3, 3), 3 => 16, relu, pad=1),
         MaxPool((2, 2)),
@@ -48,20 +60,27 @@ function ActionConditionedVAE(latent_dim::Int=32, u_dim::Int=2)
         MaxPool((2, 2)),
         Flux.flatten
     )
-    
     flat_dim = 4 * 4 * 32  # 512
-    enc_dense = Dense(flat_dim, latent_dim * 2)
-    encoder = Chain(enc_conv, enc_dense)
     
-    # ===== Decoder (u-conditioned) =====
+    # 2. Process Action (for encoder)
+    enc_u = Dense(u_dim, 64, relu)
+    
+    # 3. Joint processing -> Latent
+    enc_joint_input = flat_dim + 64
+    enc_joint = Chain(
+        Dense(enc_joint_input, 256, relu),
+        Dense(256, latent_dim * 2) # Output μ and logσ
+    )
+    
+    # ===== Decoder (Action-Conditioned) =====
     # Split into: z processing + u processing + combined decoding
     
     # Project z to base features
     z_hidden_dim = 256
     z_to_features = Dense(latent_dim, z_hidden_dim, relu)
     
-    # Project u to features (small projection)
-    u_projection = Dense(u_dim, 64, relu)
+    # Project u to features (for decoder)
+    u_dec = Dense(u_dim, 64, relu)
     
     # Combined features (z_features + u_features) → reconstruct
     combined_dim = z_hidden_dim + 64
@@ -73,25 +92,41 @@ function ActionConditionedVAE(latent_dim::Int=32, u_dim::Int=2)
         ConvTranspose((4, 4), 16 => 3, sigmoid, stride=2, pad=1)
     )
     
-    return ActionConditionedVAE(encoder, z_to_features, u_projection, decoder_conv, latent_dim, u_dim)
+    return ActionConditionedVAE(enc_conv, enc_u, enc_joint, z_to_features, u_dec, decoder_conv, latent_dim, u_dim)
 end
 
 """
-Forward pass: encode current SPM, decode with given u to predict future SPM.
+Forward pass: encode current SPM+Action, decode with same u to predict future SPM.
+x: Current SPM
+u: Action taken
 """
 function (m::ActionConditionedVAE)(x, u)
-    μ, logσ = encode(m, x)
+    μ, logσ = encode(m, x, u)
     z = reparameterize(μ, logσ)
     x_hat = decode_with_u(m, z, u)
     return x_hat, μ, logσ
 end
 
 """
-Encode input SPM to latent distribution parameters.
-This is u-independent.
+Encode input SPM AND Action to latent distribution parameters.
+Pattern D: Latent space depends on action.
 """
-function encode(m::ActionConditionedVAE, x)
-    stats = m.encoder(x)
+function encode(m::ActionConditionedVAE, x, u)
+    # Process SPM
+    y_feat = m.encoder_conv(x)
+    
+    # Process Action
+    if ndims(u) == 1
+        u = reshape(u, :, 1)  # Add batch dimension
+    end
+    u_feat = m.encoder_u(u)
+    
+    # Concatenate
+    joint_feat = vcat(y_feat, u_feat)
+    
+    # Predict Latent Params
+    stats = m.encoder_joint(joint_feat)
+    
     μ = stats[1:m.latent_dim, :]
     logσ = stats[m.latent_dim+1:end, :]
     return μ, logσ
@@ -108,15 +143,15 @@ end
 
 """
 Decode with control input u.
-This is the u-conditioned part that predicts future SPM.
+Predicts future SPM given z (which encodes (y,u) transition context) and u.
 """
 function decode_with_u(m::ActionConditionedVAE, z, u)
     # Process z
     z_features = m.z_to_features(z)
     
-    # Process u (ensure correct shape)
+    # Process u 
     if ndims(u) == 1
-        u = reshape(u, :, 1)  # Add batch dimension
+        u = reshape(u, :, 1)
     end
     u_features = m.u_projection(u)
     
@@ -129,9 +164,10 @@ end
 
 """
 Standard decode (for compatibility, uses zero action).
+WARNING: In Pattern D, z is learned conditioned on non-zero actions. 
+Using zero action here gives the prediction for "Stopping".
 """
 function decode(m::ActionConditionedVAE, z)
-    # Use zero action as default
     batch_size = size(z, 2)
     u_zero = zeros(Float32, m.u_dim, batch_size)
     return decode_with_u(m, z, u_zero)
@@ -147,10 +183,9 @@ function action_vae_loss(m::ActionConditionedVAE, x_current, u, x_next; β=1.0f0
     x_hat, μ, logσ = m(x_current, u)
     
     # Prediction Loss (MSE between predicted and actual next SPM)
-    batch_size = size(x_current, 4)
     pred_loss = Flux.mse(x_hat, x_next) * (16 * 16 * 3)
     
-    # KL Divergence (same as standard VAE)
+    # KL Divergence
     kld = -0.5f0 * mean(sum(1 .+ 2 .* logσ .- μ.^2 .- exp.(2 .* logσ), dims=1))
     
     total_loss = pred_loss + β * kld
@@ -159,11 +194,11 @@ function action_vae_loss(m::ActionConditionedVAE, x_current, u, x_next; β=1.0f0
 end
 
 """
-Compute Haze from current SPM (u-independent).
+Compute Haze from current SPM AND Action (Pattern D).
 Returns mean variance of latent distribution.
 """
-function compute_haze(m::ActionConditionedVAE, x)
-    μ, logσ = encode(m, x)
+function compute_haze(m::ActionConditionedVAE, x, u)
+    μ, logσ = encode(m, x, u)
     variance = exp.(2 .* logσ)
     return mean(variance, dims=1)
 end

@@ -264,8 +264,8 @@ function main()
                             x_hat, μ, logσ = vae_model(spm_input, action_input)
                             
                             # Compute Haze from latent variance σ²_z (EPH Eq. 3.2)
-                            # H[k] = Agg(σ²_z[k])
-                            haze_val = ActionVAEModel.compute_haze(vae_model, spm_input)
+                            # H[k] = Agg(σ²_z(y[k], u[k])) -> Action-Dependent
+                            haze_val = ActionVAEModel.compute_haze(vae_model, spm_input, action_input)
                             haze = Float64(haze_val[1])
                             
                             # Get reconstructed SPM (remove batch dim) and convert back to Float64
@@ -273,7 +273,7 @@ function main()
                         catch e
                             # Log error to file for debugging
                             if step % 50 == 0
-                                open("log/vae_error.log", "a") do io
+                                open(joinpath("data", "logs", "vae_error.log"), "a") do io
                                     println(io, "[Step $step] VAE Error: $e")
                                     showerror(io, e)
                                     println(io, "")
@@ -296,7 +296,8 @@ function main()
                 # Precision Π = 1/(H + ε) where H is VAE latent variance
                 if vae_model !== nothing
                     spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
-                    haze_val = ActionVAEModel.compute_haze(vae_model, spm_input)
+                    action_input = Float32.(reshape(action, 2, 1))
+                    haze_val = ActionVAEModel.compute_haze(vae_model, spm_input, action_input)
                     agent_haze = Float64(haze_val[1])
                     agent.precision = 1.0 / (agent_haze + control_params.epsilon)
                 end

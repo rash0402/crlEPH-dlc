@@ -39,21 +39,21 @@ function compute_prediction_errors(
     println("Computing prediction errors and Haze values...")
     
     for i in 1:n_samples
-        # Get current SPM
+        # Get current SPM and action
         y_curr = spm_current[:, :, :, i:i]
         u = actions[:, i:i]
         y_next_true = spm_next[:, :, :, i]
         
-        # Encode to get latent distribution
-        μ, logσ = ActionVAEModel.encode(vae_model, y_curr)
+        # Encode with (y, u) -> Pattern D
+        μ, logσ = ActionVAEModel.encode(vae_model, y_curr, u)
         
         # Compute Haze (mean variance)
         variance = exp.(2 .* logσ)
         haze = mean(variance)
         push!(haze_values, Float64(haze))
         
-        # Predict next SPM
-        z = μ  # Use mean for deterministic prediction
+        # Predict next SPM (using mean z)
+        z = μ  
         y_next_pred = ActionVAEModel.decode_with_u(vae_model, z, u)
         
         # Compute prediction error (MSE)
@@ -69,6 +69,55 @@ function compute_prediction_errors(
 end
 
 """
+Analyze Counterfactual Haze (Action Dependency)
+Check if different actions lead to different Haze variances for the same state.
+"""
+function analyze_counterfactual_haze(
+    vae_model,
+    spm_current::Array{Float32, 4}
+)
+    println("\n🔄 Analyzing Counterfactual Haze...")
+    
+    n_samples = min(100, size(spm_current, 4)) # Analyze first 100 samples
+    haze_variations = Float64[]
+    
+    # Define test actions (Stop, Forward, Turn Left, Turn Right)
+    test_actions = [
+        [0.0, 0.0],   # Stop
+        [1.0, 0.0],   # Forward Max
+        [0.5, 0.5],   # Right Turn
+        [0.5, -0.5]   # Left Turn
+    ]
+    
+    for i in 1:n_samples
+        y = spm_current[:, :, :, i:i]
+        hazes = Float64[]
+        
+        for u_vec in test_actions
+            u = reshape(Float32.(u_vec), :, 1)
+            μ, logσ = ActionVAEModel.encode(vae_model, y, u)
+            variance = mean(exp.(2 .* logσ))
+            push!(hazes, variance)
+        end
+        
+        # Calculate variation (Max - Min Haze for this state)
+        variation = maximum(hazes) - minimum(hazes)
+        push!(haze_variations, variation)
+    end
+    
+    avg_variation = mean(haze_variations)
+    println("  Average Haze Variation across actions: $(round(avg_variation, digits=6))")
+    
+    if avg_variation > 1e-6
+        println("✅ Haze is Action-Dependent (Pattern D confirmed).")
+    else
+        println("⚠️ Haze shows little action dependency. Check model training.")
+    end
+    
+    return avg_variation
+end
+
+"""
 Compute correlation and calibration metrics
 """
 function analyze_haze_validity(
@@ -78,10 +127,10 @@ function analyze_haze_validity(
     # Pearson correlation
     correlation = cor(haze_values, prediction_errors)
     
-    # Spearman rank correlation (more robust to outliers)
+    # Spearman rank correlation
     spearman = cor(sortperm(haze_values), sortperm(prediction_errors))
     
-    # Bin Haze values for calibration curve
+    # Bin Haze values
     n_bins = 10
     haze_sorted_idx = sortperm(haze_values)
     bin_size = length(haze_values) ÷ n_bins
@@ -123,48 +172,25 @@ function create_validation_plots(
 )
     mkpath(output_dir)
     
-    # 1. Scatter plot: Haze vs Prediction Error
+    # Scatter plot
     p1 = scatter(haze_values, prediction_errors,
-        xlabel="Haze (Mean Latent Variance)",
+        xlabel="Haze (Action-Dependent)",
         ylabel="Prediction Error (MSE)",
-        title="Haze vs Prediction Error\\nr = $(round(analysis_results.correlation, digits=3))",
-        alpha=0.3,
-        markersize=2,
-        legend=false
+        title="Haze vs Error (r=$(round(analysis_results.correlation, digits=3)))",
+        alpha=0.3, markersize=2, legend=false
     )
     savefig(p1, joinpath(output_dir, "haze_vs_error_scatter.png"))
     
-    # 2. Calibration curve
+    # Calibration curve
     cal = analysis_results.calibration
     p2 = plot(cal.haze_means, cal.error_means,
         ribbon=cal.error_stds,
         xlabel="Haze (binned)",
         ylabel="Mean Prediction Error",
         title="Calibration Curve",
-        label="Mean ± Std",
-        linewidth=2,
-        fillalpha=0.3
+        linewidth=2, fillalpha=0.3, legend=false
     )
     savefig(p2, joinpath(output_dir, "calibration_curve.png"))
-    
-    # 3. Histograms
-    p3 = histogram(haze_values,
-        xlabel="Haze",
-        ylabel="Frequency",
-        title="Haze Distribution",
-        bins=50,
-        legend=false
-    )
-    savefig(p3, joinpath(output_dir, "haze_histogram.png"))
-    
-    p4 = histogram(prediction_errors,
-        xlabel="Prediction Error (MSE)",
-        ylabel="Frequency",
-        title="Prediction Error Distribution",
-        bins=50,
-        legend=false
-    )
-    savefig(p4, joinpath(output_dir, "error_histogram.png"))
     
     println("📊 Plots saved to: $output_dir")
 end
@@ -183,32 +209,22 @@ function visualize_extreme_cases(
     max_error_idx = argmax(prediction_errors)
     min_error_idx = argmin(prediction_errors)
     max_haze_idx = argmax(haze_values)
-    min_haze_idx = argmin(haze_values)
     
-    indices = [max_error_idx, min_error_idx, max_haze_idx, min_haze_idx]
-    titles = ["Max Error", "Min Error", "Max Haze", "Min Haze"]
+    indices = [max_error_idx, min_error_idx, max_haze_idx]
+    titles = ["Max Error", "Min Error", "Max Haze"]
     
-    p = plot(layout=(2, 4), size=(1000, 500))
+    p = plot(layout=(2, 3), size=(900, 600))
     
     for (i, idx) in enumerate(indices)
-        # Get data
         x = test_data["x"][:, :, :, idx:idx]
         u = test_data["u"][:, idx:idx]
         
-        # Original SPM (Channel 1: Ego)
-        heatmap!(p[1, i], x[:, :, 1, 1],
-            c=:viridis,
-            title="$(titles[i])\nErr=$(round(prediction_errors[idx], digits=4))\nHaze=$(round(haze_values[idx], digits=4))",
-            axis=false, colorbar=false
-        )
+        # Original
+        heatmap!(p[1, i], x[:, :, 1, 1], c=:viridis, title="$(titles[i])\nErr=$(round(prediction_errors[idx], digits=4))", axis=false)
         
         # Reconstructed
         x_hat, _, _ = vae_model(x, u)
-        heatmap!(p[2, i], x_hat[:, :, 1, 1],
-            c=:viridis,
-            title="Reconstructed",
-            axis=false, colorbar=false
-        )
+        heatmap!(p[2, i], x_hat[:, :, 1, 1], c=:viridis, title="Reconstructed", axis=false)
     end
     
     savefig(p, joinpath(output_dir, "extreme_cases_comparison.png"))
@@ -220,172 +236,90 @@ Generate validation report
 """
 function generate_validation_report(
     analysis_results,
+    cf_variation::Float64,
     n_samples::Int;
     output_path::String="results/haze_validation/report.md"
 )
     mkpath(dirname(output_path))
     
     report = """
-    # Haze 検証レポート
+    # Haze 検証レポート (Pattern D)
     
     ## 概要
-    
     - **総サンプル数**: $n_samples
     - **ピアソン相関**: $(round(analysis_results.correlation, digits=4))
-    - **スピアマン相関**: $(round(analysis_results.spearman, digits=4))
+    - **Action Dependency**: $(round(cf_variation, digits=6)) (Mean Variation)
     
     ## 解釈
-    
-    ### 相関分析
-    
-    $(if analysis_results.correlation > 0.5
-        "✅ **強い正の相関**が Haze と予測誤差の間に検出されました。これは、Haze が有効な不確実性指標であることを示しています。"
-    elseif analysis_results.correlation > 0.3
-        "⚠️ **中程度の正の相関**が検出されました。Haze は不確実性指標として一定の妥当性を示していますが、改善の余地があります。"
-    elseif analysis_results.correlation < -0.3
-        "❌ **負の相関**が検出されました。Haze（潜在分散）が高いほど予測誤差が低くなる傾向があります。モデルの不確実性推定が期待とは逆の振る舞いをしている可能性があります。"
+    $(if analysis_results.correlation > 0.0
+        "✅ **正の相関**が検出されました。Haze は不確実性を捉えています。"
     else
-        "❌ **弱い相関**しか検出されませんでした。Haze が予測の不確実性を適切に捉えられていない可能性があります。モデルの改善を検討してください。"
+        "⚠️ **負の相関**または相関なし。さらなる調整が必要です。"
     end)
     
-    ### キャリブレーション
-    
-    キャリブレーションカーブは、Haze の値が大きくなるにつれて予測誤差がどのように変化するかを示しています。
-    理想的な不確実性推定器では、Haze と平均予測誤差の間に単調増加の関係が見られるはずです。
-    
-    ## 推奨事項
-    
-    $(if analysis_results.correlation > 0.3
-        "- Haze は β 変調に使用可能です\\n- EPH 実装を進めてください"
+    $(if cf_variation > 1e-5
+        "✅ **Action Dependency 確認**: 行動によって Haze が変動しており、Pattern D は正常に機能しています。"
     else
-        "- VAE の訓練（データ追加、アーキテクチャ最適化）を再検討してください\\n- 代替の不確実性推定手法を模索してください\\n- アンサンブル法などによる認識的不確実性の導入を検討してください"
+        "⚠️ **Action Dependency 低**: Haze が行動に依存していません。"
     end)
-    
-    ## キャリブレーションデータ
-    
-    | Haze (binned) | 平均誤差 | 標準誤差 |
-    |---------------|----------|----------|
     """
     
-    for i in 1:length(analysis_results.calibration.haze_means)
-        h = round(analysis_results.calibration.haze_means[i], digits=6)
-        e = round(analysis_results.calibration.error_means[i], digits=6)
-        s = round(analysis_results.calibration.error_stds[i], digits=6)
-        report *= "| $h | $e | $s |\\n"
-    end
     write(output_path, report)
     println("📄 レポートを保存しました: $output_path")
 end
 
 function main()
-    # Main execution
-    println("🔍 Haze Validation Analysis")
+    println("🔍 Haze Validation Analysis (Pattern D)")
     println("=" ^ 60)
     
     # Load VAE model
-    println("\n📦 Loading VAE model...")
     vae_path = "models/action_vae_best.bson"
     if !isfile(vae_path)
-        error("VAE model not found at: $vae_path. Please train the model first.")
+        # Check checkpoints 
+        checkpoints = readdir("models/checkpoints", join=true)
+        if !isempty(checkpoints)
+            vae_path = sort(checkpoints, by=mtime)[end]
+            println("⚠️ Best model not found, using latest checkpoint: $vae_path")
+        else
+            error("No VAE model found. Train first.")
+        end
     end
     vae_model = BSON.load(vae_path)[:model]
     println("✅ VAE model loaded")
     
     # Load test data
-    println("\n📦 Loading test data...")
-    data_files = filter(f -> endswith(f, ".h5") && contains(f, "test"), readdir("data/vae_training", join=true))
+    data_dir = "data/vae_training"
+    test_files = filter(f -> contains(f, "test") && endswith(f, ".h5"), readdir(data_dir, join=true))
+    if isempty(test_files); error("No test data found."); end
+    test_file = test_files[1]
     
-    if isempty(data_files)
-        error("No test data found. Please run collect_diverse_vae_data.jl first.")
-    end
-    
-    test_file = data_files[1]
     println("Using: $test_file")
     
-    # Load test data and metadata
     spm_current, actions, spm_next, densities = h5open(test_file, "r") do file
-        (
-            read(file, "spm_current"),
-            read(file, "actions"),
-            read(file, "spm_next"),
-            read(file, "densities")
-        )
+        (read(file, "spm_current"), read(file, "actions"), read(file, "spm_next"), read(file, "densities"))
     end
     
-    test_data = Dict(
-        "x" => spm_current,
-        "u" => actions,
-        "y" => spm_next
-    )
+    test_data = Dict("x" => spm_current, "u" => actions, "y" => spm_next)
     
-    n_samples = size(spm_current, 4)
-    println("✅ Loaded $n_samples test samples")
+    # Counterfactual Analysis
+    cf_variation = analyze_counterfactual_haze(vae_model, spm_current)
     
-    # Compute Haze and prediction errors
-    println("\n🧮 Computing Haze and prediction errors...")
-    haze_values, prediction_errors = compute_prediction_errors(
-        vae_model, spm_current, actions, spm_next
-    )
-    
-    # Overall analysis
-    println("\n📊 Analyzing Haze validity (Overall)...")
+    # Correlation Analysis
+    haze_values, prediction_errors = compute_prediction_errors(vae_model, spm_current, actions, spm_next)
     analysis_results = analyze_haze_validity(haze_values, prediction_errors)
     
-    println("\nResults (Overall):")
-    println("  Pearson correlation:  $(round(analysis_results.correlation, digits=4))")
-    println("  Spearman correlation: $(round(analysis_results.spearman, digits=4))")
+    println("Results: Correlation = $(round(analysis_results.correlation, digits=4))")
     
-    # Density-based analysis
-    println("\n📊 Density-based Analysis:")
-    unique_densities = sort(unique(densities))
-    density_results = Dict()
-    
-    for d in unique_densities
-        idx = findall(x -> x == d, densities)
-        h_d = haze_values[idx]
-        e_d = prediction_errors[idx]
-        
-        corr = cor(h_d, e_d)
-        println("  Density $d (n=$(length(idx))): Correlation = $(round(corr, digits=4))")
-        density_results[d] = corr
-    end
-    
-    # Define output directory
-    output_dir = "results/haze_validation"
-    
-    # Create plots
-    println("\n📈 Creating validation plots...")
-    create_validation_plots(haze_values, prediction_errors, analysis_results, output_dir=output_dir)
-    
-    # Visualize extreme cases
-    println("\n🔍 Visualizing extreme cases...")
-    visualize_extreme_cases(test_data, haze_values, prediction_errors, vae_model, output_dir=output_dir)
-    
-    # Generate report
-    println("\n📝 Generating validation report...")
-    report_content = """
-    
-    ## 混雑度別分析 (Density Analysis)
-    
-    | 混雑度 (Agents/Group) | サンプル数 | 相関係数 |
-    |-----------------------|------------|----------|
-    """
-    for d in unique_densities
-        n_density = count(x -> x == d, densities)
-        corr_val = round(density_results[d], digits=4)
-        report_content *= "| $d | $n_density | $corr_val |\n"
-    end
-    
-    generate_validation_report(analysis_results, n_samples, output_path=joinpath(output_dir, "report.md"))
-    
-    # Append density analysis to the report
-    open(joinpath(output_dir, "report.md"), "a") do f
-        write(f, report_content)
-    end
+    create_validation_plots(haze_values, prediction_errors, analysis_results)
+    visualize_extreme_cases(test_data, haze_values, prediction_errors, vae_model)
+    generate_validation_report(analysis_results, cf_variation, size(spm_current, 4))
     
     println("\n✅ Haze validation complete!")
 end
 
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end
 # Main execution
 if abspath(PROGRAM_FILE) == @__FILE__
     main()

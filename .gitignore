@@ -1,93 +1,62 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-*.log
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Virtual Environment
-venv/
-ENV/
-env/
-
-# Julia
-*.jl.cov
-*.jl.*.cov
-*.jl.mem
-/Manifest.toml
-/src_julia/Manifest.toml
-Manifest*.toml
-
-# Julia package manager files
-deps/deps.jl
-deps/build.log
-deps/downloads/
-deps/usr/
-deps/src/
-
-# Julia documentation
-docs/build/
-docs/site/
-
-# Julia preferences
-LocalPreferences.toml
-JuliaLocalPreferences.toml
-
-# IDE
+# --- OS & Tool Specific ---
+.DS_Store
+**/.DS_Store
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+requirements.txt
+# (Note: requirements.txt is usually tracked, but if user wants minimal tree, keeping it is standard practice. Included here for review, will keep it tracked by NOT ignoring it in practice, removing line below)
+# requirements.txt 
 
-# Project specific
+# --- Julia ---
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+Manifest.toml
+**/Manifest.toml
+deps/
+docs/build/
+docs/site/
+LocalPreferences.toml
+
+# --- Project Specific Data & Logs ---
+# Ignore all generated data
+data/logs/*.h5
+data/logs/*.log
+data/vae_training/*.h5
+
+# Ignore large model checkpoints but keep the best one
+models/checkpoints/
+models/vae_latest.bson
+models/*.bson
+!models/action_vae_best.bson
+
+# Ignore archives
+scripts/archive/
+results/archive/
+
+# Ignore temporary files
+tmp/
+*.log
+
+# Ignore large media
 *.webp
 *.mp4
 *.avi
 recordings/
 
-# macOS system files
-.DS_Store
-**/.DS_Store
-
-# Temporary directories
-log/
-tmp/
-
-# Serena MCP server cache
-.serena/
-
-# Experimental data and logs
-data/logs/*.jld2
-data/logs/*.png
-data/training/*.csv
-data/models/*.jld2
-src_julia/data/
-*.h5
-**/Manifest.toml
-models/action_vae_epoch_*.bson
+# --- Artifacts ---
+# Keep specific results if needed, but generally ignore heavy outputs
+# results/haze_validation/*.png (Let's keep validation plots for record)

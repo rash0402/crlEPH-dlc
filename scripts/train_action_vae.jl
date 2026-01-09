@@ -164,8 +164,8 @@ end
 # Main execution
 if abspath(PROGRAM_FILE) == @__FILE__
     # Find latest training data
-    data_dir = "data"
-    data_files = filter(f -> startswith(f, "action_vae_training") && endswith(f, ".h5"), readdir(data_dir))
+    data_dir = "data/vae_training"
+    data_files = filter(f -> startswith(f, "action_vae_train") && endswith(f, ".h5"), readdir(data_dir))
     
     if isempty(data_files)
         println("❌ No training data found in $data_dir/")
@@ -183,7 +183,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
         epochs=200,
         batch_size=64,
         learning_rate=1e-3,
-        beta=0.01f0,  # Low beta for prediction focus
+        beta=0.1f0,  # Higher beta for Pattern D (Uncertainty Learning)
         latent_dim=32
     )
 end
