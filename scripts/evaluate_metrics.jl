@@ -44,6 +44,12 @@ function load_episode_data(filepath::String)
         vel_all = Float64.(read(file, "data/velocity"))
         acc_all = Float64.(read(file, "data/action"))
         
+        # Read collision counts (if available)
+        collision_counts = zeros(Int, n_agents)
+        if haskey(file, "data/collision_counts")
+            collision_counts = Int.(read(file, "data/collision_counts"))
+        end
+        
         # Determine dimension order
         if size(pos_all, 1) != 2
             pos_all = permutedims(pos_all, (3, 2, 1))
@@ -58,13 +64,17 @@ function load_episode_data(filepath::String)
             vel_traj = [Vector{Float64}(vel_all[:, a, t]) for t in 1:n_steps]
             acc_traj = [Vector{Float64}(acc_all[:, a, t]) for t in 1:n_steps]
             
+            # Collision flag: true if this agent had any collision
+            had_collision = collision_counts[a] > 0
+            
             # For scramble crossing, goal is center region
             push!(all_episodes, Dict(
                 "velocities" => vel_traj,
                 "accelerations" => acc_traj,
                 "positions" => pos_traj,
                 "goal" => [50.0, 50.0],
-                "collision" => false,
+                "collision" => had_collision,
+                "collision_count" => collision_counts[a],
                 "agent_id" => a
             ))
         end

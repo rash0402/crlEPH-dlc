@@ -10,7 +10,7 @@ using Statistics
 
 export FreezeDetector, detect_freezing, compute_freezing_rate
 export compute_success_rate, compute_collision_rate
-export compute_jerk, compute_min_ttc
+export compute_jerk, compute_min_ttc, compute_throughput
 export EpisodeMetrics, compute_episode_metrics
 
 """
@@ -159,6 +159,74 @@ function compute_jerk(
     end
     
     return mean(jerks)
+end
+
+"""
+Compute throughput for corridor scenario.
+Throughput = number of agents that cross a vertical line (e.g., corridor center) per unit time.
+
+Args:
+    positions: Vector of position trajectories for each agent [Vector{Vector{Float64}}]
+    crossing_x: X-coordinate of the crossing line (default: center at 50.0)
+    direction: Expected crossing direction - :east (left→right) or :west (right→left) or :both
+    dt: Time step in seconds
+
+Returns:
+    (n_crossings, throughput_per_second, crossing_times)
+"""
+function compute_throughput(
+    positions::Vector{Vector{Vector{Float64}}};
+    crossing_x::Float64=50.0,
+    direction::Symbol=:both,
+    dt::Float64=0.033
+)
+    total_crossings = 0
+    crossing_times = Float64[]
+    
+    for agent_positions in positions
+        for t in 2:length(agent_positions)
+            prev_x = agent_positions[t-1][1]
+            curr_x = agent_positions[t][1]
+            
+            crossed = false
+            
+            if direction == :east
+                # Left to right crossing
+                if prev_x < crossing_x && curr_x >= crossing_x
+                    crossed = true
+                end
+            elseif direction == :west
+                # Right to left crossing
+                if prev_x > crossing_x && curr_x <= crossing_x
+                    crossed = true
+                end
+            else  # :both
+                if (prev_x < crossing_x && curr_x >= crossing_x) ||
+                   (prev_x > crossing_x && curr_x <= crossing_x)
+                    crossed = true
+                end
+            end
+            
+            if crossed
+                total_crossings += 1
+                push!(crossing_times, t * dt)
+            end
+        end
+    end
+    
+    # Compute total simulation time
+    if isempty(positions) || isempty(positions[1])
+        return (n_crossings=0, throughput_per_second=0.0, crossing_times=Float64[])
+    end
+    
+    total_time = length(positions[1]) * dt
+    throughput_per_second = total_crossings / total_time
+    
+    return (
+        n_crossings=total_crossings,
+        throughput_per_second=throughput_per_second,
+        crossing_times=crossing_times
+    )
 end
 
 """

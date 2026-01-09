@@ -7,19 +7,33 @@ Runs simulations across multiple densities and seeds.
 
 using Printf
 using Dates
+using ArgParse
+
+function parse_commandline()
+    s = ArgParseSettings()
+    @add_arg_table s begin
+        "--scenario"
+            help = "Scenario: 'scramble' or 'corridor'"
+            arg_type = String
+            default = "scramble"
+    end
+    return parse_args(s)
+end
 
 # Configuration
 SEEDS = [1, 2, 3, 4, 5]
-DENSITIES = [5, 10, 15, 20]  # Agents per group (Total = 4x)
+DENSITIES = [5, 10, 15, 20]  # Agents per group
 STEPS = 1500
 CONDITION = 4  # A4_EPH
-OUTPUT_BASE = "data/logs/batch_experiment"
-
-# Command template
-CMD_TEMPLATE = "julia --project=. scripts/run_simulation.jl --seed %d --density %d --steps %d --condition %d --output \"%s\""
 
 function main()
+    args = parse_commandline()
+    scenario = args["scenario"]
+    
+    OUTPUT_BASE = "data/logs/batch_$(scenario)"
+    
     println("🚀 Starting Batch Experiments")
+    println("   Scenario:  $scenario")
     println("   Densities: $DENSITIES")
     println("   Seeds:     $SEEDS")
     println("   Condition: $CONDITION")
@@ -45,7 +59,7 @@ function main()
             # Use @sprintf for filename is fine if literal, but let's just use string interpolation for command to be safe
             output_file = joinpath(OUTPUT_BASE, "sim_d$(density)_s$(seed).h5")
             
-            cmd_str = "julia --project=. scripts/run_simulation.jl --seed $seed --density $density --steps $STEPS --condition $CONDITION --output \"$output_file\""
+            cmd_str = "julia --project=. scripts/run_simulation.jl --seed $seed --density $density --steps $STEPS --condition $CONDITION --scenario $scenario --output \"$output_file\""
             
             println("\n[$current_run/$total_runs] $timestamp | Density=$density, Seed=$seed")
             println("   Cmd: $cmd_str")

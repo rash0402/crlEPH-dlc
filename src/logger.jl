@@ -131,11 +131,17 @@ function log_step!(
 end
 
 """
-Close logger and finalize file
+Close logger and finalize file.
+Optionally accepts collision counts per agent.
 """
-function close_logger(logger::DataLogger)
+function close_logger(logger::DataLogger; collision_counts::Vector{Int}=Int[])
     # Store actual step count
     attributes(logger.file)["actual_steps"] = logger.step_count
+    
+    # Store collision counts if provided
+    if !isempty(collision_counts)
+        logger.file["data/collision_counts"] = collision_counts
+    end
     
     close(logger.file)
 end

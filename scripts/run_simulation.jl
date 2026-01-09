@@ -65,6 +65,10 @@ function parse_commandline()
             help = "Output HDF5 file path"
             arg_type = String
             default = ""
+        "--scenario"
+            help = "Simulation scenario: 'scramble' (4-way crossing) or 'corridor' (bidirectional)"
+            arg_type = String
+            default = "scramble"
     end
 
     return parse_args(s)
@@ -104,22 +108,41 @@ function main()
     println("\n📋 Configuration (Seed: $(args["seed"])):")
     println("  Condition: $(condition_enum)")
     println("  SPM: $(spm_params.n_rho)x$(spm_params.n_theta), FOV=$(spm_params.fov_deg)°")
-    println("  Agents: $(agent_params.n_agents_per_group) per group (4 groups)")
-    println("  Obstacles: 4 corners ($(world_params.obstacle_size)x$(world_params.obstacle_size))")
+    
+    # Scenario-based initialization
+    scenario = args["scenario"]
+    println("  Scenario: $scenario")
+    
+    if scenario == "corridor"
+        println("  Agents: $(agent_params.n_agents_per_group) per group (2 groups: East/West)")
+        println("  Obstacles: Corridor walls (width=4.0m)")
+    else
+        println("  Agents: $(agent_params.n_agents_per_group) per group (4 groups)")
+        println("  Obstacles: 4 corners ($(world_params.obstacle_size)x$(world_params.obstacle_size))")
+    end
     println("  Goal area: center ±$(world_params.center_margin)")
     println("  World: $(world_params.width)x$(world_params.height), dt=$(world_params.dt)s")
     println("  Steps: $(world_params.max_steps)")
     println("  ZMQ: $(comm_params.zmq_endpoint)")
     
-    # Initialize agents
+    # Initialize agents based on scenario
     println("\n🤖 Initializing agents...")
-    agents = init_agents(agent_params, world_params)
+    if scenario == "corridor"
+        agents = init_corridor_agents(agent_params, world_params, seed=args["seed"])
+    else
+        agents = init_agents(agent_params, world_params, seed=args["seed"])
+    end
     println("  Total agents: $(length(agents))")
     
-    # Initialize obstacles
+    # Initialize obstacles based on scenario
     println("\n🚧 Initializing obstacles...")
-    obstacles = init_obstacles(world_params)
-    println("  Corner obstacles: $(length(obstacles))")
+    if scenario == "corridor"
+        obstacles = init_corridor_obstacles(world_params)
+        println("  Corridor walls: $(length(obstacles))")
+    else
+        obstacles = init_obstacles(world_params)
+        println("  Corner obstacles: $(length(obstacles))")
+    end
     
     # Initialize SPM
     println("\n🗺️  Initializing SPM...")
@@ -176,6 +199,9 @@ function main()
     
     println("\n▶️  Starting simulation...")
     println("  Press Ctrl+C to stop\n")
+    
+    # Initialize collision counter per agent
+    collision_count = zeros(Int, length(agents))
     
     # Simulation loop
     try
@@ -301,7 +327,10 @@ function main()
                 end
                 
                 # Step dynamics (with agent-agent collision detection)
-                step!(agent, action, agent_params, world_params, obstacles, agents)
+                collision_this_step = step!(agent, action, agent_params, world_params, obstacles, agents)
+                if collision_this_step
+                    collision_count[agent.id] += 1
+                end
                 
                 # Log detail for selected agent
                 if agent.id == detail_agent_id
@@ -389,7 +418,7 @@ function main()
         # Cleanup
         println("\n🧹 Cleaning up...")
         close_publisher(publisher)
-        close_logger(data_logger)
+        close_logger(data_logger, collision_counts=collision_count)
         println("✅ Simulation complete!")
     end
 end

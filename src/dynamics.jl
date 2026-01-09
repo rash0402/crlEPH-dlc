@@ -10,6 +10,7 @@ using Random
 using ..Config
 
 export Agent, AgentGroup, Obstacle, init_agents, init_obstacles, step!, wrap_torus, relative_position, check_collision, predict_state, predict_other_agents
+export init_corridor_agents, init_corridor_obstacles
 
 """
 Agent group identifiers (N/S/E/W)
@@ -136,7 +137,88 @@ function init_agents(
 end
 
 """
-Initialize corner obstacles
+Initialize agents for Corridor scenario (Bidirectional Flow).
+- East group: Start left side, move right (goal: right exit)
+- West group: Start right side, move left (goal: left exit)
+
+Args:
+    agent_params: Agent parameters
+    world_params: World parameters
+    corridor_width: Width of corridor (must match init_corridor_obstacles)
+    seed: Random seed
+    
+Returns:
+    Vector of Agent objects
+"""
+function init_corridor_agents(
+    agent_params::AgentParams=DEFAULT_AGENT,
+    world_params::WorldParams=DEFAULT_WORLD;
+    corridor_width::Float64=4.0,
+    corridor_length_ratio::Float64=0.6,
+    seed::Int=42
+)
+    Random.seed!(seed)
+    
+    agents = Agent[]
+    n = agent_params.n_agents_per_group
+    w = world_params.width
+    h = world_params.height
+    
+    # Corridor geometry
+    corridor_length = w * corridor_length_ratio
+    corridor_start_x = (w - corridor_length) / 2
+    corridor_end_x = corridor_start_x + corridor_length
+    corridor_center_y = h / 2
+    
+    # Spawn zones (just outside corridor ends)
+    spawn_margin = 5.0
+    east_spawn_x_min = corridor_start_x - spawn_margin - 5.0
+    east_spawn_x_max = corridor_start_x - spawn_margin
+    west_spawn_x_min = corridor_end_x + spawn_margin
+    west_spawn_x_max = corridor_end_x + spawn_margin + 5.0
+    
+    # Vertical range within corridor
+    spawn_y_min = corridor_center_y - corridor_width / 2 + 0.5
+    spawn_y_max = corridor_center_y + corridor_width / 2 - 0.5
+    
+    # Goal positions (opposite ends)
+    east_goal_x = corridor_end_x + 10.0
+    west_goal_x = corridor_start_x - 10.0
+    
+    colors = Dict(
+        EAST => "green",
+        WEST => "magenta"
+    )
+    
+    agent_id = 1
+    
+    # East group (left → right)
+    for i in 1:n
+        pos = [east_spawn_x_min + rand() * (east_spawn_x_max - east_spawn_x_min),
+               spawn_y_min + rand() * (spawn_y_max - spawn_y_min)]
+        vel = [2.0 + randn() * 0.3, 0.0]  # Moving right
+        goal = [east_goal_x, corridor_center_y]
+        goal_vel = [2.0, 0.0]
+        push!(agents, Agent(agent_id, EAST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[EAST], 1.0))
+        agent_id += 1
+    end
+    
+    # West group (right → left)
+    for i in 1:n
+        pos = [west_spawn_x_min + rand() * (west_spawn_x_max - west_spawn_x_min),
+               spawn_y_min + rand() * (spawn_y_max - spawn_y_min)]
+        vel = [-2.0 + randn() * 0.3, 0.0]  # Moving left
+        goal = [west_goal_x, corridor_center_y]
+        goal_vel = [-2.0, 0.0]
+        push!(agents, Agent(agent_id, WEST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[WEST], 1.0))
+        agent_id += 1
+    end
+    
+    return agents
+end
+
+"""
+Initialize corner obstacles (Scramble Crossing scenario)
 """
 function init_obstacles(world_params::WorldParams=DEFAULT_WORLD)
     w = world_params.width
@@ -148,6 +230,53 @@ function init_obstacles(world_params::WorldParams=DEFAULT_WORLD)
         Obstacle(w-s, w, 0.0, s),           # Bottom-right
         Obstacle(0.0, s, h-s, h),           # Top-left
         Obstacle(w-s, w, h-s, h)            # Top-right
+    ]
+    
+    return obstacles
+end
+
+"""
+Initialize corridor obstacles (Narrow Passage scenario for Bidirectional Flow).
+Creates two long walls forming a horizontal corridor in the center of the world.
+
+Args:
+    world_params: World parameters
+    corridor_width: Width of the corridor (default 4.0m)
+    corridor_length: Length of the corridor as fraction of world width (default 0.6)
+    
+Returns:
+    Vector of Obstacle objects forming the corridor walls
+"""
+function init_corridor_obstacles(
+    world_params::WorldParams=DEFAULT_WORLD;
+    corridor_width::Float64=4.0,
+    corridor_length_ratio::Float64=0.6
+)
+    w = world_params.width
+    h = world_params.height
+    
+    # Corridor dimensions
+    corridor_length = w * corridor_length_ratio
+    corridor_start_x = (w - corridor_length) / 2
+    corridor_end_x = corridor_start_x + corridor_length
+    
+    # Corridor centered vertically
+    corridor_center_y = h / 2
+    wall_thickness = 2.0  # Wall thickness
+    
+    # Top wall (above corridor)
+    top_wall_y_min = corridor_center_y + corridor_width / 2
+    top_wall_y_max = top_wall_y_min + wall_thickness
+    
+    # Bottom wall (below corridor)
+    bottom_wall_y_max = corridor_center_y - corridor_width / 2
+    bottom_wall_y_min = bottom_wall_y_max - wall_thickness
+    
+    obstacles = [
+        # Top wall
+        Obstacle(corridor_start_x, corridor_end_x, top_wall_y_min, top_wall_y_max),
+        # Bottom wall
+        Obstacle(corridor_start_x, corridor_end_x, bottom_wall_y_min, bottom_wall_y_max)
     ]
     
     return obstacles
@@ -191,6 +320,9 @@ end
 """
 Update agent state using 2nd-order dynamics with collision detection
 M * a + D * v = u
+
+Returns:
+    collision_occurred::Bool - True if a collision was detected this step
 """
 function step!(
     agent::Agent,
@@ -200,6 +332,8 @@ function step!(
     obstacles::Vector{Obstacle},
     all_agents::Vector{Agent}
 )
+    collision_occurred = false
+    
     # Clamp control input
     u_clamped = clamp.(u, -agent_params.u_max, agent_params.u_max)
     
@@ -226,6 +360,11 @@ function step!(
                 # Strong repulsion away from obstacle
                 emergency_repulsion -= (to_obs / dist_to_obs) * k_emergency
             end
+            
+            # Check for actual collision (inside obstacle)
+            if check_collision(agent.pos, obstacles, agent_params.r_agent)
+                collision_occurred = true
+            end
         end
     end
     
@@ -235,6 +374,11 @@ function step!(
             rel_pos = relative_position(agent.pos, other.pos, world_params)
             dist = norm(rel_pos)
             min_dist = 2.0 * agent_params.r_agent
+            
+            # Check for actual collision (overlapping)
+            if dist < min_dist
+                collision_occurred = true
+            end
             
             # Emergency repulsion only when very close (within threshold)
             if dist < min_dist + emergency_threshold_agent
@@ -263,6 +407,8 @@ function step!(
     
     # Torus wrapping
     agent.pos = wrap_torus(agent.pos, world_params)
+    
+    return collision_occurred
 end
 
 """
