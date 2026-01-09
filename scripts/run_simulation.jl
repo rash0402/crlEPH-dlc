@@ -26,6 +26,7 @@ using Statistics
 using Dates
 using Flux
 using BSON
+using ArgParse
 using DelimitedFiles  # For CSV export
 using Random
 using HDF5
@@ -38,9 +39,46 @@ using .Logger
 using .ActionVAEModel
 
 """
+Parse command line arguments
+"""
+function parse_commandline()
+    s = ArgParseSettings()
+
+    @add_arg_table s begin
+        "--seed"
+            help = "Random seed"
+            arg_type = Int
+            default = 42
+        "--density"
+            help = "Number of agents per group (Total = 4x)"
+            arg_type = Int
+            default = 10
+        "--steps"
+            help = "Simulation steps"
+            arg_type = Int
+            default = 1000
+        "--condition"
+            help = "Experiment condition (1=BASELINE, 2=SPM, 3=BETA, 4=EPH)"
+            arg_type = Int
+            default = 4
+        "--output"
+            help = "Output HDF5 file path"
+            arg_type = String
+            default = ""
+    end
+
+    return parse_args(s)
+end
+
+"""
 Main simulation loop
 """
 function main()
+    args = parse_commandline()
+    
+    # Set seed
+    Random.seed!(args["seed"])
+    
     println("=" ^ 60)
     println("=" ^ 60)
     println("!!! EPH Simulation - VERSION 3 STARTING !!!")
@@ -48,14 +86,23 @@ function main()
     println("=" ^ 60)
     
     # Load configuration
-    # Initialize parameters
-    control_params = ControlParams(experiment_condition=Config.A4_EPH, use_predictive_control=true)
-    world_params = WorldParams(max_steps=1000) # Extended steps for viewing
+    # Initialize parameters with overrides from args
+    condition_enum = Config.ExperimentCondition(args["condition"])
+    
+    control_params = ControlParams(
+        experiment_condition=condition_enum, 
+        use_predictive_control=true
+    )
+    
+    world_params = WorldParams(max_steps=args["steps"])
     comm_params = CommParams()
     spm_params = SPMParams()
-    agent_params = AgentParams()
     
-    println("\n📋 Configuration:")
+    # Override agent density
+    agent_params = AgentParams(n_agents_per_group=args["density"])
+    
+    println("\n📋 Configuration (Seed: $(args["seed"])):")
+    println("  Condition: $(condition_enum)")
     println("  SPM: $(spm_params.n_rho)x$(spm_params.n_theta), FOV=$(spm_params.fov_deg)°")
     println("  Agents: $(agent_params.n_agents_per_group) per group (4 groups)")
     println("  Obstacles: 4 corners ($(world_params.obstacle_size)x$(world_params.obstacle_size))")
@@ -85,11 +132,22 @@ function main()
     
     # Initialize HDF5 logger
     println("\n💾 Initializing HDF5 logger...")
-    timestamp = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
-    if !isdir("data")
-        mkdir("data")
+    
+    log_filename = args["output"]
+    if isempty(log_filename)
+        timestamp = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
+        if !isdir(joinpath("data", "logs"))
+            mkpath(joinpath("data", "logs"))
+        end
+        log_filename = joinpath("data", "logs", "eph_sim_$(timestamp).h5")
+    else
+        # Ensure directory exists
+        dir = dirname(log_filename)
+        if !isdir(dir)
+             mkpath(dir)
+        end
     end
-    log_filename = joinpath("data", "eph_sim_$(timestamp).h5")
+    
     data_logger = init_logger(log_filename, world_params.max_steps, length(agents))
     println("  Output: $(log_filename)")
     
@@ -97,7 +155,7 @@ function main()
     # VAE's latent variance σ²_z provides epistemic uncertainty: H[k] = Agg(σ²_z[k])
     println("\n🧠 Loading VAE model...")
     vae_model = nothing
-    model_path = "models/vae_latest.bson"
+    model_path = "models/action_vae_best.bson"
     if isfile(model_path)
         try
             BSON.@load model_path model
@@ -193,16 +251,17 @@ function main()
                 end
                 
                 # DEBUG: Log filtering result for Agent 1
-                if agent.id == 1 && step % 100 == 0
-                    open(joinpath("log", "debug_filter.log"), "a") do io
-                        println(io, "Step $step: Agent 1 sees $(length(rel_pos_ego)) agents after filtering (max_dist=$max_sensing_distance, fov_rad=$(spm_params.fov_rad))")
-                        for (i, pos) in enumerate(rel_pos_ego)
-                            dist = norm(pos)
-                            theta = atan(pos[1], pos[2])
-                            println(io, "  Agent $i: pos=$pos, dist=$dist, theta=$(rad2deg(theta))°")
-                        end
-                    end
-                end
+                # DEBUG: Log filtering result for Agent 1
+                # if agent.id == 1 && step % 100 == 0
+                #     open(joinpath("log", "debug_filter.log"), "a") do io
+                #         println(io, "Step $step: Agent 1 sees $(length(rel_pos_ego)) agents after filtering (max_dist=$max_sensing_distance, fov_rad=$(spm_params.fov_rad))")
+                #         for (i, pos) in enumerate(rel_pos_ego)
+                #             dist = norm(pos)
+                #             theta = atan(pos[1], pos[2])
+                #             println(io, "  Agent $i: pos=$pos, dist=$dist, theta=$(rad2deg(theta))°")
+                #         end
+                #     end
+                # end
                 
                 # DEBUG: Log right before SPM generation for Agent 1
                 # (Removed debug logging)

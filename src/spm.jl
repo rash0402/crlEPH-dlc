@@ -117,12 +117,12 @@ function generate_spm_3ch(
         theta_val = atan(p_rel[1], p_rel[2])
 
         # DEBUG: Log values specifically for debugging
-        if idx == 1 # Always log for first agent to guarantee output
-            open(joinpath("log", "debug_spm.log"), "a") do io
-                println(io, "DEBUG_V3: p_rel=$(p_rel) rho=$(rho_val) theta=$(theta_val)")
-                println(io, "DEBUG_V3: Grid th[1]=$(config.theta_grid[1]) th[end]=$(config.theta_grid[end]) rh[1]=$(config.rho_grid[1]) rh[end]=$(config.rho_grid[end])")
-            end
-        end
+        # if idx == 1 # Always log for first agent to guarantee output
+        #     open(joinpath("log", "debug_spm.log"), "a") do io
+        #         println(io, "DEBUG_V3: p_rel=$(p_rel) rho=$(rho_val) theta=$(theta_val)")
+        #         println(io, "DEBUG_V3: Grid th[1]=$(config.theta_grid[1]) th[end]=$(config.theta_grid[end]) rh[1]=$(config.rho_grid[1]) rh[end]=$(config.rho_grid[end])")
+        #     end
+        # end
         
         # 2. Physical quantities
         # Proximity saliency: closer = higher value

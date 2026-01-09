@@ -35,6 +35,7 @@ LocalPreferences.toml
 # Ignore all generated data
 data/logs/*.h5
 data/logs/*.log
+data/logs/batch_experiment/
 data/vae_training/*.h5
 
 # Ignore large model checkpoints but keep the best one

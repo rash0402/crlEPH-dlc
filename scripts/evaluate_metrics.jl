@@ -13,6 +13,7 @@ using HDF5
 using Plots
 using DataFrames
 using LinearAlgebra
+using ArgParse
 
 # Load modules
 include("../src/config.jl")
@@ -93,18 +94,23 @@ function load_multiple_episodes(data_dir::String; pattern::String="eph_sim_*.h5"
     return all_episodes
 end
 
+
 """
 Evaluate metrics and generate report
+Returns: metrics object
 """
 function evaluate_and_report(
     episode_data::Vector{Dict{String, Any}};
     output_dir::String="results/evaluation",
-    method_name::String="EPH"
+    method_name::String="EPH",
+    silent::Bool=false
 )
     mkpath(output_dir)
     
-    println("📊 Evaluating metrics for: $method_name")
-    println("   Episodes: $(length(episode_data))")
+    if !silent
+        println("📊 Evaluating metrics for: $method_name")
+        println("   Episodes: $(length(episode_data))")
+    end
     
     # Configure freeze detector
     freeze_detector = FreezeDetector(
@@ -122,8 +128,9 @@ function evaluate_and_report(
     )
     
     # Print results
-    println("\n📈 Results:")
-    println("=" ^ 60)
+    if !silent
+        println("\n📈 Results:")
+        println("=" ^ 60)
     println("Primary Outcome:")
     @printf("  Freezing Rate:          %.2f%% (%d / %d episodes)\n", 
             metrics.freezing_rate * 100, metrics.n_frozen, metrics.n_episodes)
@@ -134,6 +141,7 @@ function evaluate_and_report(
     @printf("  Collision Rate:         %.2f%%\n", metrics.collision_rate * 100)
     @printf("  Mean Jerk:              %.4f m/s³\n", metrics.mean_jerk)
     @printf("  Min TTC:                %.2f s\n", metrics.min_ttc)
+    end
     
     # Create visualizations
     create_metric_plots(episode_data, metrics, output_dir, method_name)
@@ -278,38 +286,97 @@ function generate_metric_report(
     println("📄 レポートを保存しました: $output_path")
 end
 
+
+
+"""
+Aggregate batch results by density
+"""
+function aggregate_batch_results(data_dir::String, output_dir::String)
+    println("\n🔄 Aggregating batch results from: $data_dir")
+    
+    files = filter(f -> endswith(f, ".h5") && occursin("sim_", f), readdir(data_dir, join=true))
+    
+    if isempty(files)
+        println("   No batch files found.")
+        return
+    end
+    
+    # Regex to parse filename: sim_d{Density}_s{Seed}.h5
+    # e.g., sim_d10_s001.h5
+    regex = r"sim_d(\d+)_s(\d+)\.h5"
+    
+    results = DataFrame(Density=[], Seed=[], FreezingRate=[], SuccessRate=[], CollisionRate=[], Jerk=[])
+    
+    for file in files
+        m = match(regex, basename(file))
+        if m !== nothing
+            density = parse(Int, m[1])
+            seed = parse(Int, m[2])
+            
+            # Load and evaluate (silent)
+            ep_data = load_episode_data(file)
+            if !isempty(ep_data)
+                metrics = evaluate_and_report(ep_data, output_dir=joinpath(output_dir, "individual"), method_name="d$(density)_s$(seed)", silent=true)
+                push!(results, (density, seed, metrics.freezing_rate, metrics.success_rate, metrics.collision_rate, metrics.mean_jerk))
+            end
+        end
+    end
+    
+    # Sort by density
+    sort!(results, :Density)
+    
+    println("\n📊 Aggregate Results:")
+    println(results)
+    
+    # Plot Freezing Rate vs Density
+    # Group by density and compute mean/std
+    gdf = groupby(results, :Density)
+    stats = combine(gdf, :FreezingRate => mean, :FreezingRate => std, :CollisionRate => mean)
+    
+    p = plot(stats.Density, stats.FreezingRate_mean .* 100, 
+             yerror=stats.FreezingRate_std .* 100,
+             xlabel="Density (Agents/Group)", ylabel="Freezing Rate (%)",
+             title="Freezing Rate vs Density",
+             marker=:circle, linewidth=2, label="Freezing Rate",
+             legend=:topleft)
+    
+    savefig(p, joinpath(output_dir, "freezing_vs_density.png"))
+    println("📈 Saved density plot to: " * joinpath(output_dir, "freezing_vs_density.png"))
+end
+
 # Main execution
+function parse_commandline()
+    s = ArgParseSettings()
+    @add_arg_table s begin
+        "--input"
+            help = "Input directory or file"
+            default = "data/logs"
+        "--batch"
+            help = "Run batch aggregation mode"
+            action = :store_true
+    end
+    return parse_args(s)
+end
+
 if abspath(PROGRAM_FILE) == @__FILE__
-    println("📊 EPH Evaluation Script")
-    println("=" ^ 60)
+    args = parse_commandline()
     
-    # Load simulation data
-    data_dir = "data"
-    println("\n📦 Loading episode data from: $data_dir")
-    
-    # Get the latest simulation file
-    all_files = filter(f -> endswith(f, ".h5") && contains(f, "eph_sim_"), readdir(data_dir))
-    if isempty(all_files)
-        error("No simulation data found in $data_dir.")
+    if args["batch"]
+        aggregate_batch_results(args["input"], "results/evaluation")
+    else
+        # ... existing single file logic ...
+        target_path = args["input"]
+        if isdir(target_path)
+             # Get latest
+             all_files = filter(f -> endswith(f, ".h5") && contains(f, "eph_sim_"), readdir(target_path))
+             if isempty(all_files)
+                 error("No simulation data found in $target_path")
+             end
+             target_path = joinpath(target_path, sort(all_files)[end])
+        end
+        
+        println("Using file: $target_path")
+        episode_data = load_episode_data(target_path)
+        metrics = evaluate_and_report(episode_data, output_dir="results/evaluation", method_name="EPH")
     end
-    
-    latest_file = joinpath(data_dir, sort(all_files)[end])
-    println("Using latest file: $latest_file")
-    
-    episode_data = load_episode_data(latest_file)
-    
-    if isempty(episode_data)
-        error("Failed to load episode data from $latest_file.")
-    end
-    
-    println("✅ Loaded $(length(episode_data)) episodes (agents)")
-    
-    # Evaluate metrics
-    metrics = evaluate_and_report(
-        episode_data,
-        output_dir="results/evaluation",
-        method_name="EPH"
-    )
-    
-    println("\n✅ Evaluation complete!")
 end
