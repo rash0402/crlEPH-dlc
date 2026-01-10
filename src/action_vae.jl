@@ -203,4 +203,27 @@ function compute_haze(m::ActionConditionedVAE, x, u)
     return mean(variance, dims=1)
 end
 
+"""
+Compute Surprise as VAE reconstruction error (FEP-aligned).
+Surprise = ||SPM - reconstruct(SPM, u)||²
+Higher surprise = more unexpected/unfamiliar state-action pair.
+"""
+function compute_surprise(m::ActionConditionedVAE, x, u)
+    # Encode current SPM with action
+    μ, logσ = encode(m, x, u)
+    
+    # Use mean (deterministic for surprise computation)
+    z = μ
+    
+    # Decode back to SPM
+    x_recon = decode_with_u(m, z, u)
+    
+    # Compute reconstruction error as surprise
+    surprise = Flux.mse(x_recon, x)
+    
+    return surprise
+end
+
+export compute_surprise
+
 end # module

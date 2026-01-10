@@ -1,15 +1,36 @@
 # EPH Setup Guide
 
-## Prerequisites
+## Quick Setup (Automated)
 
-### Julia Installation
+**Recommended**: Use the automated setup script:
+
+```bash
+./scripts/setup.sh
+```
+
+This script will:
+1. Check Julia 1.10+ installation
+2. Install Julia dependencies (`Pkg.instantiate()`)
+3. Check/create Python virtual environment
+4. Install Python dependencies
+5. Verify installation
+
+**First-time setup takes ~5-10 minutes** (downloading and compiling packages).
+
+---
+
+## Manual Setup
+
+If you prefer manual setup or encounter issues with the automated script:
+
+### Prerequisites
+
+#### Julia Installation
 
 Julia 1.10+ is required. Install via:
 
-**Option 1: Official Download**
+**Option 1: juliaup (Recommended)**
 ```bash
-# Download from https://julialang.org/downloads/
-# Or use juliaup (recommended):
 curl -fsSL https://install.julialang.org | sh
 ```
 
@@ -18,36 +39,44 @@ curl -fsSL https://install.julialang.org | sh
 brew install julia
 ```
 
+**Option 3: Official Download**
+- Visit https://julialang.org/downloads/
+
 After installation, verify:
 ```bash
-julia --version
+julia --version  # Should show 1.10.0 or higher
 ```
 
-### Python Environment
+#### Python Environment
 
-Python 3.10+ with venv at `~/local/venv`:
+Python 3.10+ is required. Create virtual environment:
 
 ```bash
-~/local/venv/bin/python --version
-~/local/venv/bin/pip install -r requirements.txt
+mkdir -p ~/local
+python3 -m venv ~/local/venv
+source ~/local/venv/bin/activate
 ```
 
-## Installation Steps
+### Installation Steps
 
-### 1. Install Julia Dependencies
+#### 1. Install Julia Dependencies
 
 ```bash
-cd /Users/igarashi/local/project_workspace/crlEPH-dlc
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
 This will install:
-- ForwardDiff.jl (automatic differentiation)
-- ZMQ.jl (communication)
-- MsgPack.jl (serialization)
-- HDF5.jl (data logging)
+- **Flux.jl** - Neural network framework (VAE)
+- **Zygote.jl** - Automatic differentiation (VAE training)
+- **ForwardDiff.jl** - Forward-mode AD (action gradient)
+- **HDF5.jl** - Data logging
+- **ZMQ.jl** - Inter-process communication
+- **MsgPack.jl** - Binary serialization
+- **BSON.jl** - Model serialization
 
-### 2. Install Python Dependencies
+**First run takes ~5 minutes** (downloading and precompiling).
+
+#### 2. Install Python Dependencies
 
 ```bash
 ~/local/venv/bin/pip install -r requirements.txt

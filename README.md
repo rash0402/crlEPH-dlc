@@ -46,15 +46,22 @@ crlEPH-dlc/
 
 ### 1. 依存関係のインストール
 
-**Julia** (1.10+):
+**自動セットアップ（推奨）**:
 ```bash
-julia --project=. -e 'using Pkg; Pkg.instantiate()'
+./scripts/setup.sh
 ```
+このスクリプトが自動的に Julia と Python の依存関係をインストールします（初回は5-10分）。
 
-**Python** (3.10+):
+**手動セットアップ**:
 ```bash
+# Julia (1.10+)
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+
+# Python (3.10+)
 ~/local/venv/bin/pip install -r requirements.txt
 ```
+
+詳細は [SETUP.md](SETUP.md) を参照してください。
 
 ### 2. シミュレーション実行
 

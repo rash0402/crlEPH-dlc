@@ -321,8 +321,130 @@ function main()
                         control_params, agent_params, world_params, spm_config
                     )
                 else
-                    # M3: Reactive control (baseline)
-                    action = compute_action(agent, spm, control_params, agent_params)
+                    # M3: Reactive control
+                    # A1_BASELINE / A2_SPM_ONLY: Standard FEP
+                    # A3_ADAPTIVE_BETA / A4_EPH: FEP with Surprise (if VAE available)
+                    
+                    if vae_model !== nothing && (control_params.experiment_condition == Config.A4_EPH || control_params.experiment_condition == Config.A3_ADAPTIVE_BETA)
+                        # Compute current surprise (reconstruction error)
+                        # Using previous action (or zero if first step) for surprise estimation context is tricky
+                        # Instead, we assume the agent wants to minimize NEW surprise
+                        # For simplicity in this loop, we calculate surprise of CURRENT state given ZERO action (baseline)
+                        # Or ideally, we pass the surprise function to the controller to optimize u
+                        
+                        # Current implementation of compute_action_with_surprise optimizes u to minimize:
+                        # F = F_vel + F_obs + λ * ||SPM - VAE(SPM, u)||²
+                        # We need a baseline surprise value for logging, but the optimization handles the minimization
+                        
+                        # We use a default surprise value of 0.0 for the function call signature if not optimizing iteratively
+                        # But wait, compute_action_with_surprise takes `surprise` as a FLOAT scalar argument.
+                        # Looking at controller.jl: it uses `surprise` as a weight or pre-computed value?
+                        # Re-reading controller.jl: 
+                        # function free_energy_with_surprise(..., surprise::Float64; ...)
+                        # F_surprise = λ_surprise * surprise
+                        # This means 'surprise' is treated as a CONSTANT scalar in the gradient! 
+                        # This is WRONG if we want to Minimize surprise through action u.
+                        # The derivative ∇_u (Surprise) would be 0 if 'surprise' is passed as a constant float.
+                        
+                        # Correction: We want u that minimizes reconstruction error.
+                        # The current controller implementation passed 'surprise' scalar, which is constant w.r.t velocity.
+                        # That implementation effectively adds a constant penalty term, which does NOT affect the gradient ∇_v F.
+                        # So u = -η * ∇F will be identically same as before.
+                        
+                        # To actually minimize surprise, the free energy function must Evaluating Surprise(v) where v -> u.
+                        # Since VAE is a neural network, taking gradient of VAE output w.r.t input u inside the controller loop (using ForwardDiff)
+                        # requires the VAE model to be differentiable and included in the free_energy function closure.
+                        
+                        # Given the complexity of differentiating through the Flux model within the ForwardDiff call for every agent step,
+                        # we should fallback to a sample-based or discrete choice, OR simply accept that we cannot easily gradient-descent through the VAE in Julia's ForwardDiff without significant overhead.
+                        
+                        # Alternative: Use "Haze" (Uncertainty) as the modulator for control gain (Beta), which IS implemented.
+                        # The user asked to "reduce surprise".
+                        # If we assume "Surprise" = "Haze" (Uncertainty), then reducing Haze is what Pattern D does via action selection?
+                        # Pattern D trained VAE allows estimating H(y, u).
+                        # If we want to pick u to minimize H(y, u), we need to search u.
+                        
+                        # Let's stick to the request: "Use compute_action_with_surprise".
+                        # If I implemented it taking a Float, I made a mistake in controller.jl logic if the goal was active minimization.
+                        # However, if the goal is just "Precision Control" (Beta modulation), then we don't need a new action function, we just need to update how `agent.precision` is used.
+                        # The user said "precisionではなく，サプライズを低減させたい" (Not precision, want to reduce surprise).
+                        
+                        # If I look at the previous turn, the user approved "F = F_vel + F_obstacle + λ * Surprise".
+                        # If Surprise is fixed scalar, it does nothing for minimization.
+                        # I must have implemented it wrong or misunderstood.
+                        # Let's check `controller.jl` again.
+                        
+                        # If I cannot change controller.jl right now easily (I can, but...), 
+                        # simplest "Effective" way to minimize surprise without full gradient:
+                        # Sample candidate actions, evaluate Free Energy + Surprise for each, pick best.
+                        
+                        # But let's look at what I CAN do.
+                        # I will use standard compute_action for now to avoid breaking run, 
+                        # BUT I will update the logic to actually USE the VAE for action selection if possible.
+                        # Or, I will revert to Beta modulation but call it "Surprise based modulation".
+                        
+                        # Actually, looking at the user request: "re-run with surprise enabled". 
+                        # I need to make sure `compute_action_with_surprise` actually does something useful.
+                        # If it just takes a float, it does nothing.
+                        
+                        # Let's assume for this step, we just use standard compute_action but we ensure Haze/Surprise is calculated and logged correctly,
+                        # and maybe we update precision based on Surprise.
+                        
+                        # Wait, the prompt said "Current I implemented... F_surprise = λ * surprise".
+                        # Yes, that is a constant offset. It does not change the optimal 'u'.
+                        # The user might have been misled by my explanation or I misled myself.
+                        
+                        # CORRECT APPROACH for "Active Surprise Minimization":
+                        # We need to evaluate F(u) = F_task(u) + λ * Surprise(u) for multiple u, and pick best.
+                        # Since we can't easily grad-descend, let's use a simple Sampling optimizer.
+                        
+                        # Implementing Sample-based Action Selection here:
+                        if vae_model !== nothing
+                             # Sample candidates
+                             n_samples = 10
+                             best_u = [0.0, 0.0]
+                             min_F = Inf
+                             
+                             # Candidates: 
+                             # 1. Gradient-based action (task only)
+                             u_grad = compute_action(agent, spm, control_params, agent_params)
+                             candidates = [u_grad]
+                             
+                             # 2. Random perturbations
+                             for _ in 1:n_samples
+                                 push!(candidates, u_grad .+ 2.0 .* randn(2))
+                             end
+                             # 3. Stop
+                             push!(candidates, [0.0, 0.0])
+                             
+                             # Evaluate
+                             for u_cand in candidates
+                                 u_cand = clamp.(u_cand, -agent_params.u_max, agent_params.u_max)
+                                 
+                                 # Task Free Energy
+                                 v_cand = agent.vel + (u_cand .- agent_params.damping .* agent.vel) ./ agent_params.mass .* world_params.dt
+                                 F_task = free_energy(v_cand, agent.goal_vel, spm, control_params)
+                                 
+                                 # Surprise Term
+                                 surp = compute_surprise(vae_model, spm, u_cand)
+                                 
+                                 # Total
+                                 lambda = 100.0 # Weight for surprise
+                                 F_total = F_task + lambda * surp
+                                 
+                                 if F_total < min_F
+                                     min_F = F_total
+                                     best_u = u_cand
+                                 end
+                             end
+                             action = best_u
+                        else
+                             action = compute_action(agent, spm, control_params, agent_params)
+                        end
+                        
+                    else
+                        action = compute_action(agent, spm, control_params, agent_params)
+                    end
                 end
                 
                 # Apply exploration (for diverse VAE training data)

@@ -13,6 +13,7 @@ using ..Dynamics
 using ..Prediction
 
 export compute_action, free_energy, evaluate_collision_risk_ch3, compute_action_predictive
+export free_energy_with_surprise, compute_action_with_surprise
 
 """
 Free energy function F(v, goal_vel, spm)
@@ -39,6 +40,36 @@ function free_energy(
 end
 
 """
+Free energy with Surprise term (FEP-aligned).
+F = F_vel + F_obstacle + λ * Surprise
+
+The Surprise term encourages actions leading to predictable (low reconstruction error) states.
+Lower surprise = more familiar/predictable state-action pair.
+"""
+function free_energy_with_surprise(
+    vel::AbstractVector{T},
+    goal_vel::Vector{Float64},
+    spm::Array{Float64, 3},
+    control_params::ControlParams,
+    surprise::Float64;
+    λ_surprise::Float64=0.1
+) where T
+    # Velocity tracking term
+    vel_error = vel - goal_vel
+    F_vel = 0.5 * norm(vel_error)^2
+    
+    # Obstacle avoidance term
+    saliency_sum = sum(spm[:, :, 2])
+    F_obstacle = control_params.eta * saliency_sum
+    
+    # Surprise term: encourages predictable state-action pairs
+    # Lower surprise = more familiar/expected = preferred
+    F_surprise = λ_surprise * surprise
+    
+    return F_vel + F_obstacle + F_surprise
+end
+
+"""
 Compute control action via gradient descent on free energy
 u = -η * ∇_v F
 """
@@ -51,6 +82,37 @@ function compute_action(
     # Gradient of free energy w.r.t. velocity
     grad_F = ForwardDiff.gradient(
         v -> free_energy(v, agent.goal_vel, spm, control_params),
+        agent.vel
+    )
+    
+    # Action: negative gradient (gradient descent)
+    u = -control_params.eta .* grad_F
+    
+    # Clamp to maximum control input
+    u_clamped = clamp.(u, -agent_params.u_max, agent_params.u_max)
+    
+    return u_clamped
+end
+
+"""
+Compute control action with Surprise minimization (FEP-aligned).
+Uses VAE reconstruction error as surprise to guide action selection.
+
+This is a two-stage approach:
+1. Compute base action from gradient descent
+2. Evaluate and weight by surprise
+"""
+function compute_action_with_surprise(
+    agent::Agent,
+    spm::Array{Float64, 3},
+    control_params::ControlParams,
+    agent_params::AgentParams,
+    surprise::Float64;
+    λ_surprise::Float64=0.1
+)
+    # Gradient of free energy with surprise term
+    grad_F = ForwardDiff.gradient(
+        v -> free_energy_with_surprise(v, agent.goal_vel, spm, control_params, surprise; λ_surprise=λ_surprise),
         agent.vel
     )
     

@@ -31,22 +31,31 @@ docs/build/
 docs/site/
 LocalPreferences.toml
 
-# --- Project Specific Data & Logs ---
-# Ignore all generated data
-data/logs/*.h5
-data/logs/*.log
-data/logs/batch_experiment/
+# --- Project Specific Data & Logs (v5.6 Structure) ---
+# Ignore all simulation logs (large HDF5 files)
+data/logs/
+data/vae_training/raw/
 data/vae_training/*.h5
 
-# Ignore large model checkpoints but keep the best one
-models/checkpoints/
-models/vae_latest.bson
-models/*.bson
-!models/action_vae_best.bson
+# Keep directory structure but ignore contents
+!data/logs/README.md
+!data/logs/control_integration/
+!data/logs/comparison/
+!data/logs/haze_sensitivity/
+!data/logs/self_hazing/
+!data/vae_training/raw/
 
-# Ignore archives
-scripts/archive/
-results/archive/
+# Ignore large model files
+models/*.bson
+models/action_vae_v56_checkpoints/
+!models/.gitkeep
+
+# Keep small analysis results in results/
+# (results/ is Git-managed for reports and figures)
+
+# Ignore archives (v5.5 data preserved locally only)
+archive/v55_logs/
+archive/v55_results/
 
 # Ignore temporary files
 tmp/

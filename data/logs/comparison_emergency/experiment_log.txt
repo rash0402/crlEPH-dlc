@@ -1,7 +1,0 @@
-06:45:40,baseline,5.0,15,1,SUCCESS,data/logs/comparison_emergency/sim_baseline_k5_d15_s1.h5
-06:46:54,eph,5.0,15,1,SUCCESS,data/logs/comparison_emergency/sim_eph_k5_d15_s1.h5
-06:48:18,baseline,5.0,15,2,SUCCESS,data/logs/comparison_emergency/sim_baseline_k5_d15_s2.h5
-06:49:32,eph,5.0,15,2,SUCCESS,data/logs/comparison_emergency/sim_eph_k5_d15_s2.h5
-06:50:51,baseline,5.0,15,3,SUCCESS,data/logs/comparison_emergency/sim_baseline_k5_d15_s3.h5
-06:52:02,eph,5.0,15,3,SUCCESS,data/logs/comparison_emergency/sim_eph_k5_d15_s3.h5
-06:53:18,baseline,5.0,20,1,SUCCESS,data/logs/comparison_emergency/sim_baseline_k5_d20_s1.h5
