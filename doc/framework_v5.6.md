@@ -1,9 +1,9 @@
 # EPH v5.6 理論フレームワーク
 
-**Version**: 5.6.0
+**Version**: 5.6.1
 **Date**: 2026-01-10
 **Status**: 🟢 Active Development
-**Changes from v5.5**: Surprise統合、Haze再定義、Active Inference整合性確保
+**Changes from v5.6.0**: VAE訓練をHaze=0に変更、Surpriseをハイブリッド型に再設計
 
 ---
 
@@ -64,19 +64,20 @@ $$
 - $\hat{\boldsymbol{y}}[k+1]$: VAEによる予測SPM
 - $\phi(\cdot)$: 衝突危険性のポテンシャル関数
 
-#### (3) Surprise項 ★新規追加★
+#### (3) Surprise項 ★v5.6.1: ハイブリッド型★
 
 $$
-S(\boldsymbol{u}) = \|\boldsymbol{y}[k] - \text{VAE}_{\text{recon}}(\boldsymbol{y}[k], \boldsymbol{u})\|^2
+S(\boldsymbol{u}) = \alpha \cdot \underbrace{\mathbb{E}[\sigma_z^2(\boldsymbol{y}, \boldsymbol{u})]}_{\text{Epistemic}} + \beta \cdot \underbrace{(1 + \|\boldsymbol{u}\|) \cdot \mathbb{E}[\sigma_z^2(\boldsymbol{y}, \boldsymbol{u})]}_{\text{Aleatoric (近似)}}
 $$
 
-- **意味**: 「現在のSPMと行動 $\boldsymbol{u}$ のペアがどれだけ予想外か」
-- **役割**: 学習済みの馴染みのある行動パターンを選好
-- **計算**: VAEで $(y, u)$ を再構成し、元のSPMとの誤差を測定
+- **意味**: 「現在のSPMと行動 $\boldsymbol{u}$ のペアにおける epistemic 不確実性」
+- **役割**: 学習済みの馴染みのある行動パターンを選好、大きな行動にペナルティ
+- **計算**: VAEエンコーダの潜在変数分散 $\sigma_z^2$ を利用
 
-$$
-\text{VAE}_{\text{recon}}(\boldsymbol{y}, \boldsymbol{u}) = \text{Decoder}(\text{Encoder}(\boldsymbol{y}, \boldsymbol{u}), \boldsymbol{u})
-$$
+**設計の鍵（v5.6.1）**:
+- VAEを **Haze=0（最高解像度）** のSPMで訓練
+- 実行時の Haze>0 による情報損失が $\sigma_z^2$ の増加として現れる
+- Hazeとの単調結合が理論的に保証される
 
 ---
 

@@ -23,6 +23,12 @@ tags:
   - Topic/FEP
   - Status/Active
 changelog:
+  - version: 5.6.1
+    date: "2026-01-10"
+    changes:
+      - "VAE訓練データをHaze=0（最高解像度）に変更"
+      - "Surpriseをハイブリッド型（epistemic + aleatoric）に再設計"
+      - "意図的分布シフトによるHaze-Surprise単調結合を理論的に保証"
   - version: 5.6.0
     date: "2026-01-10"
     changes:
@@ -128,9 +134,11 @@ $$
 $$
 
 Hazeは設計者が制御する変数であり、以下の3モードを想定する：
-- **固定モード**: Haze = 0.5（全エピソードで一定）
+- **固定モード**: Haze = 0.0（全エピソードで一定、Phase 1-5）
 - **スケジュールモード**: 環境状態（密度、リスク）に応じて設定
 - **Self-Hazingモード**: エージェントが自律的に学習（Phase 6で実装予定）
+
+**注**: Phase 1-5では実行時Hazeを可変とせず、固定値（例: 0.3, 0.5, 0.7）での比較実験により、Hazeの効果を検証する。
 
 ### 統合されたシステム
 
@@ -144,11 +152,13 @@ Hazeは設計者が制御する変数であり、以下の3モードを想定す
 
 ### (1) Active Inference の工学的実装
 
-従来の工学的実装で省略されてきた **Surprise項** を、VAE再構成誤差として定量化し、自由エネルギーに明示的に組み込んだ。これにより、理論と実装の整合性を確保した。
+従来の工学的実装で省略されてきた **Surprise項** を、VAEのepistemic不確実性とaleatoric不確実性のハイブリッドとして定量化し、自由エネルギーに明示的に組み込んだ。これにより、理論と実装の整合性を確保した。
 
 $$
-S(\boldsymbol{u}) = \|\boldsymbol{y}[k] - \text{VAE}_{\text{recon}}(\boldsymbol{y}[k], \boldsymbol{u})\|^2
+S(\boldsymbol{u}) = \alpha \cdot \underbrace{\mathbb{E}[\sigma_z^2(\boldsymbol{y}, \boldsymbol{u})]}_{\text{Epistemic}} + \beta \cdot \underbrace{(1 + \|\boldsymbol{u}\|) \cdot \mathbb{E}[\sigma_z^2(\boldsymbol{y}, \boldsymbol{u})]}_{\text{Aleatoric (近似)}}
 $$
+
+**設計の鍵**: VAEを **Haze=0（最高解像度）** のSPMで訓練することで、実行時の Haze>0 による情報損失を epistemic 不確実性として自然に捉えられる。
 
 ### (2) Haze の設計原理
 
@@ -400,10 +410,12 @@ $$
 ##### (1) 固定モード（Phase 1-5で使用）
 
 $$
-\text{Haze}[k] = \text{const.} \quad \text{(e.g., 0.5)}
+\text{Haze}[k] = \text{const.} \quad \text{(e.g., 0.0, 0.3, 0.5, 0.7)}
 $$
 
-全エピソードを通じて一定値を使用。
+全エピソードを通じて一定値を使用。異なる固定値での比較実験により、Hazeの効果を検証する。
+
+**注**: VAE訓練は Haze=0.0 で実施し、実行時には任意の固定値を設定可能。
 
 ##### (2) スケジュールモード（設計者制御）
 
@@ -449,7 +461,7 @@ $$
 | $\sigma_z^2$ | VAE潜在空間の分散 | VAEの内部変数 | VAE学習 |
 | Haze | 知覚解像度パラメータ | β変調の入力 | 設計者 or Self-Hazing |
 
-**Phase 1-5**: Hazeは固定値（0.5）、$\sigma_z^2$はログのみ
+**Phase 1-5**: VAE訓練はHaze=0、実行時Hazeは固定値（0.0, 0.3, 0.5, 0.7での比較実験）、$\sigma_z^2$はログのみ
 **Phase 6**: Self-Hazingで $\sigma_z^2$ を入力の一要素として使用可能
 
 ---
@@ -700,10 +712,21 @@ $$
 
 v5.6では、Action-Dependent Encoder と Action-Conditioned Decoder を持つ Pattern D アーキテクチャを採用する。
 
+**訓練データの設計原則（v5.6.1）**:
+- **Haze = 0.0（最高解像度）** で収集したSPMデータのみを使用
+- 訓練データ: $\{(y[k]^{\text{Haze}=0}, u[k], y[k+1]^{\text{Haze}=0})\}$ トリプレット
+- 実行時: 任意のHaze値（0.0〜0.9）のSPMを入力
+
+**理論的根拠**:
+VAEに「完全な情報」を学習させ、実行時に意図的に情報を減らす（Haze>0）ことで、情報損失の度合いが epistemic 不確実性 $\sigma_z^2$ として自然に現れる。これにより、Haze と Surprise の単調結合が理論的に保証される。
+
+$$
+\text{Haze} \uparrow \Rightarrow \text{Information Loss} \uparrow \Rightarrow \sigma_z^2 \uparrow \Rightarrow S(\boldsymbol{u}) \uparrow
+$$
+
 **入力・出力**:
-- 訓練データ: $(y[k], u[k], y[k+1])$ トリプレット
 - 予測: $\hat{y}[k+1] = \text{Decoder}(z, u[k])$
-- Surprise: $S = \|y[k] - \text{Decoder}(\text{Encoder}(y[k], u[k]), u[k])\|^2$
+- Surprise: $S(\boldsymbol{u}) = \alpha \cdot \mathbb{E}[\sigma_z^2] + \beta \cdot (1 + \|\boldsymbol{u}\|) \cdot \mathbb{E}[\sigma_z^2]$
 
 ### 3.4.2 エンコーダ（状態と行動から潜在分布を推定）
 
@@ -771,6 +794,62 @@ Pattern D（Action-Dependent Encoder）を採用する理由：
 2. **行動依存の不確実性**: $\sigma_z^2(y, u)$ により「この行動がどれだけ予測困難か」を表現
 
 3. **Hazeとの分離**: $\sigma_z^2$ はVAEの内部変数であり、Hazeとは独立（v5.6の設計原則）
+
+### 3.4.6 Haze=0訓練の理論的背景（v5.6.1）
+
+**設計原則**: VAEを **Haze=0（最高解像度、β→∞）** のSPMデータで訓練することで、実行時の Haze>0 による情報損失を epistemic 不確実性として捉える。
+
+#### 情報理論的解釈
+
+訓練時と実行時の情報量の違い：
+
+$$
+I(Y; Z) \geq I(Y_{\text{degraded}}; Z)
+$$
+
+- **訓練時**: $I(Y^{\text{Haze}=0}; Z) = I_{\text{max}}$ （最大相互情報量）
+- **実行時**: $I(Y^{\text{Haze}=h}; Z) < I_{\text{max}}$ （情報損失）
+
+VAEエンコーダは訓練時の高解像度SPMから潜在変数を推定するよう学習する。実行時に粗いSPMが入力されると、期待される特徴が欠損し、**潜在分布の不確実性 $\sigma_z^2$ が増加する**。
+
+#### 単調性の保証
+
+Haze と epistemic 不確実性の関係：
+
+$$
+\text{Haze} \uparrow
+\Rightarrow \beta \downarrow
+\Rightarrow \text{SPM aggregation smoother}
+\Rightarrow \text{Information loss} \uparrow
+\Rightarrow \sigma_z^2 \uparrow
+$$
+
+この因果連鎖により、Haze と Surprise の **単調結合** が理論的に保証される：
+
+$$
+\frac{\partial S}{\partial \text{Haze}} = (\alpha + \beta \cdot (1 + \|\boldsymbol{u}\|)) \cdot \frac{\partial \mathbb{E}[\sigma_z^2]}{\partial \text{Haze}} > 0
+$$
+
+#### Free Energy Principle との整合性
+
+この設計は FEP の予測誤差最小化原理と整合する：
+
+- **Generative Model（訓練時）**: $p_{\text{model}}(\boldsymbol{y} | \boldsymbol{z}, \text{Haze}=0)$ = 詳細な世界の予測
+- **Reality（実行時）**: $p_{\text{true}}(\boldsymbol{y} | \boldsymbol{z}, \text{Haze}=h)$ = 粗い観測
+
+モデルと現実のミスマッチ：
+
+$$
+D_{\text{KL}}[p_{\text{true}} \| p_{\text{model}}] \uparrow \quad \text{as Haze} \uparrow
+$$
+
+このKLダイバージェンスが epistemic Surprise として現れる。
+
+#### 実装上の利点
+
+1. **データ収集の簡素化**: 単一条件（Haze=0）のみで訓練データ収集
+2. **汎化性能**: 訓練時に最も詳細な情報を学習 → 実行時の劣化パターンに頑健
+3. **解釈可能性**: Surprise値が「訓練時との情報差」として明確に解釈可能
 
 ---
 
@@ -1010,8 +1089,9 @@ $$
 5. **SPM集約のβ変調**: soft-maxによる知覚解像度制御
 
 **実装の鍵**:
-- Phase 1-5: 固定Haze（0.5）でシステムを検証
-- Phase 6: Self-Hazingによる自律化
+- **VAE訓練**: Haze=0（最高解像度）のSPMで実施
+- **Phase 1-5**: 異なる固定Haze値（0.0, 0.3, 0.5, 0.7）で比較実験
+- **Phase 6**: Self-Hazingによる自律化
 
 この設計により、理論的厳密性と実装可能性を両立させた。
 
@@ -1352,8 +1432,8 @@ Self-Hazingという将来展望により、設計者制御から自律制御へ
 
 ## 実装戦略
 
-- **Phase 1-3**: VAE学習・検証（Prediction + Surprise）
-- **Phase 4-5**: 固定Haze（0.5）での制御統合・比較実験
+- **Phase 1-3**: VAE学習・検証（Haze=0データで訓練、Prediction + Surprise計算）
+- **Phase 4-5**: 異なる固定Haze値（0.0, 0.3, 0.5, 0.7）での制御統合・比較実験
 - **Phase 6**: Self-Hazingの研究開発
 
 ## 学術的意義
