@@ -11,6 +11,7 @@ High uncertainty → High Surprise → Conservative behavior via Haze modulation
 module SurpriseModule
 
 using Statistics
+using LinearAlgebra
 using ..ActionVAEModel
 
 export compute_surprise, compute_surprise_batch, compute_prediction_error, compute_surprise_hybrid
@@ -178,7 +179,6 @@ function compute_surprise_hybrid(
 
     # Aleatoric uncertainty: lightweight approximation using action magnitude
     # Larger actions → higher prediction difficulty
-    using LinearAlgebra
     u_norm = norm(u)
     sensitivity = 1.0f0 + Float32(u_norm)
     S_aleatoric = sensitivity * S_epistemic

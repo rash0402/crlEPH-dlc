@@ -468,7 +468,7 @@ function load_simulation_results(filepath::String)
         precisions = permutedims(prec_raw, (2, 1))     # → (n_steps, n_agents)
 
         # SPMs: Check if exists (may not be logged in all simulations)
-        if exists(file, "data/spms")
+        if haskey(file, "data/spms")
             spms_raw = read(file, "data/spms")
             # Assuming spms stored as: (16, 16, 3, agents, time)
             spms = permutedims(spms_raw, (5, 4, 1, 2, 3))  # → (time, agents, 16, 16, 3)
@@ -484,7 +484,7 @@ function load_simulation_results(filepath::String)
 
         # Load metadata
         metadata = Dict{String, Any}()
-        if exists(file, "metadata") || haskey(attrs(file), "actual_steps")
+        if haskey(file, "metadata") || haskey(attrs(file), "actual_steps")
             for attr_name in keys(attrs(file))
                 metadata[attr_name] = read(attrs(file)[attr_name])
             end
