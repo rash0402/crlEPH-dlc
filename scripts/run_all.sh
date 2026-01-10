@@ -49,8 +49,8 @@ echo "============================================================"
 echo "📂 Project Root: $PROJECT_ROOT"
 echo ""
 
-echo "▶️  Starting Julia Simulation (Background)..."
-$JULIA_CMD $SIM_SCRIPT &
+echo "▶️  Starting Julia Simulation with Visualization (Background)..."
+$JULIA_CMD $SIM_SCRIPT --visualize &
 SIM_PID=$!
 
 echo "⏳ Waiting 10 seconds for simulation initialization..."

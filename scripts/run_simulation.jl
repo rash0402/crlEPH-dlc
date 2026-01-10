@@ -80,6 +80,9 @@ function parse_commandline()
         "--no-emergency"
             help = "Disable emergency avoidance entirely"
             action = :store_true
+        "--visualize"
+            help = "Enable real-time visualization via ZMQ (slower, for debugging/demo)"
+            action = :store_true
     end
 
     return parse_args(s)
@@ -163,10 +166,15 @@ function main()
     println("\n🗺️  Initializing SPM...")
     spm_config = init_spm(spm_params)
     
-    # Initialize communication
-    println("\n📡 Initializing ZMQ publisher...")
-    publisher = init_publisher(comm_params)
-    println("  Listening on: $(comm_params.zmq_endpoint)")
+    # Initialize communication (optional)
+    if args["visualize"]
+        println("\n📡 Initializing ZMQ publisher...")
+        publisher = init_publisher(comm_params)
+        println("  Listening on: $(comm_params.zmq_endpoint)")
+    else
+        println("\n📈 Visualization disabled (fast computation mode)")
+        publisher = nothing
+    end
     
     # Initialize HDF5 logger
     println("\n💾 Initializing HDF5 logger...")
@@ -510,9 +518,11 @@ function main()
                     
                     # Compute Precision from Haze: Π = 1/(H + ε)
                     precision = 1.0 / (haze + control_params.epsilon)
-                    
-                    # Publish detail packet with reconstruction
-                    publish_detail(publisher, agent, spm, action, fe, haze, precision, spm_recon, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
+
+                    # Publish detail packet with reconstruction (if visualization enabled)
+                    if !isnothing(publisher)
+                        publish_detail(publisher, agent, spm, action, fe, haze, precision, spm_recon, step, agents, world_params, comm_params, spm_params, agent_params, local_agents)
+                    end
                 end
                 
                 # Update agent's precision for next iteration (all agents)
@@ -533,9 +543,11 @@ function main()
             
             # Log all agents data for this step
             log_step!(data_logger, agents, step)
-            
-            # Publish global state
-            publish_global(publisher, agents, step, comm_params)
+
+            # Publish global state (if visualization enabled)
+            if !isnothing(publisher)
+                publish_global(publisher, agents, step, comm_params)
+            end
             
             # Progress indicator
             if step % 100 == 0
@@ -557,7 +569,9 @@ function main()
     finally
         # Cleanup
         println("\n🧹 Cleaning up...")
-        close_publisher(publisher)
+        if !isnothing(publisher)
+            close_publisher(publisher)
+        end
         close_logger(data_logger, collision_counts=collision_count)
         println("✅ Simulation complete!")
     end
