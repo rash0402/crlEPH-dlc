@@ -6,6 +6,7 @@ Provides unified API for loading/saving VAE training data
 module DataSchema
 
 using HDF5
+using Dates
 
 export VAEDataSample, VAEDataset
 export load_dataset, save_dataset, create_dataset
