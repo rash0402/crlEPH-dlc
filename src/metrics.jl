@@ -1,17 +1,20 @@
 """
-Metrics Module for EPH v5.5
-Implements evaluation metrics including Freezing Rate and other performance indicators.
+Metrics Module for EPH v5.6
+Implements evaluation metrics including Freezing Rate, Throughput, and Surprise statistics.
 """
 
 module Metrics
 
 using LinearAlgebra
 using Statistics
+using HDF5
 
 export FreezeDetector, detect_freezing, compute_freezing_rate
-export compute_success_rate, compute_collision_rate
+export compute_success_rate, compute_collision_rate, compute_collision_count
 export compute_jerk, compute_min_ttc, compute_throughput
+export compute_path_efficiency, compute_surprise_statistics
 export EpisodeMetrics, compute_episode_metrics
+export load_simulation_results, SimulationResults
 
 """
 Freezing detector configuration
@@ -340,6 +343,131 @@ function compute_episode_metrics(
         n_episodes,
         freeze_result.n_frozen
     )
+end
+
+"""
+Compute collision count (total number of collision events).
+"""
+function compute_collision_count(
+    positions::Vector{Vector{Vector{Float64}}};
+    collision_radius::Float64=0.5
+)
+    n_agents = length(positions)
+    n_steps = length(positions[1])
+    collision_count = 0
+
+    for t in 1:n_steps
+        for i in 1:n_agents
+            for j in (i+1):n_agents
+                dist = norm(positions[i][t] - positions[j][t])
+                if dist < 2 * collision_radius
+                    collision_count += 1
+                end
+            end
+        end
+    end
+
+    return collision_count
+end
+
+"""
+Compute path efficiency (actual path length / straight-line distance to goal).
+Lower values indicate more efficient paths.
+"""
+function compute_path_efficiency(
+    positions::Vector{Vector{Float64}},
+    goal::Vector{Float64}
+)
+    if length(positions) < 2
+        return 1.0
+    end
+
+    # Compute actual path length
+    actual_length = 0.0
+    for i in 2:length(positions)
+        actual_length += norm(positions[i] - positions[i-1])
+    end
+
+    # Compute straight-line distance
+    straight_line_distance = norm(positions[1] - goal)
+
+    if straight_line_distance < 1e-6
+        return 1.0
+    end
+
+    efficiency = actual_length / straight_line_distance
+
+    return efficiency
+end
+
+"""
+Compute Surprise statistics for EPH evaluation.
+
+Returns:
+    - mean_surprise: Average Surprise across all agents and timesteps
+    - max_surprise: Maximum Surprise observed
+    - std_surprise: Standard deviation of Surprise
+    - surprise_timeline: Mean Surprise at each timestep
+"""
+function compute_surprise_statistics(
+    surprises::Array{Float64, 2}  # (n_steps, n_agents)
+)
+    # Flatten for overall statistics
+    all_surprises = vec(surprises)
+
+    mean_surprise = mean(all_surprises)
+    max_surprise = maximum(all_surprises)
+    std_surprise = std(all_surprises)
+
+    # Compute mean Surprise at each timestep
+    surprise_timeline = vec(mean(surprises, dims=2))
+
+    return (
+        mean_surprise=mean_surprise,
+        max_surprise=max_surprise,
+        std_surprise=std_surprise,
+        surprise_timeline=surprise_timeline
+    )
+end
+
+"""
+Container for simulation results loaded from HDF5.
+"""
+struct SimulationResults
+    positions::Array{Float64, 3}      # (n_steps, n_agents, 2)
+    velocities::Array{Float64, 3}     # (n_steps, n_agents, 2)
+    spms::Array{Float32, 5}           # (n_steps, n_agents, 16, 16, 3)
+    actions::Array{Float64, 3}        # (n_steps, n_agents, 2)
+    surprises::Array{Float64, 2}      # (n_steps, n_agents)
+    metadata::Dict{String, Any}
+end
+
+"""
+Load simulation results from HDF5 file.
+"""
+function load_simulation_results(filepath::String)
+    h5open(filepath, "r") do file
+        positions = read(file, "positions")
+        velocities = read(file, "velocities")
+        spms = read(file, "spms")
+        actions = read(file, "actions")
+        surprises = read(file, "surprises")
+
+        # Load metadata
+        metadata = Dict{String, Any}()
+        for attr_name in keys(attrs(file))
+            metadata[attr_name] = read(attrs(file)[attr_name])
+        end
+
+        return SimulationResults(
+            positions,
+            velocities,
+            spms,
+            actions,
+            surprises,
+            metadata
+        )
+    end
 end
 
 end # module
