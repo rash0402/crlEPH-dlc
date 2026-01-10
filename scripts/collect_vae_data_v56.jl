@@ -54,9 +54,9 @@ function parse_commandline()
             arg_type = Int
             default = 1500
         "--haze"
-            help = "Fixed Haze value for SPM generation"
+            help = "Fixed Haze value for SPM generation (use 0.0 for VAE training)"
             arg_type = Float64
-            default = 0.5
+            default = 0.0
         "--exploration-noise"
             help = "Exploration noise std (for action diversity)"
             arg_type = Float64

@@ -444,19 +444,50 @@ end
 
 """
 Load simulation results from HDF5 file.
+
+Handles dimension order mismatch between logger storage and expected format:
+- Logger stores: (features, agents, time)
+- Expected format: (time, agents, features)
 """
 function load_simulation_results(filepath::String)
     h5open(filepath, "r") do file
-        positions = read(file, "positions")
-        velocities = read(file, "velocities")
-        spms = read(file, "spms")
-        actions = read(file, "actions")
-        surprises = read(file, "surprises")
+        # Read data (stored as: features × agents × time)
+        pos_raw = read(file, "data/position")      # (2, n_agents, n_steps)
+        vel_raw = read(file, "data/velocity")      # (2, n_agents, n_steps)
+        act_raw = read(file, "data/action")        # (2, n_agents, n_steps)
+        haze_raw = read(file, "data/haze")         # (n_agents, n_steps)
+        prec_raw = read(file, "data/precision")    # (n_agents, n_steps)
+
+        # Permute dimensions to: (time, agents, features)
+        positions = permutedims(pos_raw, (3, 2, 1))    # → (n_steps, n_agents, 2)
+        velocities = permutedims(vel_raw, (3, 2, 1))   # → (n_steps, n_agents, 2)
+        actions = permutedims(act_raw, (3, 2, 1))      # → (n_steps, n_agents, 2)
+
+        # Haze/Precision: (agents, time) → (time, agents)
+        hazes = permutedims(haze_raw, (2, 1))          # → (n_steps, n_agents)
+        precisions = permutedims(prec_raw, (2, 1))     # → (n_steps, n_agents)
+
+        # SPMs: Check if exists (may not be logged in all simulations)
+        if exists(file, "data/spms")
+            spms_raw = read(file, "data/spms")
+            # Assuming spms stored as: (16, 16, 3, agents, time)
+            spms = permutedims(spms_raw, (5, 4, 1, 2, 3))  # → (time, agents, 16, 16, 3)
+        else
+            # Create empty array if not available
+            n_steps, n_agents = size(hazes)
+            spms = zeros(Float32, n_steps, n_agents, 16, 16, 3)
+        end
+
+        # Surprises: use hazes as placeholder if not available
+        # (In v5.6.1, Surprise should be computed from VAE at runtime)
+        surprises = hazes  # Temporary: use haze values
 
         # Load metadata
         metadata = Dict{String, Any}()
-        for attr_name in keys(attrs(file))
-            metadata[attr_name] = read(attrs(file)[attr_name])
+        if exists(file, "metadata") || haskey(attrs(file), "actual_steps")
+            for attr_name in keys(attrs(file))
+                metadata[attr_name] = read(attrs(file)[attr_name])
+            end
         end
 
         return SimulationResults(

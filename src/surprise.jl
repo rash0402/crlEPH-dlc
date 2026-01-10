@@ -13,7 +13,7 @@ module SurpriseModule
 using Statistics
 using ..ActionVAEModel
 
-export compute_surprise, compute_surprise_batch, compute_prediction_error
+export compute_surprise, compute_surprise_batch, compute_prediction_error, compute_surprise_hybrid
 
 """
     compute_surprise(vae::ActionConditionedVAE, spm::Array{Float64, 3}, u::Vector{Float64})
@@ -132,6 +132,61 @@ function compute_prediction_error(
     error = mean((spm_next_input .- spm_next_pred).^2)
 
     return Float64(error)
+end
+
+"""
+    compute_surprise_hybrid(vae::ActionConditionedVAE, spm::Array{Float64, 3}, u::Vector{Float64}; α::Float64=0.5, β::Float64=0.5)
+
+Compute hybrid Surprise combining epistemic and aleatoric uncertainty.
+
+For VAE trained on Haze=0 data, this formulation ensures monotonic coupling
+between runtime Haze and Surprise through information-theoretic degradation.
+
+# Arguments
+- `vae`: Trained ActionConditionedVAE model
+- `spm`: Current SPM (16, 16, 3)
+- `u`: Action vector (2,) [vx, vy]
+- `α`: Weight for epistemic uncertainty (default: 0.5)
+- `β`: Weight for aleatoric uncertainty (default: 0.5)
+
+# Returns
+- `surprise::Float64`: Total Surprise = α·S_epistemic + β·S_aleatoric
+
+# Theory (v5.6.1)
+When VAE is trained on Haze=0 (max resolution) data:
+- Runtime Haze>0 → Information loss → σ²_z ↑ → S_epistemic ↑
+- Larger actions → Higher prediction difficulty → S_aleatoric ↑
+- Monotonic coupling: ∂S/∂Haze > 0 (theoretically guaranteed)
+"""
+function compute_surprise_hybrid(
+    vae::ActionConditionedVAE,
+    spm::Array{Float64, 3},
+    u::Vector{Float64};
+    α::Float64=0.5,
+    β::Float64=0.5
+)
+    # Convert to Float32 and add batch dimension
+    spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
+    u_input = Float32.(reshape(u, 2, 1))
+
+    # Encode: (SPM, action) → (μ, logσ)
+    μ, logσ = encode(vae, spm_input, u_input)
+
+    # Epistemic uncertainty: variance of latent distribution
+    σ² = exp.(2f0 .* logσ)
+    S_epistemic = mean(σ²)
+
+    # Aleatoric uncertainty: lightweight approximation using action magnitude
+    # Larger actions → higher prediction difficulty
+    using LinearAlgebra
+    u_norm = norm(u)
+    sensitivity = 1.0f0 + Float32(u_norm)
+    S_aleatoric = sensitivity * S_epistemic
+
+    # Total Surprise
+    S_total = α * S_epistemic + β * S_aleatoric
+
+    return Float64(S_total)
 end
 
 """

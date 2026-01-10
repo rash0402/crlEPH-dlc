@@ -42,7 +42,8 @@ struct ControlParamsV56
     lambda_goal::Float64            # Goal attraction weight
     lambda_safety::Float64          # Safety/collision avoidance weight
     lambda_surprise::Float64        # Surprise penalty weight ★NEW★
-    haze_fixed::Float64             # Fixed Haze value (Phase 1-5) ★NEW★
+    haze_fixed::Float64             # Fixed Haze value for RUNTIME (Phase 1-5) ★NEW★
+                                     # Note: VAE training uses Haze=0.0 (v5.6.1)
     n_candidates::Int               # Number of action candidates for sampling-based optimization ★NEW★
     sigma_noise::Float64            # Noise std for candidate generation ★NEW★
 
