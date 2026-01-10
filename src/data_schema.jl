@@ -70,7 +70,7 @@ function load_dataset(filepath::String)
         train_actions = read(file, "/train/actions")
         train_spms_next = read(file, "/train/spms_next")
         train_metadata = Dict{String, Any}()
-        if exists(file, "/train/metadata")
+        if haskey(file, "/train/metadata")
             # Load metadata attributes
             train_metadata["description"] = "Training data"
         end

@@ -121,11 +121,11 @@ function evaluate_val_loss(model::ActionConditionedVAE, val_loader, β_kl::Float
     total_kl = 0.0f0
     n_batches = 0
 
-    for (spm_curr, u, spm_next) in val_loader
-        # Reshape for model
-        spm_curr_batch = reshape(spm_curr, 16, 16, 3, :)
-        u_batch = reshape(u, 2, :)
-        spm_next_batch = reshape(spm_next, 16, 16, 3, :)
+    for batch in val_loader
+        # Unpack and stack batch
+        spm_curr_batch = cat([b[1] for b in batch]..., dims=4)
+        u_batch = hcat([b[2] for b in batch]...)
+        spm_next_batch = cat([b[3] for b in batch]..., dims=4)
 
         loss, recon, kl = vae_loss(model, spm_curr_batch, u_batch, spm_next_batch, β_kl)
 
@@ -205,11 +205,12 @@ function main()
         train_kl = 0.0f0
         n_train_batches = 0
 
-        for (spm_curr, u, spm_next) in train_loader
-            # Reshape for model
-            spm_curr_batch = reshape(spm_curr, 16, 16, 3, :)
-            u_batch = reshape(u, 2, :)
-            spm_next_batch = reshape(spm_next, 16, 16, 3, :)
+        for batch in train_loader
+            # Unpack and stack batch
+            batch_size_actual = length(batch)
+            spm_curr_batch = cat([b[1] for b in batch]..., dims=4)
+            u_batch = hcat([b[2] for b in batch]...)
+            spm_next_batch = cat([b[3] for b in batch]..., dims=4)
 
             # Compute loss and gradients
             loss, grads = Flux.withgradient(model) do m
