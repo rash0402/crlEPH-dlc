@@ -1,3 +1,8 @@
+# ============================================================
+# EPH v5.6 Git Ignore Strategy
+# Academic Research Project - Optimized for Reproducibility
+# ============================================================
+
 # --- OS & Tool Specific ---
 .DS_Store
 **/.DS_Store
@@ -16,9 +21,6 @@ venv/
 .coverage
 htmlcov/
 *.egg-info/
-requirements.txt
-# (Note: requirements.txt is usually tracked, but if user wants minimal tree, keeping it is standard practice. Included here for review, will keep it tracked by NOT ignoring it in practice, removing line below)
-# requirements.txt 
 
 # --- Julia ---
 *.jl.cov
@@ -31,42 +33,84 @@ docs/build/
 docs/site/
 LocalPreferences.toml
 
-# --- Project Specific Data & Logs (v5.6 Structure) ---
-# Ignore all simulation logs (large HDF5 files)
-data/logs/
+# ============================================================
+# DATA MANAGEMENT STRATEGY
+# ============================================================
+
+# --- Large Training Data (Re-generatable) ---
+# All VAE training data is ignored (can be regenerated via scripts)
 data/vae_training/raw/
+data/vae_training/exploratory/
+data/vae_training/exploratory_test/
 data/vae_training/*.h5
 
-# Keep directory structure but ignore contents
-!data/logs/README.md
-!data/logs/control_integration/
-!data/logs/comparison/
-!data/logs/haze_sensitivity/
-!data/logs/self_hazing/
-!data/vae_training/raw/
+# --- Simulation Logs (Transient) ---
+# All simulation logs are ignored (experiments are reproducible)
+data/logs/*.h5
+data/logs/comparison/
+data/logs/control_integration/
+data/logs/haze_sensitivity/
+data/logs/hyperparameter_tuning/
+data/logs/self_hazing/
 
-# Ignore large model files
+# Keep README for directory structure documentation
+!data/logs/README.md
+!data/vae_training/README.md
+
+# ============================================================
+# MODEL MANAGEMENT STRATEGY
+# ============================================================
+
+# --- All Model Files (Re-trainable) ---
+# Models can be retrained using scripts/train_vae_v56.jl
 models/*.bson
 models/action_vae_v56_checkpoints/
+models/vae_tuning/
+
+# Keep .gitkeep to preserve directory structure
 !models/.gitkeep
 
-# Keep small analysis results in results/
-# (results/ is Git-managed for reports and figures)
+# ============================================================
+# RESULTS MANAGEMENT STRATEGY
+# ============================================================
 
-# Ignore archives (v5.5 data preserved locally only)
+# --- Large Experimental Results (Re-runnable) ---
+# Phase 5 full experiments: 13GB, reproducible via scripts/run_haze_comparison_v56.jl
+results/phase5/
+
+# Theory validation data: 449MB, reproducible via scripts/compare_formulations.jl
+results/theory_comparison_*/
+
+# --- Keep Small Analysis Results ---
+# These are git-managed for academic record:
+# - results/*.md (validation reports)
+# - results/spm_analysis/ (mechanism analysis + figures)
+# - results/vae_tuning/ (hyperparameter logs)
+# - results/vae_training/ (training logs)
+# - results/vae_validation/ (validation reports)
+
+# ============================================================
+# ARCHIVES & TEMPORARY FILES
+# ============================================================
+
+# v5.5 archives (preserved locally only)
 archive/v55_logs/
 archive/v55_results/
 
-# Ignore temporary files
+# Temporary files
 tmp/
 *.log
 
-# Ignore large media
+# Large media files
 *.webp
 *.mp4
 *.avi
 recordings/
 
-# --- Artifacts ---
-# Keep specific results if needed, but generally ignore heavy outputs
-# results/haze_validation/*.png (Let's keep validation plots for record)
+# ============================================================
+# GIT LFS CANDIDATES (if needed in future)
+# ============================================================
+# If small reference models need versioning:
+# - Use Git LFS for models/action_vae_v56_best.bson
+# - Keep one "published" model per major version
+# ============================================================

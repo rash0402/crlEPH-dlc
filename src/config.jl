@@ -35,10 +35,10 @@ function SPMParams(;
     sigma_spm=0.25,
     beta_r_fixed=5.0,
     beta_nu_fixed=5.0,
-    beta_r_min=1.0,      # Smooth aggregation when uncertain
-    beta_r_max=10.0,     # Sharp aggregation when confident
-    beta_nu_min=1.0,     # Smooth aggregation when uncertain
-    beta_nu_max=10.0     # Sharp aggregation when confident
+    beta_r_min=0.5,      # Smooth aggregation when uncertain (fixed multiplication bug)
+    beta_r_max=5.0,      # Sharp aggregation when confident (fixed multiplication bug)
+    beta_nu_min=0.5,     # Smooth aggregation when uncertain (fixed multiplication bug)
+    beta_nu_max=5.0      # Sharp aggregation when confident (fixed multiplication bug)
 )
     SPMParams(
         n_rho,

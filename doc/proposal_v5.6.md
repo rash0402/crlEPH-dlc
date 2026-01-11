@@ -26,9 +26,9 @@ changelog:
   - version: 5.6.1
     date: "2026-01-10"
     changes:
-      - "VAE訓練データをHaze=0（最高解像度）に変更"
-      - "Surpriseをハイブリッド型（epistemic + aleatoric）に再設計"
-      - "意図的分布シフトによるHaze-Surprise単調結合を理論的に保証"
+      - "VAE訓練データをHaze=0（最高解像度）SPMに変更"
+      - "VAEの役割を再確認：SPM予測とSurprise計算のみ（Haze計算は行わない）"
+      - "因果フローの明確化：Haze（設計者設定）→ β → SPM生成 → VAE"
   - version: 5.6.0
     date: "2026-01-10"
     changes:
@@ -44,7 +44,7 @@ changelog:
 
 > [!ABSTRACT] 提案の概要（One-Liner Pitch）
 >
-> 不確実性を **Surprise（予測困難度）** と **Haze（知覚解像度パラメータ）** の二層制御として扱う Active Inference の工学的実装アーキテクチャ **EPH (Emergent Perceptual Haze)** を提案する。本手法は、Surprise最小化による行動選択と、Hazeによる知覚解像度の適応的変調を組み合わせることで、単体ロボットおよび群知能システムにおける停止・振動・分断といった不確実性起因の行動破綻を構造的に抑制する。
+> 不確実性を **Surprise（予測困難度）** と **Haze（知覚解像度パラメータ）** の二層制御として扱う Active Inference の工学的実装アーキテクチャ **EPH (Emergent Perceptual Haze)** を提案する。本手法は、Surprise最小化による行動選択と、Hazeによる知覚解像度制御を組み合わせることで、単体ロボットおよび群知能システムにおける停止・振動・分断といった不確実性起因の行動破綻を構造的に抑制する。
 
 
 ## 要旨 (Abstract)
@@ -60,9 +60,9 @@ changelog:
 本研究の目的は、自由エネルギー原理（Free Energy Principle; FEP）および Active Inference の理論的枠組みに基づき、以下の二層制御機構を確立することである：
 
 1. **行動層（Action Layer）**: **Surprise** を自由エネルギーの項として明示的に組み込み、予測困難な行動を回避する
-2. **知覚層（Perception Layer）**: **Haze** を設計パラメータとして導入し、知覚解像度を適応的に変調する
+2. **知覚層（Perception Layer）**: **Haze** を設計パラメータとして導入し、知覚解像度を変調する
 
-提案する EPH は、Surpriseによる行動評価と、Hazeによる知覚変調を統合することで、不確実性が高い状況では馴染みのある行動を選択しつつ知覚表現を平均化し、確信度が高い状況では効率的かつ鋭敏な判断を可能とする。
+提案する EPH は、Surpriseによる行動評価と、Hazeによる知覚変調を統合することで、適切なHaze設定の下で、不確実性が高い状況では馴染みのある行動を選択しつつ知覚表現を平均化し、確信度が高い状況では効率的かつ鋭敏な判断を可能とするアーキテクチャを提供する。
 
 ### 学術的新規性 (Academic Novelty)
 
@@ -152,13 +152,15 @@ Hazeは設計者が制御する変数であり、以下の3モードを想定す
 
 ### (1) Active Inference の工学的実装
 
-従来の工学的実装で省略されてきた **Surprise項** を、VAEのepistemic不確実性とaleatoric不確実性のハイブリッドとして定量化し、自由エネルギーに明示的に組み込んだ。これにより、理論と実装の整合性を確保した。
+従来の工学的実装で省略されてきた **Surprise項** を、VAE再構成誤差として定量化し、自由エネルギーに明示的に組み込んだ。これにより、理論と実装の整合性を確保した。
 
 $$
-S(\boldsymbol{u}) = \alpha \cdot \underbrace{\mathbb{E}[\sigma_z^2(\boldsymbol{y}, \boldsymbol{u})]}_{\text{Epistemic}} + \beta \cdot \underbrace{(1 + \|\boldsymbol{u}\|) \cdot \mathbb{E}[\sigma_z^2(\boldsymbol{y}, \boldsymbol{u})]}_{\text{Aleatoric (近似)}}
+S(\boldsymbol{u}) = \|\boldsymbol{y}[k] - \text{VAE}_{\text{recon}}(\boldsymbol{y}[k], \boldsymbol{u})\|^2
 $$
 
-**設計の鍵**: VAEを **Haze=0（最高解像度）** のSPMで訓練することで、実行時の Haze>0 による情報損失を epistemic 不確実性として自然に捉えられる。
+**設計の鍵**: VAEを **Haze=0（最高解像度）** のSPMで訓練し、実行時には設計者が設定したHaze値に応じて生成されたSPMを入力する。これにより、Hazeが高いほどSPMが粗くなり、結果としてSurpriseが増加する可能性がある。
+
+**重要**: VAEはHazeを計算・検出しない。Hazeの効果はSPM生成時のβ変調を通じて間接的に現れる。
 
 ### (2) Haze の設計原理
 
@@ -195,6 +197,8 @@ SurpriseとHazeを独立した制御層として分離：
 $$
 \text{Haze}[k] = \pi_{\text{haze}}(\text{observation\_history}, \text{task\_context}, \sigma_z^2, \ldots)
 $$
+
+**重要**: これは **Phase 6 の将来研究** である。Phase 1-5では、Hazeは設計者が固定値として設定する。Self-Hazingでは、VAEの $\sigma_z^2$ が Haze決定の **入力の一要素** として利用される可能性があるが、これはVAEがHazeを計算するのではなく、別のポリシーネットワーク $\pi_{\text{haze}}$ がHazeを決定することを意味する。
 
 これは **メタ学習**（学習の学習）に相当し、設計者制御から自律制御への進化パスを示す。
 
@@ -715,18 +719,22 @@ v5.6では、Action-Dependent Encoder と Action-Conditioned Decoder を持つ P
 **訓練データの設計原則（v5.6.1）**:
 - **Haze = 0.0（最高解像度）** で収集したSPMデータのみを使用
 - 訓練データ: $\{(y[k]^{\text{Haze}=0}, u[k], y[k+1]^{\text{Haze}=0})\}$ トリプレット
-- 実行時: 任意のHaze値（0.0〜0.9）のSPMを入力
+- 実行時: 任意のHaze値（0.0〜0.9）に基づいて生成されたSPMを入力
 
-**理論的根拠**:
-VAEに「完全な情報」を学習させ、実行時に意図的に情報を減らす（Haze>0）ことで、情報損失の度合いが epistemic 不確実性 $\sigma_z^2$ として自然に現れる。これにより、Haze と Surprise の単調結合が理論的に保証される。
+**設計意図**:
+VAEを最高解像度SPMで訓練することで、詳細なパターンを学習させる。実行時、設計者が高いHaze値を設定すると、SPM生成時に情報が粗視化され、結果として再構成誤差（Surprise）が増加する可能性がある。
+
+**因果の流れ（重要）**:
 
 $$
-\text{Haze} \uparrow \Rightarrow \text{Information Loss} \uparrow \Rightarrow \sigma_z^2 \uparrow \Rightarrow S(\boldsymbol{u}) \uparrow
+\text{Haze}[k] \xrightarrow{\text{設計者設定}} \beta[k] \xrightarrow{\text{SPM生成}} y[k]^{\text{粗}} \xrightarrow{\text{VAE入力}} S(\boldsymbol{u}) \text{ (再構成誤差)}
 $$
+
+**注意**: VAEはHazeを計算しない。Hazeの効果は、SPM生成時のβ変調を通じて間接的にSurpriseに影響する。
 
 **入力・出力**:
 - 予測: $\hat{y}[k+1] = \text{Decoder}(z, u[k])$
-- Surprise: $S(\boldsymbol{u}) = \alpha \cdot \mathbb{E}[\sigma_z^2] + \beta \cdot (1 + \|\boldsymbol{u}\|) \cdot \mathbb{E}[\sigma_z^2]$
+- Surprise: $S(\boldsymbol{u}) = \|y[k] - \text{VAE}_{\text{recon}}(y[k], u)\|^2$（再構成誤差）
 
 ### 3.4.2 エンコーダ（状態と行動から潜在分布を推定）
 
@@ -795,55 +803,47 @@ Pattern D（Action-Dependent Encoder）を採用する理由：
 
 3. **Hazeとの分離**: $\sigma_z^2$ はVAEの内部変数であり、Hazeとは独立（v5.6の設計原則）
 
-### 3.4.6 Haze=0訓練の理論的背景（v5.6.1）
+### 3.4.6 Haze=0訓練の設計方針（v5.6.1）
 
-**設計原則**: VAEを **Haze=0（最高解像度、β→∞）** のSPMデータで訓練することで、実行時の Haze>0 による情報損失を epistemic 不確実性として捉える。
+**設計原則**: VAEを **Haze=0（最高解像度、β→∞）** のSPMデータで訓練する。
 
-#### 情報理論的解釈
+**重要な注意**: VAEはHazeを入力として受け取らず、Hazeを検出・計算しない。VAEの役割は**SPM予測とSurprise計算のみ**である。
 
-訓練時と実行時の情報量の違い：
+#### 訓練データの設計
 
-$$
-I(Y; Z) \geq I(Y_{\text{degraded}}; Z)
-$$
+訓練データ: $\{(y[k]^{\text{Haze}=0}, u[k], y[k+1]^{\text{Haze}=0})\}$ トリプレット
 
-- **訓練時**: $I(Y^{\text{Haze}=0}; Z) = I_{\text{max}}$ （最大相互情報量）
-- **実行時**: $I(Y^{\text{Haze}=h}; Z) < I_{\text{max}}$ （情報損失）
+- **Haze=0**: 最高解像度のSPM（β→∞、鋭敏な集約）
+- VAEは「詳細なSPM表現」での予測を学習
 
-VAEエンコーダは訓練時の高解像度SPMから潜在変数を推定するよう学習する。実行時に粗いSPMが入力されると、期待される特徴が欠損し、**潜在分布の不確実性 $\sigma_z^2$ が増加する**。
+#### 実行時の動作
 
-#### 単調性の保証
+実行時には、設計者が設定したHaze値（例: 0.3, 0.5, 0.7）に応じてSPMが生成される：
 
-Haze と epistemic 不確実性の関係：
+```
+Haze設定（設計者） → β変調 → SPM生成 → VAE入力
+```
 
-$$
-\text{Haze} \uparrow
-\Rightarrow \beta \downarrow
-\Rightarrow \text{SPM aggregation smoother}
-\Rightarrow \text{Information loss} \uparrow
-\Rightarrow \sigma_z^2 \uparrow
-$$
+**因果フロー（明確化）**:
 
-この因果連鎖により、Haze と Surprise の **単調結合** が理論的に保証される：
+```
+1. Haze[k] ← 設計者が設定（固定 or スケジュール）
+2. β[k] = f_precision(Haze[k])
+3. SPM[k] = generate_spm(..., β[k])  # β変調適用
+4. VAE入力: (SPM[k], u) → 予測ŷ, Surprise S
+```
 
-$$
-\frac{\partial S}{\partial \text{Haze}} = (\alpha + \beta \cdot (1 + \|\boldsymbol{u}\|)) \cdot \frac{\partial \mathbb{E}[\sigma_z^2]}{\partial \text{Haze}} > 0
-$$
+**VAEはHazeを見ない**: VAEの入力はSPMのみであり、Hazeパラメータは渡されない。したがって、VAEの $\sigma_z^2$ はHazeの関数ではなく、SPMの特性に依存する。
 
-#### Free Energy Principle との整合性
-
-この設計は FEP の予測誤差最小化原理と整合する：
-
-- **Generative Model（訓練時）**: $p_{\text{model}}(\boldsymbol{y} | \boldsymbol{z}, \text{Haze}=0)$ = 詳細な世界の予測
-- **Reality（実行時）**: $p_{\text{true}}(\boldsymbol{y} | \boldsymbol{z}, \text{Haze}=h)$ = 粗い観測
-
-モデルと現実のミスマッチ：
+#### Surprise計算
 
 $$
-D_{\text{KL}}[p_{\text{true}} \| p_{\text{model}}] \uparrow \quad \text{as Haze} \uparrow
+S(\boldsymbol{u}) = \|\boldsymbol{y}[k] - \text{VAE}_{\text{recon}}(\boldsymbol{y}[k], \boldsymbol{u})\|^2
 $$
 
-このKLダイバージェンスが epistemic Surprise として現れる。
+Hazeが高い → SPMが粗い → VAEの再構成誤差が大きくなる可能性がある（SPMの情報量が減るため）
+
+**注意**: これはVAEがHazeを計算しているのではなく、粗いSPM（Hazeの結果）を入力として受け取った結果である。
 
 #### 実装上の利点
 
@@ -1297,7 +1297,7 @@ $$
 
 **Saliency Polar Map (SPM)** は、自己中心的な極座標グリッドであり、ロボットナビゲーションで広く使用される (Chen et al., 2017)。
 
-本研究の新規性は、SPMの集約の鋭さを **Haze** により動的に変調することで、不確実性適応型の知覚構造を実現した点にある。
+本研究の新規性は、SPMの集約の鋭さを **Haze** パラメータにより変調可能とすることで、知覚解像度を制御可能な構造を実現した点にある。Phase 1-5ではHazeは固定値、Phase 6のSelf-Hazingで自律的適応が可能となる。
 
 ## 5.6 本章のまとめ
 

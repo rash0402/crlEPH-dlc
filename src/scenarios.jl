@@ -191,9 +191,10 @@ Get scenario-specific obstacles (for Corridor).
 - `obstacles::Vector{Tuple{Float64, Float64}}`: List of obstacle positions
 """
 function get_obstacles(params::ScenarioParams)
+    obstacles = Tuple{Float64, Float64}[]
+
     if params.scenario_type == CORRIDOR
         # 通路の壁を障害物として定義
-        obstacles = Tuple{Float64, Float64}[]
         width = params.corridor_width
         center_y = params.world_size[2] / 2.0
 
@@ -207,11 +208,42 @@ function get_obstacles(params::ScenarioParams)
             push!(obstacles, (x, center_y - width/2.0))
         end
 
-        return obstacles
-    else
-        # Scrambleには壁なし
-        return Tuple{Float64, Float64}[]
+    elseif params.scenario_type == SCRAMBLE_CROSSING
+        # スクランブル交差点の4隅に障害物を配置
+        # データ分布の統一性のため、Corridorと同様の障害物密度を確保
+        world_x, world_y = params.world_size
+        corner_size = 5.0  # 隅の障害物領域サイズ
+
+        # 左下隅 (0-5, 0-5)
+        for x in 0:1.0:corner_size
+            for y in 0:1.0:corner_size
+                push!(obstacles, (x, y))
+            end
+        end
+
+        # 右下隅 (45-50, 0-5)
+        for x in (world_x - corner_size):1.0:world_x
+            for y in 0:1.0:corner_size
+                push!(obstacles, (x, y))
+            end
+        end
+
+        # 左上隅 (0-5, 45-50)
+        for x in 0:1.0:corner_size
+            for y in (world_y - corner_size):1.0:world_y
+                push!(obstacles, (x, y))
+            end
+        end
+
+        # 右上隅 (45-50, 45-50)
+        for x in (world_x - corner_size):1.0:world_x
+            for y in (world_y - corner_size):1.0:world_y
+                push!(obstacles, (x, y))
+            end
+        end
     end
+
+    return obstacles
 end
 
 end # module

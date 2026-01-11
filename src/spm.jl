@@ -127,8 +127,8 @@ function generate_spm_3ch(
         # 2. Physical quantities
         # Proximity saliency: closer = higher value
         # Adaptive β_r modulation: high β_r → sharp decay (emphasize closest), low β_r → smooth decay (average)
-        # Use β_r as temperature parameter: divide distance by β_r before exponential
-        saliency = exp(-rho_val / max(beta_r, 0.1))
+        # FIXED: β_r should multiply distance, not divide (high β → steeper gradient)
+        saliency = exp(-rho_val * beta_r)
         
         # Collision risk: TTC approximation with adaptive β_ν modulation
         v_rel = agents_rel_vel[idx]

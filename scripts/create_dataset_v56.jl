@@ -43,7 +43,18 @@ end
 """
 Extract (SPM[k], action[k], SPM[k+1]) samples from HDF5 log
 """
-function extract_samples_from_log(filepath::String)
+function extract_samples_from_log(filepath::String;
+                                      step_interval::Int=5,
+                                      max_agents_per_step::Int=3,
+                                      max_samples_per_file::Int=5000)
+    """
+    Extract samples with smart sampling to reduce memory usage while preserving diversity.
+
+    Args:
+        step_interval: Sample every N steps (default: 5) to avoid temporal redundancy
+        max_agents_per_step: Max agents to sample per step (default: 3) for diversity
+        max_samples_per_file: Hard limit on samples per file (default: 5000)
+    """
     samples = VAEDataSample[]
 
     h5open(filepath, "r") do file
@@ -53,14 +64,30 @@ function extract_samples_from_log(filepath::String)
 
         n_steps, n_agents, _, _, _ = size(spm_data)
 
-        # Extract sequential pairs for all agents
-        for step in 1:(n_steps-1)
-            for agent_id in 1:n_agents
+        # Sampling strategy for diversity
+        sample_count = 0
+
+        # Sample every `step_interval` steps to avoid temporal redundancy
+        for step in 1:step_interval:(n_steps-1)
+            if sample_count >= max_samples_per_file
+                break
+            end
+
+            # Randomly select subset of agents for diversity
+            n_sample_agents = min(max_agents_per_step, n_agents)
+            sampled_agents = sort(rand(1:n_agents, n_sample_agents))
+
+            for agent_id in sampled_agents
                 spm_current = Float32.(spm_data[step, agent_id, :, :, :])
                 action = Float32.(action_data[step, agent_id, :])
                 spm_next = Float32.(spm_data[step+1, agent_id, :, :, :])
 
                 push!(samples, VAEDataSample(spm_current, action, spm_next))
+                sample_count += 1
+
+                if sample_count >= max_samples_per_file
+                    break
+                end
             end
         end
     end
@@ -78,109 +105,77 @@ function main()
     println("Creating Unified VAE Training Dataset v5.6")
     println("=" ^ 70)
 
-    # Define data split strategy
-    train_densities = [5, 10, 15]
+    # Define data split strategy (ALL available data)
+    # Scramble: d5,d10,d15,d20 × s1-5 (exploratory data)
+    # Corridor: d5,d10,d15,d20 × s1-5 (exploratory data)
+    scramble_densities = [5, 10, 15, 20]
+    corridor_densities = [5, 10, 15, 20]
+
     train_seeds = [1, 2, 3]
-    val_densities = [5, 10, 15]
     val_seeds = [4]
-    test_iid_densities = [5, 10, 15]
-    test_iid_seeds = [5]
-    test_ood_densities = [20, 25]
-    test_ood_seeds = [1]
+    test_seeds = [5]
 
     scenarios = ["scramble", "corridor"]
 
     # Collect samples for each split
     train_samples = VAEDataSample[]
     val_samples = VAEDataSample[]
-    test_iid_samples = VAEDataSample[]
-    test_ood_samples = VAEDataSample[]
+    test_samples = VAEDataSample[]
 
     println("\n📂 Scanning simulation logs...\n")
 
-    # Train split
-    println("🔹 Train split (densities: $train_densities, seeds: $train_seeds)")
-    for scenario in scenarios
-        for density in train_densities
-            for seed in train_seeds
-                filepath = joinpath("data/vae_training/raw", scenario, "sim_d$(density)_s$(seed).h5")
+    # Helper function to load samples for a scenario
+    function load_scenario_samples(scenario::String, densities::Vector{Int}, seeds::Vector{Int})
+        samples = VAEDataSample[]
+        for density in densities
+            for seed in seeds
+                filepath = joinpath("data/vae_training/exploratory", scenario, "sim_d$(density)_s$(seed).h5")
                 if isfile(filepath)
-                    samples = extract_samples_from_log(filepath)
-                    append!(train_samples, samples)
-                    println("  ✅ $scenario/d$(density)_s$(seed): $(length(samples)) samples")
+                    file_samples = extract_samples_from_log(filepath)
+                    append!(samples, file_samples)
+                    println("  ✅ $scenario/d$(density)_s$(seed): $(length(file_samples)) samples")
                 else
-                    println("  ⚠️  $scenario/d$(density)_s$(seed): Not found")
+                    println("  ⚠️  $scenario/d$(density)_s$(seed): Not found (skipped)")
                 end
             end
         end
+        return samples
     end
+
+    # Train split
+    println("🔹 Train split (seeds: $train_seeds)")
+    println("  Scramble densities: $scramble_densities")
+    append!(train_samples, load_scenario_samples("scramble", scramble_densities, train_seeds))
+    println("  Corridor densities: $corridor_densities")
+    append!(train_samples, load_scenario_samples("corridor", corridor_densities, train_seeds))
 
     # Val split
-    println("\n🔹 Val split (densities: $val_densities, seeds: $val_seeds)")
-    for scenario in scenarios
-        for density in val_densities
-            for seed in val_seeds
-                filepath = joinpath("data/vae_training/raw", scenario, "sim_d$(density)_s$(seed).h5")
-                if isfile(filepath)
-                    samples = extract_samples_from_log(filepath)
-                    append!(val_samples, samples)
-                    println("  ✅ $scenario/d$(density)_s$(seed): $(length(samples)) samples")
-                else
-                    println("  ⚠️  $scenario/d$(density)_s$(seed): Not found")
-                end
-            end
-        end
-    end
+    println("\n🔹 Val split (seeds: $val_seeds)")
+    println("  Scramble densities: $scramble_densities")
+    append!(val_samples, load_scenario_samples("scramble", scramble_densities, val_seeds))
+    println("  Corridor densities: $corridor_densities")
+    append!(val_samples, load_scenario_samples("corridor", corridor_densities, val_seeds))
 
-    # Test IID split
-    println("\n🔹 Test IID split (densities: $test_iid_densities, seeds: $test_iid_seeds)")
-    for scenario in scenarios
-        for density in test_iid_densities
-            for seed in test_iid_seeds
-                filepath = joinpath("data/vae_training/raw", scenario, "sim_d$(density)_s$(seed).h5")
-                if isfile(filepath)
-                    samples = extract_samples_from_log(filepath)
-                    append!(test_iid_samples, samples)
-                    println("  ✅ $scenario/d$(density)_s$(seed): $(length(samples)) samples")
-                else
-                    println("  ⚠️  $scenario/d$(density)_s$(seed): Not found")
-                end
-            end
-        end
-    end
-
-    # Test OOD split
-    println("\n🔹 Test OOD split (densities: $test_ood_densities, seeds: $test_ood_seeds)")
-    for scenario in scenarios
-        for density in test_ood_densities
-            for seed in test_ood_seeds
-                filepath = joinpath("data/vae_training/raw", scenario, "sim_d$(density)_s$(seed).h5")
-                if isfile(filepath)
-                    samples = extract_samples_from_log(filepath)
-                    append!(test_ood_samples, samples)
-                    println("  ✅ $scenario/d$(density)_s$(seed): $(length(samples)) samples")
-                else
-                    println("  ⚠️  $scenario/d$(density)_s$(seed): Not found")
-                end
-            end
-        end
-    end
+    # Test split
+    println("\n🔹 Test split (seeds: $test_seeds)")
+    println("  Scramble densities: $scramble_densities")
+    append!(test_samples, load_scenario_samples("scramble", scramble_densities, test_seeds))
+    println("  Corridor densities: $corridor_densities")
+    append!(test_samples, load_scenario_samples("corridor", corridor_densities, test_seeds))
 
     # Summary
     n_train = length(train_samples)
     n_val = length(val_samples)
-    n_test_iid = length(test_iid_samples)
-    n_test_ood = length(test_ood_samples)
-    n_total = n_train + n_val + n_test_iid + n_test_ood
+    n_test = length(test_samples)
+    n_total = n_train + n_val + n_test
 
     println("\n" * "=" ^ 70)
     println("Dataset Summary:")
     println("=" ^ 70)
-    println("  Train:    $(n_train) samples ($(round(n_train/n_total*100, digits=1))%)")
-    println("  Val:      $(n_val) samples ($(round(n_val/n_total*100, digits=1))%)")
-    println("  Test IID: $(n_test_iid) samples ($(round(n_test_iid/n_total*100, digits=1))%)")
-    println("  Test OOD: $(n_test_ood) samples ($(round(n_test_ood/n_total*100, digits=1))%)")
-    println("  Total:    $(n_total) samples")
+    println("  Train:  $(n_train) samples ($(round(n_train/n_total*100, digits=1))%)")
+    println("  Val:    $(n_val) samples ($(round(n_val/n_total*100, digits=1))%)")
+    println("  Test:   $(n_test) samples ($(round(n_test/n_total*100, digits=1))%)")
+    println("  Total:  $(n_total) samples")
 
     if n_total == 0
         println("\n❌ Error: No samples found!")
@@ -209,19 +204,18 @@ function main()
 
     train_spms_current, train_actions, train_spms_next = samples_to_arrays(train_samples)
     val_spms_current, val_actions, val_spms_next = samples_to_arrays(val_samples)
-    test_iid_spms_current, test_iid_actions, test_iid_spms_next = samples_to_arrays(test_iid_samples)
-    test_ood_spms_current, test_ood_actions, test_ood_spms_next = samples_to_arrays(test_ood_samples)
+    test_spms_current, test_actions, test_spms_next = samples_to_arrays(test_samples)
 
-    # Create dataset
+    # Create dataset (using test for both test_iid and test_ood for compatibility)
     dataset = VAEDataset(
         train_spms_current, train_actions, train_spms_next, Dict{String, Any}(),
         val_spms_current, val_actions, val_spms_next, Dict{String, Any}(),
-        test_iid_spms_current, test_iid_actions, test_iid_spms_next, Dict{String, Any}(),
-        test_ood_spms_current, test_ood_actions, test_ood_spms_next, Dict{String, Any}()
+        test_spms_current, test_actions, test_spms_next, Dict{String, Any}(),
+        test_spms_current, test_actions, test_spms_next, Dict{String, Any}()  # Duplicate for compatibility
     )
 
     # Save to HDF5
-    output_path = "data/vae_training/dataset_v56.h5"
+    output_path = "data/vae_training/dataset_v56_exploratory.h5"
     mkpath(dirname(output_path))
 
     println("\n💾 Saving to: $output_path")

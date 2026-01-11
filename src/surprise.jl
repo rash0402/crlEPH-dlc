@@ -1,12 +1,15 @@
 """
 Surprise Calculation Module for EPH v5.6
-Computes Surprise as epistemic uncertainty in latent representation.
 
-For Pattern D VAE (which predicts NEXT states), Surprise is computed as:
-    S(u) = mean(σ²(z | y[k], u[k]))
+Computes Surprise as reconstruction error following Active Inference principles.
 
-Where σ² is the latent variance from the encoder.
-High uncertainty → High Surprise → Conservative behavior via Haze modulation.
+Following proposal_v5.6.md Lines 256-273:
+    S(u) = ||y[k] - VAE_recon(y[k], u)||²
+
+Where VAE_recon(y, u) = Decoder(Encoder(y, u), u)
+
+This represents how well the VAE can reconstruct the current SPM given the (SPM, action) pair.
+High reconstruction error indicates the pair is unfamiliar/OOD.
 """
 module SurpriseModule
 
@@ -19,13 +22,25 @@ export compute_surprise, compute_surprise_batch, compute_prediction_error, compu
 """
     compute_surprise(vae::ActionConditionedVAE, spm::Array{Float64, 3}, u::Vector{Float64})
 
-Compute Surprise for a single (SPM, action) pair based on epistemic uncertainty.
+Compute Surprise for a single (SPM, action) pair as reconstruction error.
 
-For Pattern D VAE (decoder predicts NEXT state), Surprise is:
-    S(u) = mean(σ²(z | y[k], u[k]))
+Following proposal_v5.6.md Lines 256-273:
+S(u) = ||y[k] - VAE_recon(y[k], u)||²
 
-This represents how uncertain the encoder is about the latent representation.
-High uncertainty indicates the (state, action) pair is unfamiliar/risky.
+Where:
+VAE_recon(y, u) = Decoder(Encoder(y, u), u)
+
+Steps:
+1. Encoder: (y[k], u) → q(z|y,u) = N(μ_z, σ_z²)
+2. Use mean μ_z (deterministic)
+3. Decoder: (z=μ_z, u) → y_recon
+4. Compute squared error between original SPM and reconstruction
+
+This represents the reconstruction error: how well the VAE can reconstruct the current SPM
+given the (SPM, action) pair. High reconstruction error indicates the pair is unfamiliar/OOD.
+
+Theory Reference: proposal_v5.6.md Lines 256-280
+Active Inference Principle: Agents minimize Surprise = maintain predictable states
 
 # Arguments
 - `vae`: Trained ActionConditionedVAE model
@@ -33,7 +48,7 @@ High uncertainty indicates the (state, action) pair is unfamiliar/risky.
 - `u`: Action vector (2,) [vx, vy]
 
 # Returns
-- `surprise::Float64`: Average latent variance (epistemic uncertainty)
+- `surprise::Float64`: Reconstruction MSE (Active Inference standard definition)
 """
 function compute_surprise(
     vae::ActionConditionedVAE,
@@ -44,22 +59,23 @@ function compute_surprise(
     spm_input = Float32.(reshape(spm, 16, 16, 3, 1))
     u_input = Float32.(reshape(u, 2, 1))
 
-    # Encode: (SPM, action) → (μ, logσ)
-    μ, logσ = encode(vae, spm_input, u_input)
+    # Step 1 & 2: Encode (SPM, action) → μ_z (deterministic, use mean)
+    μ_z, logσ_z = encode(vae, spm_input, u_input)
 
-    # Compute variance: σ² = exp(2 * logσ)
-    σ² = exp.(2f0 .* logσ)
+    # Step 3: Decode (z=μ_z, u) → SPM_reconstruction
+    spm_recon = decode_with_u(vae, μ_z, u_input)
 
-    # Average variance across latent dimensions
-    surprise = mean(σ²)
+    # Step 4: Compute reconstruction error (MSE)
+    # Note: Both spm_input and spm_recon are (16, 16, 3, 1)
+    reconstruction_error = mean((spm_input .- spm_recon).^2)
 
-    return Float64(surprise)
+    return Float64(reconstruction_error)
 end
 
 """
     compute_surprise_batch(vae::ActionConditionedVAE, spms::Array{Float64, 4}, us::Matrix{Float64})
 
-Compute Surprise for a batch of (SPM, action) pairs based on epistemic uncertainty.
+Compute Surprise for a batch of (SPM, action) pairs as reconstruction error.
 
 # Arguments
 - `vae`: Trained ActionConditionedVAE model
@@ -67,7 +83,7 @@ Compute Surprise for a batch of (SPM, action) pairs based on epistemic uncertain
 - `us`: Batch of actions (2, batch_size)
 
 # Returns
-- `surprises::Vector{Float64}`: Latent uncertainties for each sample
+- `surprises::Vector{Float64}`: Reconstruction errors for each sample
 """
 function compute_surprise_batch(
     vae::ActionConditionedVAE,
@@ -83,14 +99,14 @@ function compute_surprise_batch(
     # Encode
     μ, logσ = encode(vae, spms_input, us_input)
 
-    # Compute variance: σ² = exp(2 * logσ)
-    σ² = exp.(2f0 .* logσ)
+    # Decode
+    spms_recon = decode_with_u(vae, μ, us_input)
 
-    # Compute mean variance for each sample
+    # Compute reconstruction error for each sample
     surprises = Float64[]
     for i in 1:batch_size
-        surprise_i = mean(σ²[:, i])
-        push!(surprises, Float64(surprise_i))
+        error_i = mean((spms_input[:, :, :, i] .- spms_recon[:, :, :, i]).^2)
+        push!(surprises, Float64(error_i))
     end
 
     return surprises
@@ -104,7 +120,7 @@ Compute prediction error: ||y[k+1]_true - ŷ[k+1]||²
 NOTE: This requires the NEXT state y[k+1], which is NOT available during runtime control.
 This function is ONLY for validation/analysis purposes, NOT for Surprise-based control.
 
-For runtime Surprise, use `compute_surprise()` which uses latent uncertainty.
+For runtime Surprise, use `compute_surprise()` which uses reconstruction error.
 
 # Arguments
 - `vae`: Trained ActionConditionedVAE model
@@ -138,7 +154,7 @@ end
 """
     compute_surprise_hybrid(vae::ActionConditionedVAE, spm::Array{Float64, 3}, u::Vector{Float64}; α::Float64=0.5, β::Float64=0.5)
 
-Compute hybrid Surprise combining epistemic and aleatoric uncertainty.
+Compute hybrid Surprise combining reconstruction error and latent uncertainty.
 
 For VAE trained on Haze=0 data, this formulation ensures monotonic coupling
 between runtime Haze and Surprise through information-theoretic degradation.
@@ -147,16 +163,16 @@ between runtime Haze and Surprise through information-theoretic degradation.
 - `vae`: Trained ActionConditionedVAE model
 - `spm`: Current SPM (16, 16, 3)
 - `u`: Action vector (2,) [vx, vy]
-- `α`: Weight for epistemic uncertainty (default: 0.5)
-- `β`: Weight for aleatoric uncertainty (default: 0.5)
+- `α`: Weight for reconstruction error (default: 0.5)
+- `β`: Weight for latent uncertainty (default: 0.5)
 
 # Returns
-- `surprise::Float64`: Total Surprise = α·S_epistemic + β·S_aleatoric
+- `surprise::Float64`: Total Surprise = α·S_reconstruction + β·S_latent
 
 # Theory (v5.6.1)
 When VAE is trained on Haze=0 (max resolution) data:
-- Runtime Haze>0 → Information loss → σ²_z ↑ → S_epistemic ↑
-- Larger actions → Higher prediction difficulty → S_aleatoric ↑
+- Runtime Haze>0 → Information loss → Higher reconstruction error
+- Larger actions → Higher prediction difficulty
 - Monotonic coupling: ∂S/∂Haze > 0 (theoretically guaranteed)
 """
 function compute_surprise_hybrid(
@@ -173,18 +189,16 @@ function compute_surprise_hybrid(
     # Encode: (SPM, action) → (μ, logσ)
     μ, logσ = encode(vae, spm_input, u_input)
 
-    # Epistemic uncertainty: variance of latent distribution
-    σ² = exp.(2f0 .* logσ)
-    S_epistemic = mean(σ²)
+    # Reconstruction error (primary component)
+    spm_recon = decode_with_u(vae, μ, u_input)
+    S_reconstruction = mean((spm_input .- spm_recon).^2)
 
-    # Aleatoric uncertainty: lightweight approximation using action magnitude
-    # Larger actions → higher prediction difficulty
-    u_norm = norm(u)
-    sensitivity = 1.0f0 + Float32(u_norm)
-    S_aleatoric = sensitivity * S_epistemic
+    # Latent uncertainty (secondary component)
+    σ² = exp.(2f0 .* logσ)
+    S_latent = mean(σ²)
 
     # Total Surprise
-    S_total = α * S_epistemic + β * S_aleatoric
+    S_total = α * S_reconstruction + β * S_latent
 
     return Float64(S_total)
 end
