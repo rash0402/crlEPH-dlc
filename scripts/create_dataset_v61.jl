@@ -40,8 +40,8 @@ include("../src/config.jl")
 include("../src/spm.jl")
 include("../src/dynamics.jl")
 include("../src/prediction.jl")  # Required by controller.jl
+include("../src/action_vae.jl")  # Required by controller.jl (must be before controller)
 include("../src/controller.jl")
-include("../src/action_vae.jl")
 include("../src/scenarios.jl")
 include("../src/logger.jl")
 
