@@ -145,25 +145,37 @@ Phase 2: VAE再訓練（必要な場合のみ）
 
 **データセット仕様**:
 - **SPM設定**: D_max = 8.0m, n_rho = 16, n_theta = 16
-- **Haze戦略**: Bin 1-6 Haze=0固定（変動なし）
-- **シナリオ**: v6.0と同じ（スクランブル交差、様々な密度）
-- **サイズ**: 50,000サンプル（y[k], u[k], y[k+1]）三つ組
+- **Haze戦略**: **すべてのビンでHaze=0.0（重要）**
+- **シナリオ**: Scramble Crossing + Corridor（様々な密度と通路幅）
+- **サイズ**: 50,000-70,000サンプル（y[k], u[k], y[k+1]）三つ組
+
+**重要な設計決定：VAE訓練データは全ビンHaze=0**
+
+**理論的根拠**：
+1. **VAEの役割**：世界の純粋なダイナミクス `y[k+1] = f(y[k], u[k])` を学習（クリアな観測が必要）
+2. **Hazeの適用タイミング**：推論時（inference time）のみに適用し、βを通じてSurprise項を制御
+3. **独立性の保持**：「Hazeは調整弁（Design Parameter）」であり、VAEと独立したβ制御メカニズム
 
 **データ生成スクリプト**: `scripts/create_dataset_v61.jl`
 
 ```julia
-# Key parameters
-spm_params = SPMParams(sensing_ratio=8.0)
-foveation_params = FoveationParams(rho_index_critical=6, h_critical=0.0, h_peripheral=0.5)
+# VAE訓練データ収集時の設定（すべてHaze=0）
+const V61_SPM_PARAMS = SPMParams(sensing_ratio=8.0)
+const V61_FOV_PARAMS = FoveationParams(
+    rho_index_critical=6,  # Not used during data collection
+    h_critical=0.0,         # Haze=0.0 everywhere (pure observation)
+    h_peripheral=0.0        # Haze=0.0 everywhere (applied only at inference)
+)
+```
 
-# Fixed Haze (no agent-dependent variation)
-function compute_haze_fixed(spm_config)
-    n_rho, n_theta = spm_config.params.n_rho, spm_config.params.n_theta
-    haze = zeros(Float64, n_rho, n_theta)
-    haze[1:6, :] .= 0.0      # Bin 1-6: Critical
-    haze[7:end, :] .= 0.5    # Bin 7+: Peripheral
-    return haze
-end
+**推論時の設定**（データ収集後、実際の制御時に使用）:
+```julia
+# 推論時の設定（Bin 1-6 Haze=0 Fixed Strategy）
+foveation_params = FoveationParams(
+    rho_index_critical=6,   # Bin 1-6 boundary
+    h_critical=0.0,         # Bin 1-6: Haze=0.0
+    h_peripheral=0.5        # Bin 7+: Haze=0.5
+)
 ```
 
 ### 2.2 VAEアーキテクチャ

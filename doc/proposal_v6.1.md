@@ -97,6 +97,31 @@ $$
 2. **Self-Hazing = Fovea/Attention制御**：エージェント自身が特定の空間領域（Bin 1-6）でHaze=0を設定することは、視界をクリアにする（de-hazing）行為であり、これが生物学的な**中心窩（Fovea）**の機能的等価物。遠方（Bin 7+）でHaze>0を設定することは、周辺視（Peripheral Vision）に相当し、**Top-down Attention制御**の工学的実装となる。
 3. **β作用メカニズム**：Haze → β → Precision Π = 1/(H + ε) の因果連鎖により、Hazeが低い領域（Bin 1-6）では高β（=10.0）→ 高Precision → 予測誤差に敏感、Hazeが高い領域（Bin 7+）では低β（=5.5）→ 低Precision → 予測誤差に鈍感、という距離依存の感度制御を実現。
 
+**VAEデータ収集時のHaze設定（重要な設計決定）**：
+
+**Action-Conditioned VAE (Pattern D) の訓練データ収集では、すべてのビンでHaze=0.0を使用する。**
+
+理論的根拠：
+1. **VAEの役割**：VAEは世界の純粋なダイナミクス `y[k+1] = f(y[k], u[k])` を学習すべきであり、クリアな観測（Haze=0）で訓練される必要がある。
+2. **Hazeの適用タイミング**：Hazeは推論時（inference time）にのみ適用され、βを通じてSurprise項 `S(u)` の影響を制御する。訓練データ収集時にHazeを混入させると、VAEが不完全な観測に過適合し、世界モデルの品質が低下する。
+3. **設計原則の一貫性**：「Hazeは調整弁（Design Parameter）」であり、VAEとは独立したβ制御メカニズムである。この独立性を保つため、VAE訓練はHaze=0（完全な観測）で行う。
+
+データ収集設定：
+```julia
+# VAE訓練データ収集時の設定
+h_critical = 0.0      # すべてのビン（Bin 1-16）
+h_peripheral = 0.0    # すべてのビン（Bin 1-16）
+```
+
+推論時設定：
+```julia
+# 推論時の設定（Bin 1-6 Haze=0 Fixed Strategy）
+h_critical = 0.0      # Bin 1-6 (0-2.18m)
+h_peripheral = 0.5    # Bin 7+ (2.18m+)
+```
+
+この分離により、VAEは世界の真のダイナミクスを学習し、推論時にHazeによるβ調整が独立して機能する。
+
 この**Self-Hazing**の概念により、「遠くをあえて見ない（High Haze）」という**能動的無視（Active Ignorance）**と、「近くをクリアに見る（Low Haze）」という**能動的注意（Active Attention）**の二重制御が、単一のHazeパラメータで統一的に記述される。
 
 **Precision-Weighted Surprise**：
