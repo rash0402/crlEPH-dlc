@@ -43,7 +43,7 @@ include("../src/config.jl")
 include("../src/action_vae.jl")
 
 using .Config
-using .ActionVAE
+using .ActionVAEModel
 
 println("="^80)
 println("Train Action-Conditioned VAE for v6.1: Bin 1-6 Haze=0 Fixed")
@@ -358,7 +358,7 @@ println()
 
 # Initialize model
 println("Initializing Action-Conditioned VAE (Pattern D)...")
-model = ActionVAE.create_action_vae(LATENT_DIM) |> device
+model = ActionVAEModel.create_action_vae(LATENT_DIM) |> device
 println("  Encoder parameters: $(sum(length, Flux.params(model.encoder)))")
 println("  Decoder parameters: $(sum(length, Flux.params(model.decoder)))")
 println()

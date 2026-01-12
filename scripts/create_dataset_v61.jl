@@ -39,6 +39,7 @@ using ArgParse
 include("../src/config.jl")
 include("../src/spm.jl")
 include("../src/dynamics.jl")
+include("../src/prediction.jl")  # Required by controller.jl
 include("../src/controller.jl")
 include("../src/action_vae.jl")
 include("../src/scenarios.jl")
@@ -47,8 +48,9 @@ include("../src/logger.jl")
 using .Config
 using .SPM
 using .Dynamics
+using .Prediction
 using .Controller
-using .ActionVAE
+using .ActionVAEModel
 using .Scenarios
 using .Logger
 
