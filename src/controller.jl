@@ -715,37 +715,41 @@ function compute_free_energy_v61(
     Φ_safety = k_2 * sum(ch2_pred) + k_3 * sum(ch3_pred)
 
     # ===== 3. S(u): Precision-Weighted Surprise (★ v6.1更新) =====
-    # VAE operations are non-differentiable, so extract Float64 values
-    # This means ∂S/∂u ≈ 0 (Surprise treated as locally constant)
-    spm_input = Float32.(reshape(spm_current, 16, 16, 3, 1))
-    u_input = Float32.(reshape(u_val, 2, 1))
-
-    μ_z, logσ_z = ActionVAEModel.encode(action_vae, spm_input, u_input)
-    z = μ_z  # Use mean for deterministic prediction
-
-    spm_vae_pred = ActionVAEModel.decode_with_u(action_vae, z, u_input)
-
-    # Extract Float64 values from spm_pred for VAE comparison
-    spm_pred_val = map(ForwardDiff.value, spm_pred)
-    spm_pred_batch = Float32.(reshape(spm_pred_val, 16, 16, 3, 1))
-
-    # Precision-Weighted MSE
-    # S = 1/2 Σ_{m,n,c} Π_{m,n} · (ŷ_{m,n,c} - ŷ_VAE_{m,n,c})^2
-    #
-    # Note: precision_map is [n_rho × n_theta], we need to apply it to each channel
+    # Skip if action_vae is nothing (data collection mode)
     S = 0.0
-    n_rho, n_theta, n_ch = size(spm_pred)
 
-    for c in 1:n_ch
-        for j in 1:n_theta
-            for i in 1:n_rho
-                error_sq = (spm_pred_batch[i, j, c, 1] - spm_vae_pred[i, j, c, 1])^2
-                S += precision_map[i, j] * error_sq
+    if action_vae !== nothing
+        # VAE operations are non-differentiable, so extract Float64 values
+        # This means ∂S/∂u ≈ 0 (Surprise treated as locally constant)
+        spm_input = Float32.(reshape(spm_current, 16, 16, 3, 1))
+        u_input = Float32.(reshape(u_val, 2, 1))
+
+        μ_z, logσ_z = ActionVAEModel.encode(action_vae, spm_input, u_input)
+        z = μ_z  # Use mean for deterministic prediction
+
+        spm_vae_pred = ActionVAEModel.decode_with_u(action_vae, z, u_input)
+
+        # Extract Float64 values from spm_pred for VAE comparison
+        spm_pred_val = map(ForwardDiff.value, spm_pred)
+        spm_pred_batch = Float32.(reshape(spm_pred_val, 16, 16, 3, 1))
+
+        # Precision-Weighted MSE
+        # S = 1/2 Σ_{m,n,c} Π_{m,n} · (ŷ_{m,n,c} - ŷ_VAE_{m,n,c})^2
+        #
+        # Note: precision_map is [n_rho × n_theta], we need to apply it to each channel
+        n_rho, n_theta, n_ch = size(spm_pred)
+
+        for c in 1:n_ch
+            for j in 1:n_theta
+                for i in 1:n_rho
+                    error_sq = (spm_pred_batch[i, j, c, 1] - spm_vae_pred[i, j, c, 1])^2
+                    S += precision_map[i, j] * error_sq
+                end
             end
         end
-    end
 
-    S = S * 0.5  # Factor of 1/2
+        S = S * 0.5  # Factor of 1/2
+    end
 
     # ===== Total Free Energy =====
     F = Φ_goal + Φ_safety + Float64(S)
