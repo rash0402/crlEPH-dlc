@@ -1,155 +1,155 @@
-# Implementation Plan v6.1: Bin 1-6 Haze=0 Fixed Strategy
+# 実装計画 v6.1: Bin 1-6 Haze=0固定戦略
 
-**Date**: 2026-01-12
-**Version**: 6.1
-**Status**: Planning Phase
-
----
-
-## Overview
-
-v6.1 introduces a **Bin-Based Fixed Foveation** strategy to replace the Dual-Zone sigmoid approach. This change is grounded in neuroscience (Peripersonal Space), Active Inference (precision weighting), empirical research (pedestrian behavior), and control theory (gradient requirements).
-
-### Key Changes
-
-1. **Sensing Range**: `D_max = 7.5m → 8.0m` (2³, mathematical elegance + biological validity)
-2. **Foveation Strategy**: Dual-Zone (sigmoid) → **Bin 1-6 Haze=0 Fixed** (step function)
-   - **Bin 1-6** (0-2.18m): `Haze = 0.0` (β_max = 10.0, critical collision zone)
-   - **Bin 7+** (2.18m+): `Haze = 0.5` (β ≈ 5.5, peripheral zone)
-
-### Theoretical Justification
-
-| Discipline | Key Evidence | Bin 1-6 Alignment |
-|------------|--------------|-------------------|
-| **Neuroscience** | Peripersonal Space (PPS) 0.5-2.0m | ✓ Bin 1-6 (2.18m) covers Extended PPS |
-| **Active Inference** | Precision weighting for survival-critical predictions | ✓ High Π (Haze=0) required |
-| **Empirical Research** | Avoidance initiation 2-3m (Moussaïd et al., 2011) | ✓ Bin 6 (2.18m) at lower bound |
-| **Control Theory** | TTC 1s (predictive control) → 2.1m | ✓ Bin 6 covers TTC 1s |
-| **Cognitive Science** | Dual-process (System 1 vs 2) | ✓ System 1 (0-2.18m) → High precision |
+**日付**: 2026-01-12
+**バージョン**: 6.1
+**ステータス**: 計画フェーズ
 
 ---
 
-## Implementation Status
+## 概要
 
-### ✅ Completed (2026-01-12)
+v6.1では、Dual-Zone sigmoid方式に代わる**ビンベース固定中心窩戦略**を導入します。この変更は、神経科学（近傍空間）、能動的推論（精度重み付け）、実証研究（歩行者行動）、制御理論（勾配要件）に基づいています。
 
-1. **Core Implementation**
-   - `src/config.jl`: `sensing_ratio = 8.0`, `FoveationParams` updated
-   - `src/controller.jl`: `compute_precision_map()` simplified (step function)
-   - `src/spm.jl`: ForwardDiff.Dual compatibility
+### 主要な変更点
 
-2. **Visualization**
-   - `tmp/visualize_bin16_haze0.jl`: 4 figures generated
-   - Bin structure, Haze/β modulation, gradient strength, theoretical justification
+1. **感知範囲**: `D_max = 7.5m → 8.0m` (2³、数学的エレガンス + 生物学的妥当性)
+2. **中心窩戦略**: Dual-Zone (sigmoid) → **Bin 1-6 Haze=0固定** (ステップ関数)
+   - **Bin 1-6** (0-2.18m): `Haze = 0.0` (β_max = 10.0, 衝突臨界ゾーン)
+   - **Bin 7+** (2.18m+): `Haze = 0.5` (β ≈ 5.5, 周辺ゾーン)
 
-3. **Git Commit**
-   - Commit: `86c7577`
-   - Message: "feat: Implement Bin 1-6 Haze=0 Fixed Strategy (v6.1)"
-   - Pushed to `origin/main`
+### 理論的正当化
+
+| 分野 | 主要なエビデンス | Bin 1-6との整合性 |
+|------|------------------|-------------------|
+| **神経科学** | 近傍空間 (PPS) 0.5-2.0m | ✓ Bin 1-6 (2.18m) が拡張PPS をカバー |
+| **能動的推論** | 生存に重要な予測の精度重み付け | ✓ 高Π (Haze=0) が必要 |
+| **実証研究** | 回避開始 2-3m (Moussaïd et al., 2011) | ✓ Bin 6 (2.18m) が下限値 |
+| **制御理論** | TTC 1s (予測制御) → 2.1m | ✓ Bin 6 が TTC 1s をカバー |
+| **認知科学** | 二重過程理論 (System 1 vs 2) | ✓ System 1 (0-2.18m) → 高精度 |
 
 ---
 
-## Proposed Phased Approach
+## 実装状況
 
-### Critical Question: VAE Retraining Required?
+### ✅ 完了 (2026-01-12)
 
-**Two-Phase Strategy**:
+1. **コア実装**
+   - `src/config.jl`: `sensing_ratio = 8.0`、`FoveationParams` 更新
+   - `src/controller.jl`: `compute_precision_map()` 簡略化 (ステップ関数)
+   - `src/spm.jl`: ForwardDiff.Dual 互換性対応
+
+2. **可視化**
+   - `tmp/visualize_bin16_haze0.jl`: 4つの図を生成
+   - Bin構造、Haze/β変調、勾配強度、理論的正当化
+
+3. **Git コミット**
+   - コミット: `86c7577`
+   - メッセージ: "feat: Implement Bin 1-6 Haze=0 Fixed Strategy (v6.1)"
+   - `origin/main` にプッシュ済み
+
+---
+
+## 提案する段階的アプローチ
+
+### 重要な問題: VAE再訓練は必要か？
+
+**二段階戦略**:
 
 ```
-Phase 1: Test Bin 1-6 Haze=0 with Existing VAE (No retraining)
+Phase 1: 既存VAEでBin 1-6 Haze=0をテスト（再訓練なし）
   ↓
-  Evaluate collision avoidance performance
+  衝突回避性能を評価
   ↓
-Phase 2: VAE Retraining (If necessary)
+Phase 2: VAE再訓練（必要な場合のみ）
 ```
 
-**Rationale**:
-1. **D_max change (7.5m → 8.0m)**: Only 7% difference, VAE may generalize
-2. **Haze strategy change**: Affects β modulation (independent of VAE prediction)
-3. **Primary effect**: Gradient strength for ∂Φ_safety/∂u (β-dependent, not VAE-dependent)
+**根拠**:
+1. **D_max変更 (7.5m → 8.0m)**: わずか7%の差、VAEが汎化する可能性
+2. **Haze戦略変更**: β変調に影響（VAE予測とは独立）
+3. **主効果**: ∂Φ_safety/∂u の勾配強度（β依存、VAE非依存）
 
 ---
 
-## Phase 1: Validation Without VAE Retraining
+## Phase 1: VAE再訓練なしの検証
 
-**Goal**: Verify that Bin 1-6 Haze=0 improves collision avoidance with existing VAE
+**目標**: 既存VAEでBin 1-6 Haze=0が衝突回避を改善することを検証
 
-### 1.1 Test Setup
+### 1.1 テストセットアップ
 
-**Scenario**: Unified obstacle test (scramble crossing)
-- Script: `scripts/test_obstacles_unified.jl`
-- Agents: 4 groups × 10 agents (N/S/E/W)
-- Duration: 3000 steps (100 seconds @ 30Hz)
+**シナリオ**: 統一障害物テスト（スクランブル交差）
+- スクリプト: `scripts/test_obstacles_unified.jl`
+- エージェント: 4グループ × 10エージェント (N/S/E/W)
+- 期間: 3000ステップ（100秒 @ 30Hz）
 
-**Comparison Groups**:
+**比較グループ**:
 
-| Group | D_max | Foveation Strategy | VAE Model |
-|-------|-------|-------------------|-----------|
-| **Baseline (v6.0)** | 7.5m | Dual-Zone (rho_index_ps=4) | Current (7.5m trained) |
-| **v6.1 (Proposed)** | 8.0m | Bin 1-6 Haze=0 Fixed | Current (7.5m trained) |
+| グループ | D_max | 中心窩戦略 | VAEモデル |
+|---------|-------|-----------|-----------|
+| **ベースライン (v6.0)** | 7.5m | Dual-Zone (rho_index_ps=4) | 現行 (7.5m訓練済み) |
+| **v6.1 (提案)** | 8.0m | Bin 1-6 Haze=0固定 | 現行 (7.5m訓練済み) |
 
-**Hypothesis**:
-- v6.1 will show **lower collision rate** despite VAE mismatch (D_max)
-- Reason: Stronger ∂Φ_safety/∂u gradients in Bin 1-6
+**仮説**:
+- v6.1はVAEミスマッチ（D_max）にもかかわらず**衝突率が低い**
+- 理由: Bin 1-6での∂Φ_safety/∂u 勾配が強い
 
-### 1.2 Evaluation Metrics
+### 1.2 評価指標
 
-**Primary Metrics**:
-1. **Collision Rate** (%)
-   - Emergency stop activations / total steps
-   - Lower is better
+**主要指標**:
+1. **衝突率** (%)
+   - 緊急停止発動数 / 総ステップ数
+   - 低いほど良い
 
-2. **Freezing Rate** (%)
-   - Steps with |v| < 0.1 m/s / total steps
-   - Lower is better (indicates smoother avoidance)
+2. **凍結率** (%)
+   - |v| < 0.1 m/s のステップ数 / 総ステップ数
+   - 低いほど良い（スムーズな回避を示す）
 
-3. **Path Efficiency**
-   - Actual path length / Optimal path length
-   - Closer to 1.0 is better
+3. **経路効率**
+   - 実経路長 / 最適経路長
+   - 1.0に近いほど良い
 
-**Secondary Metrics**:
-4. **Gradient Magnitude** (∂Φ_safety/∂u)
-   - Average gradient strength in critical situations
-   - Higher is better (confirms theoretical prediction)
+**副次指標**:
+4. **勾配強度** (∂Φ_safety/∂u)
+   - 臨界状況での平均勾配強度
+   - 高いほど良い（理論予測を確認）
 
-5. **VAE Prediction Error** (MSE)
-   - Monitor if D_max mismatch causes issues
-   - If error spikes, VAE retraining needed
+5. **VAE予測誤差** (MSE)
+   - D_maxミスマッチが問題を引き起こすかモニター
+   - 誤差が急増した場合、VAE再訓練が必要
 
-### 1.3 Decision Criteria
+### 1.3 判定基準
 
-**Proceed to Phase 2 (VAE Retraining) if**:
-- ✅ Collision rate reduced by >10% (validates Bin 1-6 Haze=0)
-- ⚠️ VAE prediction error is high (MSE > 2× baseline)
+**Phase 2（VAE再訓練）へ進む条件**:
+- ✅ 衝突率が>10%低減（Bin 1-6 Haze=0が有効）
+- ⚠️ VAE予測誤差が高い（MSE > 2×ベースライン）
 
-**Skip Phase 2 if**:
-- ✅ Collision rate reduced AND VAE error acceptable
-- Conclusion: Existing VAE generalizes well to D_max=8.0m
+**Phase 2をスキップする条件**:
+- ✅ 衝突率が低減 AND VAE誤差が許容範囲
+- 結論: 既存VAEがD_max=8.0mでうまく汎化
 
-**Abort v6.1 if**:
-- ❌ Collision rate NOT reduced (theory invalidated)
+**v6.1を中止する条件**:
+- ❌ 衝突率が低減しない（理論が無効化）
 
-### 1.4 Timeline
+### 1.4 タイムライン
 
-- **Test Execution**: ~4 hours (multiple runs for statistical significance)
-- **Analysis**: ~2 hours
-- **Decision**: Same day
+- **テスト実行**: 約4時間（統計的有意性のための複数回実行）
+- **分析**: 約2時間
+- **判定**: 当日中
 
 ---
 
-## Phase 2: VAE Retraining (Conditional)
+## Phase 2: VAE再訓練（条件付き）
 
-**Trigger**: Phase 1 shows collision improvement BUT high VAE prediction error
+**トリガー**: Phase 1で衝突改善が見られるが、VAE予測誤差が高い場合
 
-### 2.1 Data Collection Requirements
+### 2.1 データ収集要件
 
-**Dataset Specifications**:
-- **SPM Configuration**: D_max = 8.0m, n_rho = 16, n_theta = 16
-- **Haze Strategy**: Bin 1-6 Haze=0 Fixed (no variation)
-- **Scenarios**: Same as v6.0 (scramble crossing, various densities)
-- **Size**: 50,000 samples (y[k], u[k], y[k+1]) triplets
+**データセット仕様**:
+- **SPM設定**: D_max = 8.0m, n_rho = 16, n_theta = 16
+- **Haze戦略**: Bin 1-6 Haze=0固定（変動なし）
+- **シナリオ**: v6.0と同じ（スクランブル交差、様々な密度）
+- **サイズ**: 50,000サンプル（y[k], u[k], y[k+1]）三つ組
 
-**Data Generation Script**: `scripts/create_dataset_v61.jl`
+**データ生成スクリプト**: `scripts/create_dataset_v61.jl`
 
 ```julia
 # Key parameters
@@ -166,169 +166,169 @@ function compute_haze_fixed(spm_config)
 end
 ```
 
-### 2.2 VAE Architecture
+### 2.2 VAEアーキテクチャ
 
-**No change from v6.0** (Pattern D: Action-Conditioned VAE)
-- Encoder: `q(z | y[k], u[k])`
-- Decoder: `p(y[k+1] | z, u[k])`
-- Latent dim: 32
+**v6.0から変更なし**（Pattern D: Action-Conditioned VAE）
+- エンコーダ: `q(z | y[k], u[k])`
+- デコーダ: `p(y[k+1] | z, u[k])`
+- 潜在次元: 32
 
-**Hyperparameters** (from v6.0 best config):
-- β (KL weight): 0.5
-- Learning rate: 1e-4
-- Batch size: 128
-- Epochs: 100
+**ハイパーパラメータ**（v6.0最良設定から）:
+- β（KL重み）: 0.5
+- 学習率: 1e-4
+- バッチサイズ: 128
+- エポック数: 100
 
-### 2.3 Training Pipeline
+### 2.3 訓練パイプライン
 
-1. **Generate Dataset** (est. 6 hours)
+1. **データセット生成**（推定6時間）
    ```bash
    julia --project=. scripts/create_dataset_v61.jl
    ```
 
-2. **Train VAE** (est. 4 hours on GPU)
+2. **VAE訓練**（GPU使用で推定4時間）
    ```bash
    julia --project=. scripts/train_action_vae_v61.jl
    ```
 
-3. **Validate** (est. 1 hour)
-   - Reconstruction quality (MSE < 0.05)
-   - Latent space structure (KL divergence)
+3. **検証**（推定1時間）
+   - 再構成品質（MSE < 0.05）
+   - 潜在空間構造（KLダイバージェンス）
 
-4. **Integration Test** (est. 2 hours)
-   - Repeat Phase 1 tests with new VAE
-   - Verify collision rate improvement maintained
+4. **統合テスト**（推定2時間）
+   - 新VAEでPhase 1テストを繰り返す
+   - 衝突率改善が維持されることを確認
 
-### 2.4 Timeline (if triggered)
+### 2.4 タイムライン（トリガーされた場合）
 
-- **Data Collection**: 6 hours
-- **Training**: 4 hours
-- **Validation**: 1 hour
-- **Integration Test**: 2 hours
-- **Total**: ~13 hours (2 days)
-
----
-
-## Alternative: Skip VAE Retraining Entirely?
-
-### Argument FOR Skipping
-
-1. **Haze Effect is β-Mediated**
-   - Bin 1-6 Haze=0 → β_max = 10.0 (sharp gradients)
-   - This effect is **independent of VAE predictions**
-   - VAE only affects Surprise term `S(u)`, not `Φ_safety(u)`
-
-2. **D_max Change is Small**
-   - 7.5m → 8.0m is only 7% difference
-   - Bin structure changes, but relative proportions similar
-   - VAE may generalize well (neural nets are robust)
-
-3. **Time Efficiency**
-   - Skip 13 hours of retraining
-   - Proceed directly to main experiments
-
-### Argument AGAINST Skipping
-
-1. **Academic Rigor**
-   - Reviewers may question VAE-SPM mismatch
-   - "Why use VAE trained on wrong D_max?"
-
-2. **Optimal Performance**
-   - VAE trained on D_max=8.0m will be more accurate
-   - Better Surprise estimates → better action selection
-
-3. **Future-Proofing**
-   - v6.1 VAE becomes the new baseline
-   - Avoids confusion in future experiments
-
-### Recommendation
-
-**Start with Phase 1 (No VAE retraining)**:
-- Quick validation of core hypothesis (Bin 1-6 Haze=0 improves collision avoidance)
-- If successful AND VAE error acceptable → **Skip Phase 2**
-- If successful BUT VAE error high → **Proceed to Phase 2**
-
-This maximizes efficiency while maintaining rigor.
+- **データ収集**: 6時間
+- **訓練**: 4時間
+- **検証**: 1時間
+- **統合テスト**: 2時間
+- **合計**: 約13時間（2日間）
 
 ---
 
-## Next Steps (Immediate)
+## 代替案: VAE再訓練を完全にスキップ？
 
-### Step 1: Decide on Phased Approach
+### スキップに賛成の論拠
 
-**User Decision Required**:
-1. **Option A**: Two-Phase (Test first, retrain conditionally) — **Recommended**
-2. **Option B**: Direct to VAE Retraining (more conservative)
-3. **Option C**: Skip VAE entirely (most aggressive)
+1. **Haze効果はβ媒介**
+   - Bin 1-6 Haze=0 → β_max = 10.0（鋭い勾配）
+   - この効果は**VAE予測とは独立**
+   - VAEはSurprise項`S(u)`にのみ影響、`Φ_safety(u)`には影響しない
 
-### Step 2: Prepare Test Script (Phase 1)
+2. **D_max変更は小さい**
+   - 7.5m → 8.0mはわずか7%の差
+   - Bin構造は変わるが、相対的な比率は類似
+   - VAEはうまく汎化する可能性（ニューラルネットは頑健）
 
-If Option A or C:
-- Modify `scripts/test_obstacles_unified.jl` for v6.1 comparison
-- Set up logging for all metrics (collision, freezing, gradient, VAE error)
+3. **時間効率**
+   - 13時間の再訓練をスキップ
+   - 本実験に直接進める
 
-If Option B:
-- Prepare `scripts/create_dataset_v61.jl`
-- Estimate computational resources (GPU availability)
+### スキップに反対の論拠
 
-### Step 3: Execute
+1. **学術的厳密性**
+   - レビュアーがVAE-SPMミスマッチを疑問視する可能性
+   - 「なぜ間違ったD_maxで訓練されたVAEを使うのか？」
 
-Based on decision, execute appropriate pipeline.
+2. **最適性能**
+   - D_max=8.0mで訓練されたVAEはより正確
+   - より良いSurprise推定 → より良い行動選択
 
----
+3. **将来性**
+   - v6.1 VAEが新しいベースラインになる
+   - 将来の実験での混乱を回避
 
-## Open Questions
+### 推奨
 
-1. **VAE Generalization**: How robust is the current VAE to D_max change?
-   - **Action**: Phase 1 will answer this empirically
+**Phase 1から開始（VAE再訓練なし）**:
+- コア仮説の迅速な検証（Bin 1-6 Haze=0が衝突回避を改善）
+- 成功 AND VAE誤差が許容範囲 → **Phase 2をスキップ**
+- 成功 BUT VAE誤差が高い → **Phase 2へ進む**
 
-2. **Computational Budget**: Do we have GPU access for VAE retraining?
-   - **Action**: Check availability if Phase 2 needed
-
-3. **Baseline Definition**: Should we compare against v5.5, v6.0, or both?
-   - **Recommendation**: v6.0 only (most recent)
-
-4. **Statistical Significance**: How many test runs needed?
-   - **Recommendation**: 10 runs × 3000 steps = reliable statistics
-
----
-
-## Success Criteria (Overall)
-
-v6.1 is considered successful if:
-
-1. ✅ **Collision rate reduced** by ≥10% vs v6.0
-2. ✅ **Freezing rate reduced** by ≥10% vs v6.0
-3. ✅ **Gradient magnitude increased** in Bin 1-6 (confirms theory)
-4. ✅ **Path efficiency maintained** (≥95% of v6.0)
-5. ✅ **Implementation simpler** than v6.0 (already achieved: step function vs sigmoid)
-
-If criteria met → Proceed to paper writing with v6.1 as final system.
+これにより厳密性を維持しつつ効率を最大化。
 
 ---
 
-## Appendix: File Checklist
+## 次のステップ（即時）
 
-### Core Implementation (✅ Completed)
-- [x] `src/config.jl` — Updated DEFAULT_SPM, FoveationParams
-- [x] `src/controller.jl` — Updated compute_precision_map(), compute_action_v61()
-- [x] `src/spm.jl` — ForwardDiff.Dual compatibility
-- [x] `tmp/visualize_bin16_haze0.jl` — Visualization script
+### Step 1: 段階的アプローチの決定
 
-### Phase 1 (Pending User Decision)
-- [ ] `scripts/test_obstacles_unified_v61.jl` — Modified test script
-- [ ] `scripts/analyze_v61_results.jl` — Metrics analysis script
+**ユーザー判断が必要**:
+1. **オプション A**: 二段階（まずテスト、条件付き再訓練）— **推奨**
+2. **オプション B**: VAE再訓練に直行（より保守的）
+3. **オプション C**: VAEを完全にスキップ（最も積極的）
 
-### Phase 2 (Conditional)
-- [ ] `scripts/create_dataset_v61.jl` — Data generation (D_max=8.0m, Bin 1-6 Haze=0)
-- [ ] `scripts/train_action_vae_v61.jl` — VAE training with new data
-- [ ] `models/action_vae_v61_best.bson` — Trained model
+### Step 2: テストスクリプト準備（Phase 1）
 
-### Documentation
-- [x] `doc/implementation_plan_v6.1.md` — This document
-- [ ] `doc/proposal_v6.1.md` — Update with empirical results (after Phase 1)
-- [ ] `doc/FINAL_PAPER_REPORT.md` — Update with v6.1 final results
+オプション A または C の場合:
+- v6.1比較用に`scripts/test_obstacles_unified.jl`を修正
+- 全指標（衝突、凍結、勾配、VAE誤差）のロギング設定
+
+オプション B の場合:
+- `scripts/create_dataset_v61.jl`を準備
+- 計算リソース（GPU可用性）を見積もる
+
+### Step 3: 実行
+
+決定に基づいて、適切なパイプラインを実行。
 
 ---
 
-**End of Implementation Plan v6.1**
+## 未解決の問題
+
+1. **VAE汎化性能**: 現在のVAEはD_max変更にどれだけ頑健か？
+   - **行動**: Phase 1で実証的に解答
+
+2. **計算予算**: VAE再訓練のためのGPUアクセスがあるか？
+   - **行動**: Phase 2が必要な場合に可用性を確認
+
+3. **ベースライン定義**: v5.5、v6.0、または両方と比較すべきか？
+   - **推奨**: v6.0のみ（最新）
+
+4. **統計的有意性**: 何回のテスト実行が必要か？
+   - **推奨**: 10回実行 × 3000ステップ = 信頼できる統計
+
+---
+
+## 成功基準（全体）
+
+v6.1は以下を満たす場合に成功とみなす:
+
+1. ✅ **衝突率がv6.0比で≥10%低減**
+2. ✅ **凍結率がv6.0比で≥10%低減**
+3. ✅ **Bin 1-6で勾配強度が増加**（理論を確認）
+4. ✅ **経路効率が維持**（v6.0の≥95%）
+5. ✅ **実装がv6.0より簡潔**（既達成: ステップ関数 vs sigmoid）
+
+基準を満たした場合 → v6.1を最終システムとして論文執筆へ進む。
+
+---
+
+## 付録: ファイルチェックリスト
+
+### コア実装（✅ 完了）
+- [x] `src/config.jl` — DEFAULT_SPM、FoveationParams更新
+- [x] `src/controller.jl` — compute_precision_map()、compute_action_v61()更新
+- [x] `src/spm.jl` — ForwardDiff.Dual互換性対応
+- [x] `tmp/visualize_bin16_haze0.jl` — 可視化スクリプト
+
+### Phase 1（ユーザー判断待ち）
+- [ ] `scripts/test_obstacles_unified_v61.jl` — 修正されたテストスクリプト
+- [ ] `scripts/analyze_v61_results.jl` — 指標分析スクリプト
+
+### Phase 2（条件付き）
+- [ ] `scripts/create_dataset_v61.jl` — データ生成（D_max=8.0m、Bin 1-6 Haze=0）
+- [ ] `scripts/train_action_vae_v61.jl` — 新データでのVAE訓練
+- [ ] `models/action_vae_v61_best.bson` — 訓練済みモデル
+
+### ドキュメント
+- [x] `doc/implementation_plan_v6.1.md` — 本ドキュメント
+- [ ] `doc/proposal_v6.1.md` — 実証結果で更新（Phase 1後）
+- [ ] `doc/FINAL_PAPER_REPORT.md` — v6.1最終結果で更新
+
+---
+
+**実装計画 v6.1 終わり**
