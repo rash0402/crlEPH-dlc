@@ -3,22 +3,25 @@
 VAE Training Data Collection for v6.1: Bin 1-6 Haze=0 Fixed Strategy
 
 Purpose:
-  Generate training dataset for Action-Conditioned VAE (Pattern D) with:
+  Generate diverse training dataset for Action-Conditioned VAE (Pattern D) with:
   - D_max = 8.0m (2³, mathematical elegance + biological validity)
   - Bin 1-6 Haze=0 Fixed (step function, no sigmoid blending)
-  - Multiple density conditions (5, 10, 15, 20 agents/group)
-  - Multiple random seeds for diversity
+  - Multiple scenarios: Scramble crossing + Corridor (narrow passage)
+  - Multiple density conditions: 5, 10, 15, 20 agents/group
+  - Corridor width variation: 3.0m (narrow), 4.0m (medium), 5.0m (wide)
+  - Exploration noise for action diversity: 0.3 std
+  - 5 random seeds per condition
 
 Output:
-  - Raw logs: data/vae_training/raw/v61_density{D}_seed{S}_YYYYMMDD_HHMMSS.h5
+  - Raw logs: data/vae_training/raw/v61_{scenario}_d{density}_s{seed}_YYYYMMDD_HHMMSS.h5
   - Unified dataset: data/vae_training/dataset_v61.h5
-    - Train: 70% (densities 5/10/15, seeds 1-3)
-    - Val: 15% (densities 5/10/15, seed 4)
-    - Test: 10% (densities 5/10/15, seed 5)
-    - OOD: 5% (density 20, seed 1)
+    - Train: 70% (densities 5/10/15, seeds 1-3, all scenarios)
+    - Val: 15% (densities 5/10/15, seed 4, all scenarios)
+    - Test: 10% (densities 5/10/15, seed 5, all scenarios)
+    - OOD: 5% (density 20, seed 1, all scenarios)
 
-Estimated time: ~6 hours (GPU recommended for training phase)
-Target samples: 50,000 triplets (y[k], u[k], y[k+1])
+Estimated time: ~10 hours (2 scenarios × 4 densities × 5 seeds × ~15 min/run)
+Target samples: 50,000-70,000 triplets (y[k], u[k], y[k+1])
 """
 
 using Pkg
@@ -29,6 +32,8 @@ using Statistics
 using HDF5
 using Dates
 using Random
+using LinearAlgebra
+using ArgParse
 
 # Load project modules
 include("../src/config.jl")
@@ -47,19 +52,75 @@ using .ActionVAE
 using .Scenarios
 using .Logger
 
+"""
+Parse command line arguments
+"""
+function parse_commandline()
+    s = ArgParseSettings(description="VAE Training Data Collection for v6.1")
+
+    @add_arg_table! s begin
+        "--scenario"
+            help = "Scenario type: 'scramble', 'corridor', or 'both'"
+            arg_type = String
+            default = "both"
+        "--densities"
+            help = "Agent densities (comma-separated, e.g., '5,10,15,20')"
+            arg_type = String
+            default = "5,10,15,20"
+        "--seeds"
+            help = "Random seeds (range format, e.g., '1:5')"
+            arg_type = String
+            default = "1:5"
+        "--steps"
+            help = "Simulation steps per run"
+            arg_type = Int
+            default = 3000
+        "--corridor-widths"
+            help = "Corridor widths in meters (comma-separated, e.g., '3.0,4.0,5.0')"
+            arg_type = String
+            default = "3.0,4.0,5.0"
+        "--exploration-noise"
+            help = "Exploration noise std for action diversity"
+            arg_type = Float64
+            default = 0.3
+        "--output-dir"
+            help = "Output directory for raw logs"
+            arg_type = String
+            default = "data/vae_training/raw"
+        "--dry-run"
+            help = "Test mode: only 100 steps"
+            action = :store_true
+    end
+
+    return parse_args(s)
+end
+
 println("="^80)
 println("VAE Training Data Collection for v6.1: Bin 1-6 Haze=0 Fixed")
 println("="^80)
 println()
 
+# Parse arguments
+args = parse_commandline()
+
 # Configuration
-const OUTPUT_DIR = joinpath(@__DIR__, "../data/vae_training/raw")
+const OUTPUT_DIR = args["output-dir"]
 mkpath(OUTPUT_DIR)
 
-# Simulation parameters
-const MAX_STEPS = 3000  # 100 seconds @ 30Hz
-const DENSITIES = [5, 10, 15, 20]  # agents per group (4 groups total)
-const N_SEEDS_PER_DENSITY = 5  # For diversity
+const SCENARIOS = args["scenario"] == "both" ? ["scramble", "corridor"] : [args["scenario"]]
+const DENSITIES = parse.(Int, split(args["densities"], ","))
+const SEEDS_RANGE = let
+    range_str = args["seeds"]
+    if contains(range_str, ":")
+        start_end = parse.(Int, split(range_str, ":"))
+        collect(start_end[1]:start_end[2])
+    else
+        parse.(Int, split(range_str, ","))
+    end
+end
+const MAX_STEPS = args["dry-run"] ? 100 : args["steps"]
+const CORRIDOR_WIDTHS = parse.(Float64, split(args["corridor-widths"], ","))
+const EXPLORATION_NOISE = args["exploration-noise"]
 
 # v6.1 SPM and Foveation parameters
 const V61_SPM_PARAMS = SPMParams(sensing_ratio=8.0)  # D_max = 8.0m (2³)
@@ -69,20 +130,35 @@ const V61_FOV_PARAMS = FoveationParams(
     h_peripheral=0.5        # Haze=0.5 in peripheral zone
 )
 
+println("Configuration:")
+println("  Scenarios: $(SCENARIOS)")
+println("  Densities: $(DENSITIES)")
+println("  Seeds: $(SEEDS_RANGE)")
+println("  Steps per run: $(MAX_STEPS)")
+println("  Corridor widths: $(CORRIDOR_WIDTHS) m")
+println("  Exploration noise: $(EXPLORATION_NOISE) std")
+println("  D_max: 8.0m")
+println("  Foveation: Bin 1-6 Haze=0 Fixed")
+println("  Output: $OUTPUT_DIR")
+println()
+
 """
 Run single simulation and save log
 """
 function run_single_simulation(
+    scenario::String,
     density::Int,
-    seed::Int
+    seed::Int,
+    corridor_width::Float64=4.0
 )
     Random.seed!(seed)
 
     timestamp = Dates.format(now(), "yyyymmdd_HHMMSS")
-    log_filename = "v61_density$(density)_seed$(seed)_$(timestamp).h5"
+    scenario_suffix = scenario == "corridor" ? "_w$(Int(round(corridor_width*10)))" : ""
+    log_filename = "v61_$(scenario)$(scenario_suffix)_d$(density)_s$(seed)_$(timestamp).h5"
     log_path = joinpath(OUTPUT_DIR, log_filename)
 
-    println("  Density=$density, Seed=$seed")
+    println("  Scenario=$scenario, Density=$density, Seed=$seed$(scenario == "corridor" ? ", Width=$(corridor_width)m" : "")")
     println("    Output: $log_filename")
 
     # Initialize world and agents
@@ -93,20 +169,39 @@ function run_single_simulation(
     # Initialize SPM config with D_max=8.0m
     spm_config = init_spm(V61_SPM_PARAMS)
 
-    # Create scenario: scramble crossing (4-group)
-    agents = create_scramble_crossing(agent_params, world_params)
+    # Create scenario
+    if scenario == "scramble"
+        agents = create_scramble_crossing(agent_params, world_params)
+        obstacles = []
+    elseif scenario == "corridor"
+        scenario_params = ScenarioParams(
+            scenario_type=CORRIDOR,
+            num_agents_per_group=density,
+            corridor_width=corridor_width
+        )
+        agents = initialize_scenario(scenario_params, agent_params, world_params)
+        obstacles = get_obstacles(scenario_params)
+    else
+        error("Unknown scenario: $scenario")
+    end
 
-    # Initialize logger
-    logger = Logger.init_logger(log_path, agent_params, world_params, spm_config)
+    # Initialize logger (modify to use standard Logger if needed)
+    # For now, we'll log manually to HDF5
 
     # Tracking metrics
     collision_count = 0
     freezing_count = 0
 
+    # Data storage
+    spm_log = zeros(Float32, MAX_STEPS, length(agents), 16, 16, 3)
+    action_log = zeros(Float32, MAX_STEPS, length(agents), 2)
+    pos_log = zeros(Float32, MAX_STEPS, length(agents), 2)
+    vel_log = zeros(Float32, MAX_STEPS, length(agents), 2)
+
     # Simulation loop
     for step in 1:MAX_STEPS
         # Update each agent
-        for agent in agents
+        for (agent_idx, agent) in enumerate(agents)
             # Get other agents (excluding self)
             other_agents = filter(a -> a.id != agent.id, agents)
 
@@ -119,9 +214,23 @@ function run_single_simulation(
                 d_pref = [0.0, 0.0]
             end
 
-            # Generate SPM
+            # Generate SPM (3 channels)
             agents_rel_pos = [other.pos - agent.pos for other in other_agents]
             agents_rel_vel = [other.vel - agent.vel for other in other_agents]
+
+            # For corridor scenario, add obstacles as static agents
+            if scenario == "corridor" && !isempty(obstacles)
+                for obs in obstacles
+                    obs_pos = [obs[1], obs[2]]
+                    obs_rel_pos = obs_pos - agent.pos
+
+                    # Only add if within sensing range
+                    if norm(obs_rel_pos) < V61_SPM_PARAMS.sensing_ratio * (V61_SPM_PARAMS.r_robot + agent_params.r_agent)
+                        push!(agents_rel_pos, obs_rel_pos)
+                        push!(agents_rel_vel, [0.0, 0.0])  # Static obstacle
+                    end
+                end
+            end
 
             spm_current = generate_spm_3ch(
                 spm_config,
@@ -130,7 +239,7 @@ function run_single_simulation(
                 agent_params.r_agent
             )
 
-            # Compute action (v6.1 with Bin 1-6 Haze=0)
+            # Compute action (v6.1 with Bin 1-6 Haze=0, no VAE)
             u = compute_action_v61(
                 agent,
                 spm_current,
@@ -149,8 +258,21 @@ function run_single_simulation(
                 h_peripheral=V61_FOV_PARAMS.h_peripheral
             )
 
+            # Add exploration noise for action diversity
+            if EXPLORATION_NOISE > 0.0
+                u = u .+ randn(2) .* EXPLORATION_NOISE
+                # Clamp to reasonable range
+                u = clamp.(u, -2.0, 2.0)
+            end
+
             # Apply action
             agent.u = u
+
+            # Log data
+            spm_log[step, agent_idx, :, :, :] = spm_current
+            action_log[step, agent_idx, :] = u
+            pos_log[step, agent_idx, :] = agent.pos
+            vel_log[step, agent_idx, :] = agent.vel
 
             # Check for collision
             for other in other_agents
@@ -167,15 +289,30 @@ function run_single_simulation(
             end
         end
 
-        # Log current state
-        Logger.log_step!(logger, agents, step)
-
         # Update dynamics
         agents = step_dynamics(agents, world_params, agent_params)
     end
 
-    # Finalize log
-    Logger.finalize_logger!(logger)
+    # Save to HDF5
+    h5open(log_path, "w") do file
+        g = create_group(file, "data")
+        g["spm"] = spm_log
+        g["actions"] = action_log
+        g["positions"] = pos_log
+        g["velocities"] = vel_log
+
+        # Metadata
+        attributes(file)["scenario"] = scenario
+        attributes(file)["density"] = density
+        attributes(file)["seed"] = seed
+        attributes(file)["corridor_width"] = scenario == "corridor" ? corridor_width : 0.0
+        attributes(file)["d_max"] = 8.0
+        attributes(file)["rho_index_critical"] = 6
+        attributes(file)["h_critical"] = 0.0
+        attributes(file)["h_peripheral"] = 0.5
+        attributes(file)["exploration_noise"] = EXPLORATION_NOISE
+        attributes(file)["timestamp"] = string(now())
+    end
 
     # Compute metrics
     total_agent_steps = length(agents) * MAX_STEPS
@@ -188,7 +325,10 @@ function run_single_simulation(
 
     return log_path, Dict(
         "collision_rate" => collision_rate,
-        "freezing_rate" => freezing_rate
+        "freezing_rate" => freezing_rate,
+        "scenario" => scenario,
+        "density" => density,
+        "seed" => seed
     )
 end
 
@@ -242,20 +382,33 @@ end
 
 # Main execution
 println("Starting data collection...")
-println("  Densities: $DENSITIES")
-println("  Seeds per density: $N_SEEDS_PER_DENSITY")
-println("  Steps per simulation: $MAX_STEPS")
-println("  Output directory: $OUTPUT_DIR")
 println()
 
 all_logs = []
 all_metrics = []
 
-for density in DENSITIES
-    for seed in 1:N_SEEDS_PER_DENSITY
-        log_path, metrics = run_single_simulation(density, seed)
-        push!(all_logs, (density, seed, log_path))
-        push!(all_metrics, metrics)
+# Run simulations for all conditions
+for scenario in SCENARIOS
+    if scenario == "corridor"
+        # Multiple corridor widths for variety
+        for width in CORRIDOR_WIDTHS
+            for density in DENSITIES
+                for seed in SEEDS_RANGE
+                    log_path, metrics = run_single_simulation(scenario, density, seed, width)
+                    push!(all_logs, (scenario, density, seed, width, log_path))
+                    push!(all_metrics, metrics)
+                end
+            end
+        end
+    else
+        # Scramble: no width variation
+        for density in DENSITIES
+            for seed in SEEDS_RANGE
+                log_path, metrics = run_single_simulation(scenario, density, seed)
+                push!(all_logs, (scenario, density, seed, 0.0, log_path))
+                push!(all_metrics, metrics)
+            end
+        end
     end
     println()
 end
@@ -267,11 +420,16 @@ println("  Total simulations: $(length(all_logs))")
 println("  Total log files: $(length(all_logs))")
 println()
 
-# Aggregate metrics
-avg_collision = mean([m["collision_rate"] for m in all_metrics])
-avg_freezing = mean([m["freezing_rate"] for m in all_metrics])
-@printf("  Average collision rate: %.2f%%\n", avg_collision)
-@printf("  Average freezing rate: %.2f%%\n", avg_freezing)
+# Aggregate metrics by scenario
+for scenario in SCENARIOS
+    scenario_metrics = filter(m -> m["scenario"] == scenario, all_metrics)
+    if !isempty(scenario_metrics)
+        avg_collision = mean([m["collision_rate"] for m in scenario_metrics])
+        avg_freezing = mean([m["freezing_rate"] for m in scenario_metrics])
+        @printf("  %s: Collision %.2f%%, Freezing %.2f%%\n",
+                uppercase(scenario), avg_collision, avg_freezing)
+    end
+end
 println()
 
 # Extract samples and create unified dataset
@@ -285,10 +443,10 @@ val_samples = []
 test_samples = []
 ood_samples = []
 
-for (density, seed, log_path) in all_logs
-    println("  Extracting samples from: $(basename(log_path))")
+for (scenario, density, seed, width, log_path) in all_logs
+    println("  Extracting: $(basename(log_path))")
     samples = extract_samples_from_log(log_path)
-    println("    Extracted $(length(samples)) samples")
+    println("    $(length(samples)) samples")
 
     # Data split logic
     if density in [5, 10, 15]
@@ -306,14 +464,12 @@ end
 
 println()
 println("Dataset splits:")
-@printf("  Train: %d samples (%.1f%%)\n", length(train_samples),
-        100.0 * length(train_samples) / (length(train_samples) + length(val_samples) + length(test_samples) + length(ood_samples)))
-@printf("  Val: %d samples (%.1f%%)\n", length(val_samples),
-        100.0 * length(val_samples) / (length(train_samples) + length(val_samples) + length(test_samples) + length(ood_samples)))
-@printf("  Test: %d samples (%.1f%%)\n", length(test_samples),
-        100.0 * length(test_samples) / (length(train_samples) + length(val_samples) + length(test_samples) + length(ood_samples)))
-@printf("  OOD: %d samples (%.1f%%)\n", length(ood_samples),
-        100.0 * length(ood_samples) / (length(train_samples) + length(val_samples) + length(test_samples) + length(ood_samples)))
+total_samples = length(train_samples) + length(val_samples) + length(test_samples) + length(ood_samples)
+@printf("  Train: %d samples (%.1f%%)\n", length(train_samples), 100.0 * length(train_samples) / total_samples)
+@printf("  Val: %d samples (%.1f%%)\n", length(val_samples), 100.0 * length(val_samples) / total_samples)
+@printf("  Test: %d samples (%.1f%%)\n", length(test_samples), 100.0 * length(test_samples) / total_samples)
+@printf("  OOD: %d samples (%.1f%%)\n", length(ood_samples), 100.0 * length(ood_samples) / total_samples)
+@printf("  Total: %d samples\n", total_samples)
 println()
 
 # Save unified dataset
@@ -326,6 +482,7 @@ h5open(dataset_path, "w") do file
     # Helper function to save samples
     function save_split(split_name, samples)
         if isempty(samples)
+            println("  Warning: $split_name is empty")
             return
         end
 
@@ -347,6 +504,8 @@ h5open(dataset_path, "w") do file
         g["spm_current"] = spm_current_arr
         g["actions"] = action_arr
         g["spm_next"] = spm_next_arr
+
+        println("  $split_name: $n_samples samples saved")
     end
 
     save_split("train", train_samples)
@@ -361,6 +520,10 @@ h5open(dataset_path, "w") do file
     attributes(file)["rho_index_critical"] = 6
     attributes(file)["h_critical"] = 0.0
     attributes(file)["h_peripheral"] = 0.5
+    attributes(file)["scenarios"] = join(SCENARIOS, ",")
+    attributes(file)["densities"] = join(DENSITIES, ",")
+    attributes(file)["corridor_widths"] = join(CORRIDOR_WIDTHS, ",")
+    attributes(file)["exploration_noise"] = EXPLORATION_NOISE
     attributes(file)["n_train"] = length(train_samples)
     attributes(file)["n_val"] = length(val_samples)
     attributes(file)["n_test"] = length(test_samples)
@@ -368,6 +531,10 @@ h5open(dataset_path, "w") do file
 end
 
 println("✅ Saved: $dataset_path")
+
+# File size
+filesize_mb = round(stat(dataset_path).size / 1024^2, digits=2)
+println("  File size: $(filesize_mb) MB")
 println()
 
 println("="^80)
