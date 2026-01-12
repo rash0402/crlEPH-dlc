@@ -173,19 +173,19 @@ function run_single_simulation(
 
     # Create scenario
     if scenario == "scramble"
-        scenario_params = ScenarioParams(
-            scenario_type=SCRAMBLE_CROSSING,
-            num_agents_per_group=density
+        agents, scenario_params = initialize_scenario(
+            SCRAMBLE_CROSSING,
+            density;
+            seed=seed
         )
-        agents = initialize_scenario(scenario_params, agent_params, world_params)
-        obstacles = []
+        obstacles = get_obstacles(scenario_params)
     elseif scenario == "corridor"
-        scenario_params = ScenarioParams(
-            scenario_type=CORRIDOR,
-            num_agents_per_group=density,
+        agents, scenario_params = initialize_scenario(
+            CORRIDOR,
+            density;
+            seed=seed,
             corridor_width=corridor_width
         )
-        agents = initialize_scenario(scenario_params, agent_params, world_params)
         obstacles = get_obstacles(scenario_params)
     else
         error("Unknown scenario: $scenario")
