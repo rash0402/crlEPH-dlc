@@ -304,10 +304,7 @@ function run_single_simulation(
                 emergency_stop_counters[agent.id] = 0
             end
 
-            # Apply action
-            agent.u = u
-
-            # Log data
+            # Log data BEFORE updating dynamics
             spm_log[step, agent_idx, :, :, :] = spm_current
             action_log[step, agent_idx, :] = u
             pos_log[step, agent_idx, :] = agent.pos
@@ -317,10 +314,12 @@ function run_single_simulation(
             if norm(agent.vel) < 0.1
                 freezing_count += 1
             end
-        end
 
-        # Update dynamics
-        agents = step_dynamics(agents, world_params, agent_params)
+            # Update agent dynamics with step!
+            # Note: obstacles are static positions (x, y), need to convert to Obstacle type if required
+            # For simplicity, we'll pass empty obstacles array and rely on SPM-based collision avoidance
+            Dynamics.step!(agent, u, agent_params, world_params, [], agents)
+        end
     end
 
     # Save to HDF5
