@@ -43,10 +43,10 @@ function init_spm(params::SPMParams=DEFAULT_SPM)
 end
 
 """
-Calculate normalized log distance based on surface distance
+Calculate normalized log distance based on surface distance (ForwardDiff compatible)
 d = log(||r|| / r_total)
 """
-function calc_log_dist(rel_p::Vector{Float64}, r_total::Float64)
+function calc_log_dist(rel_p::AbstractVector, r_total::Real)
     d_center = norm(rel_p)
     # Surface distance: 0 at contact, positive when far
     return log(max(1.0, d_center / (r_total + 1e-6)))
@@ -75,25 +75,31 @@ function softmax_velocity(velocities::Vector{Float64}, beta::Float64)
 end
 
 """
-Generate 3-channel SPM image
+Generate 3-channel SPM image (ForwardDiff.Dual compatible)
 - ch1: Occupancy (density)
 - ch2: Proximity Saliency (surface distance based, adaptive β softmin)
 - ch3: Dynamic Collision Risk (TTC based, adaptive β softmax)
 
 Args:
-    precision: Precision (Π = 1/H) for adaptive β modulation (default 1.0 = no modulation)
+    config: SPM configuration
+    agents_rel_pos: Relative positions (supports ForwardDiff.Dual)
+    agents_rel_vel: Relative velocities (supports ForwardDiff.Dual)
+    r_agent: Agent radius (supports ForwardDiff.Dual)
+    precision: Precision (Π = 1/H) for adaptive β modulation
 
-Returns: Array{Float64, 3} of shape (n_rho, n_theta, 3)
+Returns: Array of shape (n_rho, n_theta, 3), element type matches input
 """
 function generate_spm_3ch(
     config::SPMConfig,
-    agents_rel_pos::Vector{Vector{Float64}},
-    agents_rel_vel::Vector{Vector{Float64}},
-    r_agent::Float64,
-    precision::Float64 = 1.0  # Default: no modulation (baseline mode)
+    agents_rel_pos::Vector{<:AbstractVector},  # Accept Dual numbers
+    agents_rel_vel::Vector{<:AbstractVector},  # Accept Dual numbers
+    r_agent::Real,                              # Accept Dual numbers
+    precision::Real = 1.0                       # Accept Dual numbers
 )
     params = config.params
-    spm = zeros(Float64, params.n_rho, params.n_theta, 3)
+    # Type inference: if inputs contain Dual, spm will be Dual array
+    T = promote_type(eltype(eltype(agents_rel_pos)), typeof(r_agent), typeof(precision))
+    spm = zeros(T, params.n_rho, params.n_theta, 3)
     r_total = params.r_robot + r_agent
     
     # Adaptive β modulation (EPH proposal equations 3.3.2 and 3.3.3)
