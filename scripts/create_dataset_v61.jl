@@ -127,9 +127,9 @@ const EXPLORATION_NOISE = args["exploration-noise"]
 # v6.1 SPM and Foveation parameters
 const V61_SPM_PARAMS = SPMParams(sensing_ratio=8.0)  # D_max = 8.0m (2³)
 const V61_FOV_PARAMS = FoveationParams(
-    rho_index_critical=6,  # Bin 1-6 (0-2.18m)
-    h_critical=0.0,         # Haze=0.0 in critical zone
-    h_peripheral=0.5        # Haze=0.5 in peripheral zone
+    rho_index_critical=6,  # Not used during data collection (only for inference)
+    h_critical=0.0,         # Haze=0.0 everywhere (pure observation for VAE training)
+    h_peripheral=0.0        # Haze=0.0 everywhere (Haze is applied only at inference time)
 )
 
 println("Configuration:")
