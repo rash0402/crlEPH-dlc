@@ -196,7 +196,7 @@ function run_single_simulation(
 
     # Emergency stop tracking (for deadlock avoidance)
     emergency_stop_counters = Dict{Int, Int}(agent.id => 0 for agent in agents)
-    const EMERGENCY_STOP_TIMEOUT = 20  # Release after 20 steps
+    EMERGENCY_STOP_TIMEOUT = 20  # Release after 20 steps
 
     # Data storage
     spm_log = zeros(Float32, MAX_STEPS, length(agents), 16, 16, 3)
