@@ -318,7 +318,7 @@ function run_single_simulation(
             # Update agent dynamics with step!
             # Note: obstacles are static positions (x, y), need to convert to Obstacle type if required
             # For simplicity, we'll pass empty obstacles array and rely on SPM-based collision avoidance
-            Dynamics.step!(agent, u, agent_params, world_params, [], agents)
+            Dynamics.step!(agent, u, agent_params, world_params, Obstacle[], agents)
         end
     end
 
