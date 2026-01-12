@@ -192,6 +192,10 @@ function run_single_simulation(
     collision_count = 0
     freezing_count = 0
 
+    # Emergency stop tracking (for deadlock avoidance)
+    emergency_stop_counters = Dict{Int, Int}(agent.id => 0 for agent in agents)
+    const EMERGENCY_STOP_TIMEOUT = 20  # Release after 20 steps
+
     # Data storage
     spm_log = zeros(Float32, MAX_STEPS, length(agents), 16, 16, 3)
     action_log = zeros(Float32, MAX_STEPS, length(agents), 2)
@@ -265,6 +269,35 @@ function run_single_simulation(
                 u = clamp.(u, -2.0, 2.0)
             end
 
+            # Check for collision and apply emergency stop with deadlock avoidance
+            in_collision = false
+            for other in other_agents
+                dist = norm(agent.pos - other.pos)
+                if dist < agent_params.emergency_threshold_agent
+                    in_collision = true
+                    collision_count += 1
+                    break
+                end
+            end
+
+            # Emergency stop logic with deadlock avoidance
+            if in_collision
+                emergency_stop_counters[agent.id] += 1
+
+                # If stopped for too long, release with small push toward goal
+                if emergency_stop_counters[agent.id] >= EMERGENCY_STOP_TIMEOUT
+                    # Small push toward goal to escape deadlock
+                    u = 0.1 .* d_pref
+                    emergency_stop_counters[agent.id] = 0  # Reset counter
+                else
+                    # Emergency stop
+                    u = [0.0, 0.0]
+                end
+            else
+                # Reset emergency counter when no collision
+                emergency_stop_counters[agent.id] = 0
+            end
+
             # Apply action
             agent.u = u
 
@@ -273,15 +306,6 @@ function run_single_simulation(
             action_log[step, agent_idx, :] = u
             pos_log[step, agent_idx, :] = agent.pos
             vel_log[step, agent_idx, :] = agent.vel
-
-            # Check for collision
-            for other in other_agents
-                dist = norm(agent.pos - other.pos)
-                if dist < agent_params.emergency_threshold_agent
-                    collision_count += 1
-                    break
-                end
-            end
 
             # Check for freezing
             if norm(agent.vel) < 0.1
@@ -334,14 +358,19 @@ end
 
 """
 Extract (SPM[k], action[k], SPM[k+1]) samples from HDF5 log
+
+Filters out empty/near-empty SPMs (when no agents/obstacles in field of view)
+to improve VAE training quality and reduce storage.
 """
 function extract_samples_from_log(
     filepath::String;
     step_interval::Int=5,
     max_agents_per_step::Int=3,
-    max_samples_per_file::Int=5000
+    max_samples_per_file::Int=5000,
+    min_information_content::Float64=0.05  # At least 5% non-zero elements
 )
     samples = []
+    skipped_empty = 0
 
     h5open(filepath, "r") do file
         # Read data: (n_steps, n_agents, ...)
@@ -367,6 +396,17 @@ function extract_samples_from_log(
                 action = Float32.(action_data[step, agent_id, :])
                 spm_next = Float32.(spm_data[step+1, agent_id, :, :, :])
 
+                # Filter out empty/near-empty SPMs
+                # Check information content: percentage of non-zero elements
+                non_zero_current = count(abs.(spm_current) .> 1e-4) / length(spm_current)
+                non_zero_next = count(abs.(spm_next) .> 1e-4) / length(spm_next)
+
+                # Skip if both SPMs are nearly empty (nothing in field of view)
+                if non_zero_current < min_information_content && non_zero_next < min_information_content
+                    skipped_empty += 1
+                    continue
+                end
+
                 push!(samples, (spm_current, action, spm_next))
                 sample_count += 1
 
@@ -375,6 +415,10 @@ function extract_samples_from_log(
                 end
             end
         end
+    end
+
+    if skipped_empty > 0
+        println("      (Filtered $skipped_empty empty SPMs)")
     end
 
     return samples
