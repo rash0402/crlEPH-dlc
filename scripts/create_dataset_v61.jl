@@ -173,7 +173,11 @@ function run_single_simulation(
 
     # Create scenario
     if scenario == "scramble"
-        agents = create_scramble_crossing(agent_params, world_params)
+        scenario_params = ScenarioParams(
+            scenario_type=SCRAMBLE_CROSSING,
+            num_agents_per_group=density
+        )
+        agents = initialize_scenario(scenario_params, agent_params, world_params)
         obstacles = []
     elseif scenario == "corridor"
         scenario_params = ScenarioParams(
