@@ -94,7 +94,7 @@ const EARLY_STOP_PATIENCE = 15
 # Data loading parameters (★ v6.2 memory-efficient settings)
 const STRIDE = 5  # Temporal sampling: every 5 timesteps
 const AGENT_SUBSAMPLE = nothing  # Use all agents (or set to 2 for every 2nd agent)
-const MAX_FILES = 20  # Limit number of files (20 for testing, nothing for all 80)
+const MAX_FILES = nothing  # Limit number of files (20 for testing, nothing for all 80)
 const TRAIN_VAL_SPLIT = 0.8  # 80% train, 20% validation
 const VAL_TEST_SPLIT = 0.5  # Split validation into val/test (10% each)
 

@@ -29,7 +29,7 @@ tags:
 
 > [!ABSTRACT] 提案の概要（One-Liner Pitch）
 >
-> **混雑環境における社会的ロボットナビゲーションにおいて、Critical Zone理論（0-2.18m @ D_max=8m）とPrecision-Weighted Safetyにより、衝突回避項Φ_safetyと予測誤差項Sの両方に空間的重要度重み付けを適用し、生物学的に妥当な知覚解像度制御と創発的社会行動（Laminar Flow, Lane Formation, Zipper Effect）を実現する。同時に、Raw Trajectory Data Architecture（100倍ストレージ削減）により、データの再利用性と研究加速を達成する。**
+> **混雑環境における社会的ロボットナビゲーションにおいて、Free Energy Principle（自由エネルギー原理）に基づく統一最適化フレームワークと生物学的に妥当なSaliency Polar Map表現により、従来手法（DWA、Social Force Model）が手動設計していた社会行動パターンを、予測誤差最小化から創発的に生成する。Active Inference理論のPrecision概念を空間的重要度重み付け（Precision-Weighted Safety）へ拡張し、Critical Zone（0-2.18m）での衝突回避と予測精度を同時に最大化することで、手動調整なしにLaminar Flow、Lane Formation、Zipper Effectといった人間的な社会行動を実現する。**
 
 ## 要旨 (Abstract)
 
@@ -39,35 +39,56 @@ tags:
 
 ### 背景 (Background)
 
-混雑環境における自律ロボットの社会的ナビゲーションでは、他者行動の予測困難性が本質的に高く、従来手法（MPC、RL）は過度に保守的な回避行動やFreezingといった行動破綻を引き起こす。我々はv6.0においてActive Inference理論に基づく統一自由エネルギー最小化手法を確立し、v5.6実装バグ（F_safety が行動uに依存しない定数）を修正した。v6.1では、近傍空間（Peripersonal Space, PPS）理論に基づく「Bin 1-6 Haze=0固定戦略（Critical Zone Strategy）」を導入し、衝突臨界ゾーン（0-2.18m）での精度最大化を実現した。
+混雑環境における自律ロボットの社会的ナビゲーションは、人間のような柔軟な衝突回避と自然な社会行動パターン（Lane Formation、Zipper Effect等）の両立が困難である。従来手法は以下の本質的限界を抱える：
 
-しかし、v6.1には理論的整合性の課題が残されていた：**Precision-Weighted Surprise S(u; Π)のみがPrecision Π(ρ)により重み付けされ、衝突回避項Φ_safetyには適用されていなかった。**Critical Zoneが「衝突回避を優先するエリア」と定義される以上、Φ_safetyにもΠ(ρ)を適用すべきである。また、VAE学習データの保存形式（事前計算SPM）は、ストレージ肥大化（2.1GB/sim）と再利用性の欠如という工学的課題を抱えていた。
+**反応的手法の限界**：Dynamic Window Approach（DWA, Fox et al., 1997）やSocial Force Model（Helbing & Molnár, 1995）は、局所的な障害物回避に特化し、他者の将来行動を予測しない。その結果、混雑環境では過度に保守的な行動やFreezing（立ち往生）が頻発する。また、社会行動パターンは手動で設計されたルールに依存し、状況適応性に欠ける。
+
+**学習ベース手法の課題**：深層強化学習（Deep RL, Chen et al., 2017; Chen et al., 2019）は大量の試行錯誤を要し、学習した行動の解釈性が低い。さらに、報酬関数の手動設計により、創発的な社会行動の発見が困難である。
+
+**Active Inference既存研究の不足**：Active Inferenceのロボット制御応用（Pio-Lopez et al., 2016）は、Precision概念を感覚運動制御の不確実性推定に限定しており、**空間的な重要度重み付け**（どの距離範囲の情報が重要か）への応用は未開拓である。また、Peripersonal Space（PPS）理論（Rizzolatti & Sinigaglia, 2010）が示す近傍空間での防御反応増幅メカニズムと、Active InferenceのPrecision制御の統合は行われていない。
 
 ### 目的 (Objective)
 
-本研究v6.2の目的は、以下の2つの拡張によりv6.1アーキテクチャを理論的・工学的に完成させることである：
+本研究の目的は、**Free Energy Principle（FEP）に基づく統一最適化フレームワーク**により、従来手法の限界を以下のように克服することである：
 
-1. **Precision-Weighted Safety**：衝突回避項Φ_safetyにPrecision Π(ρ)を適用し、Critical Zone（Bin 1-6, Π≈100）で衝突回避ゲインを増幅、Peripheral Zone（Bin 7+, Π≈2）で過剰反応を抑制
-2. **Raw Trajectory Data Architecture**：生の軌道データ（pos, vel, u, heading）のみを記録し、VAE学習時にSPMを再生成することで、100倍のストレージ削減（2.1GB → 16.8MB/sim）と柔軟性向上を実現
+**EPHの核心アプローチ**：
+1. **統一自由エネルギー最小化**：目標到達（Φ_goal）、衝突回避（Φ_safety）、予測誤差（S）を単一の自由エネルギーF(u)として統合し、勾配降下法（ForwardDiff.jl）により自動最適化
+2. **Saliency Polar Map（SPM）**：生物学的に妥当なlog-polar座標（16×16×3ch）で知覚を表現し、中心窩（foveal）と周辺視（peripheral）の解像度差を模倣
+3. **Action-Conditioned VAE**：Pattern D VAE（q(z|y,u) → p(y[k+1]|z,u)）により、行動uに依存する将来状態を予測し、Counterfactual推論（「もし別の行動をしたら？」）を実現
+4. **Precision-Weighted Safety**：Active InferenceのPrecision概念を**空間的重要度重み付け**へ拡張し、Critical Zone（0-2.18m）での衝突回避と予測精度を同時に最大化
 
-これらにより、統一自由エネルギーF(u) = Φ_goal(u) + Φ_safety(u; Π) + S(u; Π)の完全な定式化と、データ駆動型研究の加速を達成する。
+これにより、**手動設計なし**で創発的社会行動（Laminar Flow、Lane Formation、Zipper Effect）を生成し、従来手法の「反応的制限」「学習非効率」「解釈性欠如」を同時に解決する。
 
-**重要な学術的明確化**：v6.2では、Π(ρ)を「FEP Precision（予測不確実性の逆数）」から**「Spatial Importance Weight（空間的重要度）」**へと再解釈することで、ΦとSの両方への適用を理論的に正当化する。この拡張は、Active InferenceにおけるPrecision概念の新しい応用領域を開拓するものである。
+**EPHの独自性**：DWAやSocial Forceが「力や速度の直接計算」に留まるのに対し、EPHは「脳の知覚→予測→行動選択」の統一原理（自由エネルギー最小化）を模倣し、生物学的妥当性と工学的性能を両立させる。
 
 ### 学術的新規性 (Academic Novelty)
 
-**従来のActive Inference工学的実装**がPrecision制御を予測誤差（Surprise）のみに適用していたのに対し、**本研究v6.2はPrecisionを「Spatial Importance Weight」として再解釈し、衝突回避項Φ_safetyにも適用する初の事例**である。
+EPHは、**先行研究が個別に扱っていた複数の要素を、Free Energy Principleという統一原理の下で初めて統合**した点に学術的新規性がある。
 
-学術的新規性は以下の6点：
+#### 従来手法との本質的差異
 
-1. **Precision-Weighted Safetyの提案**：Active InferenceにおけるPrecision概念を拡張し、予測誤差（S）と衝突回避（Φ_safety）の両方に空間的重要度重み付けを適用
-2. **Π(ρ)の概念的拡張**：「FEP Precision（予測不確実性の逆数）」から「Spatial Importance Weight（空間的重要度）」への理論的再解釈
-3. **多分野統合理論的正当化**：神経科学（PPS VIP/F4防御反応増幅）、能動的推論（精度重み付け）、実証研究（回避開始 2-3m）、制御理論（TTC 1s @ 2.1m）の4分野による統合的根拠
-4. **Critical Zone Framework**：Bin 1-6（0-2.18m）を「Critical Zone」として用語統一し、Personal Space（社会心理学）との混同を排除
-5. **Raw Trajectory Data Architecture**：Data-Algorithm Separation Patternによる100倍ストレージ削減と再利用性向上
-6. **自動微分駆動の徹底継承**：ForwardDiff.jlによる∂F/∂u = ∂Φ_goal/∂u + ∂Φ_safety/∂u + ∂S/∂uの完全な勾配ベース最適化（v5.6バグ修正の完全継承）
+| 手法カテゴリ | 代表例 | 限界 | EPHの克服方法 |
+|------------|--------|------|--------------|
+| **反応的手法** | DWA (Fox et al., 1997)<br>Social Force (Helbing & Molnár, 1995) | 予測なし、手動ルール、局所最適 | 統一自由エネルギー最小化＋VAE予測 |
+| **学習ベース** | Deep RL (Chen et al., 2017, 2019) | データ非効率、解釈性低、報酬設計必要 | 自由エネルギー原理（理論駆動）＋創発的社会行動 |
+| **Active Inference** | Pio-Lopez et al. (2016) | Precision = 感覚不確実性のみ | Precision = 空間的重要度重み付け（Φ_safety適用） |
+| **PPS研究** | Rizzolatti & Sinigaglia (2010) | 神経科学的観察のみ | 工学的実装（Critical Zone Framework） |
 
-これにより、従来不可能だった「生物学的に妥当なLog-polar SPMと多分野理論に基づく空間的重要度制御が、統一自由エネルギー自動微分駆動により、創発的社会行動（Laminar Flow, Lane Formation, Zipper Effect）を生み出し、かつ研究データの再利用性を最大化する」という完全な因果連鎖を工学的に実現した。
+#### EPHの6つの独自貢献
+
+1. **統一自由エネルギーフレームワーク**：目標到達・衝突回避・予測誤差を単一目的関数F(u)に統合し、従来手法の「複数目的関数の手動バランス調整」を排除
+
+2. **生物学的妥当なSPM表現**：Log-polar座標（16×16×3ch）により、人間の視覚野（V1 log-polar mapping）と周辺視野の解像度勾配を模倣。DWAのCartesian gridやSocial ForceのEuclidean距離より生物学的
+
+3. **Action-Conditioned VAE予測**：Pattern D（q(z|y,u) → p(y[k+1]|z,u)）により、「行動uが将来に与える影響」をCounterfactualに予測。従来のVAEやRNNは行動非条件付け
+
+4. **Precision-Weighted Safety**：Active InferenceのPrecision概念を**空間的重要度**へ拡張し、衝突回避（Φ_safety）と予測誤差（S）の両方に適用。Pio-Lopez et al.は感覚不確実性のみ
+
+5. **Critical Zone理論**：神経科学（PPS VIP/F4）、実証研究（Moussaïd et al., 2011: 回避開始2-3m）、制御理論（TTC 1s）、社会心理学（Hall, 1966: Proxemics）を統合し、0-2.18mを「Critical Zone」として定式化
+
+6. **創発的社会行動**：Laminar Flow、Lane Formation、Zipper Effectが自由エネルギー最小化から**自動的に発生**。Social Forceは手動設計ルール、Deep RLは報酬関数設計が必要
+
+**学術的意義**：EPHは「生物の脳が混雑環境でどのように行動選択するか」という神経科学的原理（FEP）を、ロボット工学に翻訳した**初の完全実装**である。
 
 ### 手法 (Methods)
 
@@ -1075,15 +1096,44 @@ train_vae!(model, data.y_k, data.u_k, data.y_k1; epochs=100, β=0.5)
   - **差異と優位性**: MPCは確定的予測だが、本研究は確率的世界モデル（VAE）とPrecision制御により不確実性を明示的に扱う
   - **Link**: [DOI: 10.1007/978-0-85729-398-5](https://doi.org/10.1007/978-0-85729-398-5)
 
-### 5.4 v6.2の独自性まとめ
+### 5.4 主要先行手法との直接比較
 
-本研究EPH v6.2は、以下の点で既存研究と明確に差別化される：
+| 比較軸 | DWA (Fox et al., 1997) | Social Force (Helbing, 1995) | Deep RL (Chen et al., 2019) | EPH (本研究) |
+|--------|------------------------|------------------------------|----------------------------|--------------|
+| **予測** | なし（反応的） | なし（力学的） | 学習済み | VAE（確率的） |
+| **理論基盤** | 局所速度空間探索 | 物理シミュレーション | データ駆動 | Free Energy Principle |
+| **社会行動** | 手動ルール | 手動パラメータ | 報酬設計 | **創発的** |
+| **解釈性** | 高（幾何学的） | 中（力ベース） | 低（ブラックボックス） | **高（統一自由エネルギー）** |
+| **衝突回避** | 局所最適 | 反発力 | 学習依存 | **Critical Zone増幅** |
+| **計算効率** | 高 | 高 | 低 | 中（自動微分） |
+| **生物学的妥当性** | 低 | 低 | 低 | **高（FEP + SPM + PPS）** |
 
-1. **Precision-Weighted Safety**: Active InferenceのPrecision概念を、予測誤差（Surprise）だけでなく衝突回避項（Safety）にも適用する初の事例
-2. **Spatial Importance Weighting**: Precisionを「予測不確実性の逆数」から「空間的重要度」へ拡張し、ΦとSの統一的制御を実現
-3. **多分野統合理論**: 神経科学（PPS VIP/F4）、能動的推論（精度重み付け）、実証研究（回避開始距離）、制御理論（TTC）の4分野を統合
-4. **Raw Trajectory Data Architecture**: Data-Algorithm Separation Patternによる100倍ストレージ削減と柔軟性向上
-5. **Critical Zone Framework**: Personal Space（社会心理学）との混同を排除し、機能的定義（衝突回避優先エリア）を確立
+### 5.5 EPHの独自性まとめ
+
+本研究EPHは、以下の点で既存研究と明確に差別化される：
+
+**1. 統一理論フレームワーク（vs 反応的手法）**
+- DWA・Social Forceが「速度選択」「力計算」という個別メカニズムを扱うのに対し、EPHは**自由エネルギー最小化という統一原理**で目標到達・衝突回避・予測を同時最適化
+- 手動パラメータ調整（DWAの重み係数、Social Forceの反発力定数）を**自動微分駆動**で排除
+
+**2. 予測駆動制御（vs 反応的手法）**
+- DWA・Social Forceが「現在の状態のみ」を考慮するのに対し、EPHは**Action-Conditioned VAE**により「行動uが将来に与える影響」をCounterfactualに予測し、先読み回避を実現
+
+**3. 理論駆動（vs 学習ベース手法）**
+- Deep RLが大量データと試行錯誤を要するのに対し、EPHは**Free Energy Principle**という神経科学的理論に基づき、少量データで解釈可能な制御を達成
+- 報酬関数の手動設計を排除し、自由エネルギー最小化から**創発的社会行動**が自動発生
+
+**4. Precision-Weighted Safety（vs 既存Active Inference）**
+- Pio-Lopez et al. (2016)がPrecision = 感覚不確実性のみに適用するのに対し、EPHは**空間的重要度重み付け**として衝突回避（Φ_safety）と予測誤差（S）の両方に適用
+- Critical Zone（0-2.18m）で衝突回避ゲインを100倍増幅、Peripheral Zoneで過剰反応を抑制
+
+**5. 生物学的妥当性（vs 全手法）**
+- **SPM（Log-polar座標）**: 人間視覚野V1のlog-polar mappingを模倣
+- **Critical Zone**: PPSのVIP/F4防御反応増幅を工学的実装
+- **自由エネルギー原理**: 脳の知覚・行動選択の統一理論を採用
+
+**6. 創発的社会行動（vs 手動設計）**
+- Laminar Flow、Lane Formation、Zipper Effectが**自由エネルギー最小化から自動的に発生**。Social Forceの手動ルール・Deep RLの報酬設計が不要
 
 ---
 
