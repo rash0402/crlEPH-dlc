@@ -580,14 +580,20 @@ function compute_dual_zone_haze(
 end
 
 """
-Compute spatial Precision map for Precision-Weighted Surprise (v6.1 Bin-Based Fixed).
+Compute spatial Precision map for Precision-Weighted Surprise (v6.2 Sigmoid Blending).
 
 For each SPM cell (i, j), compute Π[i,j] = 1 / (Haze[i] + ε) where Haze
-is determined by a bin-based step function:
-  - Bin 1-6 (0-2.18m @ D_max=8m): Haze=0.0 (Critical collision zone, β=β_max)
-  - Bin 7+ (2.18m+): Haze=0.5 (Peripheral zone, β≈β_mid)
+is determined by a sigmoid blending function:
+  - Haze(ρ) = h_crit + (h_peri - h_crit) · σ((ρ - ρ_crit) / τ)
+  - σ(x) = 1 / (1 + exp(-x)) is the logistic sigmoid
+  - Smooth transition centered at ρ_crit = rho_index_critical + 0.5
 
-This bin-based foveation strategy is grounded in:
+v6.2 Improvements over v6.1:
+  1. Mathematical rigor: C∞-smooth → differentiable for ForwardDiff.jl
+  2. Neuroscientific validity: Continuous PPS boundary (exponential decay)
+  3. Control stability: Satisfies Gain Scheduling smoothness requirement
+
+Theoretical grounding (unchanged from v6.1):
   1. Neuroscience: Peripersonal Space (PPS) 0.5-2.0m with margin
   2. Active Inference: High precision required for survival-critical predictions
   3. Empirical research: Avoidance initiation 2-3m (Moussaïd et al., 2011)
@@ -595,18 +601,20 @@ This bin-based foveation strategy is grounded in:
 
 Args:
     spm_config: SPM configuration (contains rho_grid)
-    rho_index_critical: Bin index threshold (Bin 1-rho_index_critical: Haze=0)
+    rho_index_critical: Critical zone bin threshold (transition center at +0.5)
     h_critical: Haze in critical zone (typically 0.0)
     h_peripheral: Haze in peripheral zone (typically 0.5)
+    tau: Sigmoid transition smoothness (1.0 = default, 0.5 = steep, 2.0 = gentle)
 
 Returns:
     Array{Float64, 2}: Precision map [n_rho × n_theta]
 """
 function compute_precision_map(
     spm_config::SPMConfig,
-    rho_index_critical::Int = 6,  # v6.1: Bin 1-6 Haze=0 (0-2.18m @ D_max=8m)
+    rho_index_critical::Int = 6,  # v6.2: Critical zone up to Bin 6 (0-2.18m @ D_max=8m)
     h_critical::Float64 = 0.0,
-    h_peripheral::Float64 = 0.5
+    h_peripheral::Float64 = 0.5,
+    tau::Float64 = 1.0  # v6.2: Sigmoid transition smoothness (1.0 = default)
 )
     params = spm_config.params
     n_rho = params.n_rho
@@ -616,15 +624,24 @@ function compute_precision_map(
     epsilon = 1e-6
 
     for i in 1:n_rho
-        # v6.1 Bin-Based Fixed Foveation (Step Function)
-        # Bin 1-6 (0-2.18m): Critical collision zone → Haze=0.0 (β=β_max)
-        # Bin 7+ (2.18m+): Peripheral zone → Haze=0.5 (β≈β_mid)
+        # v6.2 Sigmoid Blending (Smooth Transition)
+        # Replaces v6.1 step function with C∞-smooth sigmoid blend
         #
-        # Theoretical justification:
-        #   - Peripersonal Space (PPS): 0.5-2.0m + margin
+        # Mathematical form: Haze(ρ) = h_crit + (h_peri - h_crit) · σ((ρ - ρ_crit) / τ)
+        # where σ(x) = 1 / (1 + exp(-x)) is the logistic sigmoid
+        #
+        # Advantages over step function:
+        #   1. Mathematical rigor: C∞-smooth → differentiable for ForwardDiff.jl
+        #   2. Neuroscientific validity: PPS neural response is continuous (exponential decay)
+        #   3. Control stability: Satisfies Gain Scheduling smoothness requirement
+        #
+        # Theoretical justification (unchanged from v6.1):
+        #   - Peripersonal Space (PPS): 0.5-2.0m with margin
         #   - Avoidance initiation: 2-3m (Moussaïd et al., 2011)
         #   - TTC 1s (predictive control): 2.1m → Bin 6
-        haze_i = (i <= rho_index_critical) ? h_critical : h_peripheral
+        rho_crit = rho_index_critical + 0.5  # Transition center at bin boundary
+        sigmoid_val = 1.0 / (1.0 + exp(-(i - rho_crit) / tau))
+        haze_i = h_critical + (h_peripheral - h_critical) * sigmoid_val
 
         # Compute Precision: Π[i] = 1 / (Haze[i] + ε)
         precision_i = 1.0 / (haze_i + epsilon)
@@ -712,7 +729,12 @@ function compute_free_energy_v61(
 
     ch2_pred = spm_pred[:, :, 2]
     ch3_pred = spm_pred[:, :, 3]
-    Φ_safety = k_2 * sum(ch2_pred) + k_3 * sum(ch3_pred)
+
+    # ===== 2.5. Precision-Weighted Safety (★ v6.2新規) =====
+    # Apply spatial importance weight Π(ρ) to safety term
+    # Φ_safety = Σ_{i,j} Π(ρ_i) · [k_2·ch2(i,j) + k_3·ch3(i,j)]
+    # This amplifies collision avoidance in Critical Zone (Bin 1-6, Haze=0, Π≈100)
+    Φ_safety = sum(precision_map .* (k_2 .* ch2_pred .+ k_3 .* ch3_pred))
 
     # ===== 3. S(u): Precision-Weighted Surprise (★ v6.1更新) =====
     # Skip if action_vae is nothing (data collection mode)
@@ -758,7 +780,12 @@ function compute_free_energy_v61(
 end
 
 """
-Compute optimal action using v6.1 controller with Dual-Zone Foveation.
+Compute optimal action using v6.2 controller with Sigmoid Blending Foveation.
+
+v6.2 Updates:
+- Sigmoid blending replaces step function for smooth Haze(ρ) transition
+- C∞-smooth differentiability for ForwardDiff.jl stability
+- Neuroscientifically plausible continuous PPS boundary
 
 Args:
     agent: Current agent
@@ -773,9 +800,10 @@ Args:
     precision: Current precision Π[k]
     k_2: Weight for Ch2 (proximity)
     k_3: Weight for Ch3 (collision)
-    rho_index_critical: Bin index threshold (Bin 1-rho_index_critical: Haze=0, default: 6)
+    rho_index_critical: Bin index threshold (Critical zone center, default: 6)
     h_critical: Critical Zone Haze (default: 0.0)
     h_peripheral: Peripheral Zone Haze (default: 0.5)
+    tau: Sigmoid transition smoothness (default: 1.0, range: 0.5-2.0)
     n_iters: Number of gradient descent iterations
     learning_rate: Gradient descent learning rate
 
@@ -798,15 +826,17 @@ function compute_action_v61(
     rho_index_critical::Int = 6,
     h_critical::Float64 = 0.0,
     h_peripheral::Float64 = 0.5,
+    tau::Float64 = 1.0,  # v6.2: Sigmoid transition smoothness (1.0 = default)
     n_iters::Int = 10,
     learning_rate::Float64 = 0.1
 )
-    # 1. Compute Precision Map for Precision-Weighted Surprise
+    # 1. Compute Precision Map for Precision-Weighted Surprise (v6.2 Sigmoid Blending)
     precision_map = compute_precision_map(
         spm_config,
         rho_index_critical,
         h_critical,
-        h_peripheral
+        h_peripheral,
+        tau  # v6.2: Sigmoid transition smoothness
     )
 
     # 2. Initialize u with zero or previous action

@@ -57,6 +57,7 @@ data/logs/self_hazing/
 !data/logs/README.md
 !data/vae_training/README.md
 
+archive/
 # ============================================================
 # MODEL MANAGEMENT STRATEGY
 # ============================================================
