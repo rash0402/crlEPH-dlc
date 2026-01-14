@@ -204,7 +204,11 @@ function CommParams(;
 end
 
 # ===== Default Configuration =====
-const DEFAULT_SPM = SPMParams(sensing_ratio=8.0)  # v6.1: Mathematical elegance (2³) + Biological validity (TTC 1s @ 2.1m)
+const DEFAULT_SPM = SPMParams(
+    n_rho=12,
+    n_theta=12,
+    sensing_ratio=3.0  # v6.3: Human-like cognitive range (D_max=6.0m), optimized resolution
+)
 const DEFAULT_WORLD = WorldParams()
 const DEFAULT_AGENT = AgentParams()
 const DEFAULT_CONTROL = ControlParams()

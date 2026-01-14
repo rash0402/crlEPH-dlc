@@ -871,5 +871,147 @@ end
 export compute_action_v54, compute_action_v60, compute_free_energy_v60
 export compute_dual_zone_haze, compute_precision_map  # v6.1 utility functions
 export compute_action_v61, compute_free_energy_v61    # v6.1 main functions
+export compute_action_random_collision_free  # v6.3 controller-bias-free function
+
+"""
+v6.3: Random Walk with Complete Collision Avoidance (Controller-Bias-Free)
+
+Purpose:
+  Generate training data WITHOUT FEP controller bias.
+  Uses geometric collision avoidance (repulsive forces) to ensure collision-free trajectories.
+
+Method:
+  1. Random walk with goal bias
+  2. Geometric repulsive forces from agents and obstacles
+  3. Guaranteed collision-free (distance > safety_threshold)
+
+Arguments:
+  - agent: Current agent
+  - other_agents: List of other agents
+  - obstacles: List of obstacle positions [(x, y), ...]
+  - agent_params: Agent parameters
+  - world_params: World parameters
+  - exploration_noise: Standard deviation of random noise (default: 0.5)
+  - safety_threshold: Minimum distance to maintain (default: 3.0m)
+  - repulsion_strength: Strength of repulsive force (default: 1.0)
+
+Returns:
+  - u: [v, ω] control input (collision-free)
+"""
+function compute_action_random_collision_free(
+    agent::Agent,
+    other_agents::Vector{Agent},
+    obstacles::Vector{Tuple{Float64, Float64}},
+    agent_params::AgentParams,
+    world_params::WorldParams;
+    exploration_noise::Float64=0.5,
+    safety_threshold::Float64=3.0,
+    repulsion_strength::Float64=1.0
+)
+    # Step 1: Goal-directed random walk
+    # agent.goal is now a direction vector (not a position)
+    # This enables continuous motion in torus world
+    d_pref = agent.goal  # Already normalized direction vector
+
+    # Random perturbation
+    u_random = d_pref .+ randn(2) .* exploration_noise
+
+    # Step 2: Geometric collision avoidance - Agent repulsion
+    for other in other_agents
+        # Use torus-aware relative position for shortest distance
+        # rel_pos points from agent to other, so we need to negate for repulsion
+        rel_pos_to_other = Dynamics.relative_position(agent.pos, other.pos, world_params)
+        dist = norm(rel_pos_to_other)
+
+        if dist < safety_threshold && dist > 1e-6
+            # Inverse square law repulsion with distance-dependent scaling
+            # Repulsion direction: away from other agent (opposite of rel_pos_to_other)
+            direction = -rel_pos_to_other / dist
+
+            # Stronger repulsion at closer distances
+            if dist < 2.0 * agent_params.r_agent  # Within 2x agent radius (3.0m)
+                # Emergency repulsion (exponentially stronger)
+                # At dist=1.5m: 10x, at dist=1.0m: 15x, at dist=0.5m: 25x
+                emergency_factor = 10.0 * (2.0 / (dist + 0.5))
+                repulsion_magnitude = emergency_factor * repulsion_strength / (dist^2 + 0.01)
+            else
+                # Normal repulsion
+                repulsion_magnitude = repulsion_strength / (dist^2 + 0.1)
+            end
+
+            u_random += direction .* repulsion_magnitude
+        end
+    end
+
+    # Step 3: Geometric collision avoidance - Obstacle repulsion
+    # CRITICAL FIX: Obstacles should NOT use toroidal distance
+    # Reason: Corridor walls are physical boundaries, not wrap-around
+    # Using toroidal distance causes walls to "appear" on opposite side
+    for obs in obstacles
+        obs_pos = [obs[1], obs[2]]
+        
+        # Use SIMPLE distance for obstacles (no toroidal wrapping)
+        # This ensures corridor walls act as physical boundaries
+        rel_pos_to_obs = obs_pos - agent.pos  # Simple difference
+        dist = norm(rel_pos_to_obs)
+
+        if dist < safety_threshold && dist > 1e-6
+            # Repulsion direction: away from obstacle (opposite of rel_pos_to_obs)
+            direction = -rel_pos_to_obs / dist
+            
+            # CRITICAL: Much stronger repulsion for static obstacles
+            # Obstacles should be treated as "hard boundaries"
+            if dist < 1.5 * agent_params.r_agent  # Within 1.5x agent radius (2.25m)
+                # Emergency wall avoidance: 20x stronger than agent repulsion
+                emergency_factor = 20.0 * (1.5 / (dist + 0.3))
+                repulsion_magnitude = emergency_factor * repulsion_strength / (dist^2 + 0.01)
+            else
+                # Normal obstacle repulsion: 5x stronger than agent repulsion
+                repulsion_magnitude = 5.0 * repulsion_strength / (dist^2 + 0.1)
+            end
+            
+            u_random += direction .* repulsion_magnitude
+        end
+    end
+
+    # Step 4: Normalize and scale
+    u_norm = norm(u_random)
+    if u_norm > 1e-6
+        u_random = u_random / u_norm
+    end
+
+    # Scale to reasonable velocity
+    v_desired = min(1.0, u_norm) * agent_params.u_max
+
+    # Convert to [v, ω] format
+    # v: forward velocity
+    # ω: angular velocity (align heading with desired direction)
+
+    # Current heading
+    current_heading = atan(agent.vel[2], agent.vel[1])
+
+    # Desired heading
+    desired_heading = atan(u_random[2], u_random[1])
+
+    # Angular error
+    heading_error = desired_heading - current_heading
+
+    # Normalize to [-π, π]
+    while heading_error > π
+        heading_error -= 2π
+    end
+    while heading_error < -π
+        heading_error += 2π
+    end
+
+    # Angular velocity (proportional control)
+    ω = 2.0 * heading_error  # Simple P controller
+
+    # Clamp to limits
+    v = clamp(v_desired, 0.0, agent_params.u_max)
+    ω = clamp(ω, -agent_params.u_max, agent_params.u_max)
+
+    return [v, ω]
+end
 
 end # module

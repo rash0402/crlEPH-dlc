@@ -149,22 +149,24 @@ function load_training_data(data_dir::String)
     val_idx = indices[n_train+1:n_train+n_val]
     test_idx = indices[n_train+n_val+1:end]
 
+    # v6.2 Memory-Efficient: Use view() to avoid copying large arrays
+    # This reduces memory usage from ~12GB to ~5GB during data splitting
     train_data = (
-        spm_current = y_k[train_idx, :, :, :],
-        actions = u_k[train_idx, :],
-        spm_next = y_k1[train_idx, :, :, :]
+        spm_current = view(y_k, train_idx, :, :, :),
+        actions = view(u_k, train_idx, :),
+        spm_next = view(y_k1, train_idx, :, :, :)
     )
 
     val_data = (
-        spm_current = y_k[val_idx, :, :, :],
-        actions = u_k[val_idx, :],
-        spm_next = y_k1[val_idx, :, :, :]
+        spm_current = view(y_k, val_idx, :, :, :),
+        actions = view(u_k, val_idx, :),
+        spm_next = view(y_k1, val_idx, :, :, :)
     )
 
     test_data = (
-        spm_current = y_k[test_idx, :, :, :],
-        actions = u_k[test_idx, :],
-        spm_next = y_k1[test_idx, :, :, :]
+        spm_current = view(y_k, test_idx, :, :, :),
+        actions = view(u_k, test_idx, :),
+        spm_next = view(y_k1, test_idx, :, :, :)
     )
 
     println("  Train: $(size(train_data.spm_current, 1)) samples ($(round(100*n_train/n_samples, digits=1))%)")

@@ -318,6 +318,82 @@ function check_agent_collision(
 end
 
 """
+Update agent state using unicycle model (for v6.3 controller-bias-free)
+
+Kinematic unicycle model:
+    x_dot = v * cos(θ)
+    y_dot = v * sin(θ)
+    θ_dot = ω
+
+Args:
+    agent: Agent to update
+    u: Control input [v, ω] where v is linear velocity, ω is angular velocity
+    agent_params: Agent parameters
+    world_params: World parameters
+    obstacles: List of obstacles (for collision detection)
+    all_agents: All agents (for collision detection)
+
+Returns:
+    collision_count::Int - Number of collisions detected this step
+"""
+function step_unicycle!(
+    agent::Agent,
+    u::Vector{Float64},
+    agent_params::AgentParams,
+    world_params::WorldParams,
+    obstacles::Vector{Obstacle},
+    all_agents::Vector{Agent}
+)
+    collision_count = 0
+
+    # Extract v and ω from control input
+    v = u[1]  # Linear velocity
+    ω = u[2]  # Angular velocity
+
+    # Compute current heading from velocity
+    current_heading = norm(agent.vel) > 1e-6 ? atan(agent.vel[2], agent.vel[1]) : 0.0
+
+    # Update heading with angular velocity
+    new_heading = current_heading + ω * world_params.dt
+
+    # Update velocity using unicycle model
+    new_vel = [v * cos(new_heading), v * sin(new_heading)]
+
+    # Update position
+    new_pos = agent.pos .+ new_vel .* world_params.dt
+
+    # Apply torus wrapping
+    new_pos = wrap_torus(new_pos, world_params)
+
+    # Compute acceleration for logging (before updating velocity)
+    new_acc = (new_vel .- agent.vel) ./ world_params.dt
+
+    # Update agent state
+    agent.pos = new_pos
+    agent.vel = new_vel
+    agent.acc = new_acc
+
+    # Check collisions (for metrics only)
+    # Obstacle collisions
+    if check_collision(agent.pos, obstacles, agent_params.r_agent)
+        collision_count += 1
+    end
+
+    # Agent collisions
+    for other in all_agents
+        if other.id != agent.id
+            rel_pos = relative_position(agent.pos, other.pos, world_params)
+            dist = norm(rel_pos)
+            if dist < 2.0 * agent_params.r_agent
+                collision_count += 1
+            end
+        end
+    end
+
+    return collision_count
+end
+
+"""
 Update agent state using 2nd-order dynamics with collision detection
 M * a + D * v = u
 

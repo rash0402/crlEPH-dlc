@@ -115,3 +115,9 @@ recordings/
 # - Use Git LFS for models/action_vae_v56_best.bson
 # - Keep one "published" model per major version
 # ============================================================
+
+# v6.2 and v6.3 raw training data (large files)
+data/vae_training/raw_v62/
+data/vae_training/raw_v63/
+results/vae_tuning/*.h5
+scripts/archive/
