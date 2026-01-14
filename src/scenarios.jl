@@ -230,25 +230,25 @@ function initialize_scenario(
                 pos = [start_pos[1] + randn() * 2.0, start_pos[2] + randn() * 2.0]
             end
 
-            # ゴール方向（単位ベクトル）- 位置ではなく方向を指定
+            # ゴール方向（単位ベクトル）- 位置ではなく方向を指定 (v7.2)
             direction = [goal_pos[1] - start_pos[1], goal_pos[2] - start_pos[2]]
             direction_normalized = direction / norm(direction)
-
-            # goal_vel: 目標速度（1.0 m/s in goal direction）
-            goal_vel = direction_normalized * 1.0
 
             # 初期速度：ゴール方向に1.0 m/s（heading計算のため）
             vel = direction_normalized * 1.0
             acc = [0.0, 0.0]
+
+            # v7.2: Heading from initial velocity direction
+            heading = atan(vel[2], vel[1])
 
             agent = Agent(
                 length(agents) + 1,          # id
                 agent_groups[group_id],      # group
                 pos,                         # pos
                 vel,                         # vel
+                heading,                     # heading (v7.2: NEW - Float64 scalar)
                 acc,                         # acc
-                direction_normalized,        # goal: 方向ベクトル（単位ベクトル）
-                goal_vel,                    # goal_vel
+                direction_normalized,        # d_goal: 方向ベクトル（v7.2 renamed from goal）
                 group_colors[group_id],      # color
                 1.0                          # precision
             )
