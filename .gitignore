@@ -116,8 +116,19 @@ recordings/
 # - Keep one "published" model per major version
 # ============================================================
 
-# v6.2 and v6.3 raw training data (large files)
+# v6.2, v6.3, v7.2 raw training data (large files)
 data/vae_training/raw_v62/
 data/vae_training/raw_v63/
+data/vae_training/raw_v72/
 results/vae_tuning/*.h5
+
+# Archive directories
 scripts/archive/
+src/archive/
+viewer/archive/
+
+# Serena MCP server memories
+.serena/
+
+# Temporary documentation archives
+doc/*.zip

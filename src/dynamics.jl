@@ -33,16 +33,21 @@ struct Obstacle
 end
 
 """
-Agent state representation
+Agent state representation (v7.2: 5D state space)
+
+State: s = [x, y, vx, vy, θ] ∈ ℝ⁵
+- (x, y): Position
+- (vx, vy): Velocity components
+- θ: Heading angle (aligned with velocity direction via k_align)
 """
 mutable struct Agent
     id::Int
     group::AgentGroup
     pos::Vector{Float64}      # [x, y]
     vel::Vector{Float64}      # [vx, vy]
+    heading::Float64          # θ (v7.2: heading angle, follows velocity direction)
     acc::Vector{Float64}      # [ax, ay]
-    goal::Vector{Float64}     # [gx, gy] - for reference
-    goal_vel::Vector{Float64} # [vx_goal, vy_goal] - desired velocity
+    d_goal::Vector{Float64}   # Preferred direction unit vector (v7.2: e.g., [1,0] for East)
     color::String             # For visualization
     precision::Float64        # Precision (Π = 1/H) for adaptive β modulation
 end
@@ -93,43 +98,43 @@ function init_agents(
     cy_min = h/2 - margin
     cy_max = h/2 + margin
     
-    # North group (top → center)
+    # North group (top → center, moving South)
     for i in 1:n
         pos = [cx_min + rand() * (cx_max - cx_min), h * 0.85 + rand() * h * 0.1]
         vel = [0.0, -2.0 + randn() * 0.5]  # Moving down
-        goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
-        goal_vel = [0.0, -2.0]  # Constant downward velocity
-        push!(agents, Agent(agent_id, NORTH, pos, vel, [0.0, 0.0], goal, goal_vel, colors[NORTH], 1.0))
+        heading = atan(vel[2], vel[1])  # Initial heading from velocity
+        d_goal = [0.0, -1.0]  # Direction: South (v7.2: unit vector)
+        push!(agents, Agent(agent_id, NORTH, pos, vel, heading, [0.0, 0.0], d_goal, colors[NORTH], 1.0))
         agent_id += 1
     end
     
-    # South group (bottom → center)
+    # South group (bottom → center, moving North)
     for i in 1:n
         pos = [cx_min + rand() * (cx_max - cx_min), h * 0.05 + rand() * h * 0.1]
         vel = [0.0, 2.0 + randn() * 0.5]  # Moving up
-        goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
-        goal_vel = [0.0, 2.0]  # Constant upward velocity
-        push!(agents, Agent(agent_id, SOUTH, pos, vel, [0.0, 0.0], goal, goal_vel, colors[SOUTH], 1.0))
+        heading = atan(vel[2], vel[1])  # Initial heading from velocity
+        d_goal = [0.0, 1.0]  # Direction: North (v7.2: unit vector)
+        push!(agents, Agent(agent_id, SOUTH, pos, vel, heading, [0.0, 0.0], d_goal, colors[SOUTH], 1.0))
         agent_id += 1
     end
-    
-    # East group (left → center)
+
+    # East group (left → center, moving East)
     for i in 1:n
         pos = [w * 0.05 + rand() * w * 0.1, cy_min + rand() * (cy_max - cy_min)]
         vel = [2.0 + randn() * 0.5, 0.0]  # Moving right
-        goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
-        goal_vel = [2.0, 0.0]  # Constant rightward velocity
-        push!(agents, Agent(agent_id, EAST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[EAST], 1.0))
+        heading = atan(vel[2], vel[1])  # Initial heading from velocity
+        d_goal = [1.0, 0.0]  # Direction: East (v7.2: unit vector)
+        push!(agents, Agent(agent_id, EAST, pos, vel, heading, [0.0, 0.0], d_goal, colors[EAST], 1.0))
         agent_id += 1
     end
-    
-    # West group (right → center)
+
+    # West group (right → center, moving West)
     for i in 1:n
         pos = [w * 0.85 + rand() * w * 0.1, cy_min + rand() * (cy_max - cy_min)]
         vel = [-2.0 + randn() * 0.5, 0.0]  # Moving left
-        goal = [cx_min + rand() * (cx_max - cx_min), cy_min + rand() * (cy_max - cy_min)]
-        goal_vel = [-2.0, 0.0]  # Constant leftward velocity
-        push!(agents, Agent(agent_id, WEST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[WEST], 1.0))
+        heading = atan(vel[2], vel[1])  # Initial heading from velocity
+        d_goal = [-1.0, 0.0]  # Direction: West (v7.2: unit vector)
+        push!(agents, Agent(agent_id, WEST, pos, vel, heading, [0.0, 0.0], d_goal, colors[WEST], 1.0))
         agent_id += 1
     end
     
@@ -192,25 +197,25 @@ function init_corridor_agents(
     
     agent_id = 1
     
-    # East group (left → right)
+    # East group (left → right, moving East)
     for i in 1:n
         pos = [east_spawn_x_min + rand() * (east_spawn_x_max - east_spawn_x_min),
                spawn_y_min + rand() * (spawn_y_max - spawn_y_min)]
         vel = [2.0 + randn() * 0.3, 0.0]  # Moving right
-        goal = [east_goal_x, corridor_center_y]
-        goal_vel = [2.0, 0.0]
-        push!(agents, Agent(agent_id, EAST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[EAST], 1.0))
+        heading = atan(vel[2], vel[1])  # Initial heading from velocity
+        d_goal = [1.0, 0.0]  # Direction: East (v7.2: unit vector)
+        push!(agents, Agent(agent_id, EAST, pos, vel, heading, [0.0, 0.0], d_goal, colors[EAST], 1.0))
         agent_id += 1
     end
-    
-    # West group (right → left)
+
+    # West group (right → left, moving West)
     for i in 1:n
         pos = [west_spawn_x_min + rand() * (west_spawn_x_max - west_spawn_x_min),
                spawn_y_min + rand() * (spawn_y_max - spawn_y_min)]
         vel = [-2.0 + randn() * 0.3, 0.0]  # Moving left
-        goal = [west_goal_x, corridor_center_y]
-        goal_vel = [-2.0, 0.0]
-        push!(agents, Agent(agent_id, WEST, pos, vel, [0.0, 0.0], goal, goal_vel, colors[WEST], 1.0))
+        heading = atan(vel[2], vel[1])  # Initial heading from velocity
+        d_goal = [-1.0, 0.0]  # Direction: West (v7.2: unit vector)
+        push!(agents, Agent(agent_id, WEST, pos, vel, heading, [0.0, 0.0], d_goal, colors[WEST], 1.0))
         agent_id += 1
     end
     
@@ -599,5 +604,160 @@ function predict_other_agents(
     
     return predictions
 end
+
+# ===== v7.2: RK4 Integration with Heading Alignment =====
+
+"""
+Compute shortest angular difference with wrap-around (v7.2 helper function).
+
+Args:
+    target: Target angle [rad]
+    current: Current angle [rad]
+
+Returns:
+    diff: Shortest angular difference in [-π, π]
+"""
+function angle_diff(target::Real, current::Real)
+    diff = target - current
+    # Wrap to [-π, π]
+    while diff > π
+        diff -= 2π
+    end
+    while diff < -π
+        diff += 2π
+    end
+    return diff
+end
+
+"""
+v7.2: Omnidirectional dynamics with heading alignment (RK4 integration).
+
+State space: s = [x, y, vx, vy, θ] ∈ ℝ⁵
+Control input: u = [Fx, Fy] ∈ ℝ²
+
+Dynamics equations:
+  dx/dt = vx
+  dy/dt = vy
+  m·dvx/dt = Fx - cd·|v|·vx  (2nd-order translational dynamics)
+  m·dvy/dt = Fy - cd·|v|·vy
+  dθ/dt = k_align · angle_diff(atan2(vy, vx), θ)  (Heading alignment)
+
+Args:
+    state: Current state [x, y, vx, vy, θ]
+    u: Control input [Fx, Fy]
+    agent_params: Agent parameters (mass, drag, k_align)
+    world_params: World parameters (dt)
+
+Returns:
+    state_next: Next state after RK4 integration
+"""
+function dynamics_rk4(
+    state::Vector{Float64},
+    u::Vector{Float64},
+    agent_params::AgentParams,
+    world_params::WorldParams
+)
+    dt = world_params.dt
+    m = agent_params.mass
+    cd = agent_params.damping  # v7.2: drag coefficient
+    k_align = agent_params.k_align  # v7.2: 4.0 rad/s (heading alignment gain)
+
+    # Define derivative function f(s, u)
+    function f(s::Vector{Float64}, u_input::Vector{Float64})
+        x, y, vx, vy, theta = s
+        Fx, Fy = u_input
+
+        v_norm = sqrt(vx^2 + vy^2)
+
+        # Target heading (velocity direction)
+        if v_norm > 0.1  # Threshold to avoid division by zero
+            theta_target = atan(vy, vx)
+            dtheta = angle_diff(theta_target, theta)
+        else
+            dtheta = 0.0  # Keep current heading when nearly stopped
+        end
+
+        return [
+            vx,                           # dx/dt
+            vy,                           # dy/dt
+            Fx/m - cd/m * vx * v_norm,    # dvx/dt (quadratic drag)
+            Fy/m - cd/m * vy * v_norm,    # dvy/dt
+            k_align * dtheta              # dθ/dt (heading alignment)
+        ]
+    end
+
+    # RK4 integration
+    k1 = f(state, u)
+    k2 = f(state + dt/2 * k1, u)
+    k3 = f(state + dt/2 * k2, u)
+    k4 = f(state + dt * k3, u)
+
+    state_next = state + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+    return state_next
+end
+
+"""
+Update agent state using v7.2 dynamics (wrapper for dynamics_rk4).
+
+Args:
+    agent: Agent to update
+    u: Control input [Fx, Fy]
+    agent_params: Agent parameters
+    world_params: World parameters
+    obstacles: List of obstacles (for collision detection)
+    all_agents: All agents (for collision detection)
+
+Returns:
+    collision_count: Number of collisions detected this step
+"""
+function step_v72!(
+    agent::Agent,
+    u::Vector{Float64},
+    agent_params::AgentParams,
+    world_params::WorldParams,
+    obstacles::Vector{Obstacle},
+    all_agents::Vector{Agent}
+)
+    # Construct current state vector
+    state_current = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
+
+    # RK4 integration
+    state_next = dynamics_rk4(state_current, u, agent_params, world_params)
+
+    # Extract next state
+    agent.pos = [state_next[1], state_next[2]]
+    agent.vel = [state_next[3], state_next[4]]
+    agent.heading = state_next[5]
+
+    # Apply torus wrapping
+    agent.pos = wrap_torus(agent.pos, world_params)
+
+    # Compute acceleration for logging
+    agent.acc = (agent.vel - [state_current[3], state_current[4]]) / world_params.dt
+
+    # Collision detection (for metrics only)
+    collision_count = 0
+
+    # Obstacle collisions
+    if check_collision(agent.pos, obstacles, agent_params.r_agent)
+        collision_count += 1
+    end
+
+    # Agent collisions
+    for other in all_agents
+        if other.id != agent.id
+            rel_pos = relative_position(agent.pos, other.pos, world_params)
+            dist = norm(rel_pos)
+            if dist < 2.0 * agent_params.r_agent
+                collision_count += 1
+            end
+        end
+    end
+
+    return collision_count
+end
+
+export dynamics_rk4, step_v72!, angle_diff
 
 end # module

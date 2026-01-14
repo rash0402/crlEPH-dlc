@@ -872,9 +872,10 @@ export compute_action_v54, compute_action_v60, compute_free_energy_v60
 export compute_dual_zone_haze, compute_precision_map  # v6.1 utility functions
 export compute_action_v61, compute_free_energy_v61    # v6.1 main functions
 export compute_action_random_collision_free  # v6.3 controller-bias-free function
+export generate_action_candidates_v72, compute_goal_term_progress, compute_action_v72  # v7.2 EPH controller
 
 """
-v6.3: Random Walk with Complete Collision Avoidance (Controller-Bias-Free)
+v7.2: Random Walk with Complete Collision Avoidance (Controller-Bias-Free)
 
 Purpose:
   Generate training data WITHOUT FEP controller bias.
@@ -886,7 +887,7 @@ Method:
   3. Guaranteed collision-free (distance > safety_threshold)
 
 Arguments:
-  - agent: Current agent
+  - agent: Current agent (v7.2: includes heading and d_goal)
   - other_agents: List of other agents
   - obstacles: List of obstacle positions [(x, y), ...]
   - agent_params: Agent parameters
@@ -896,7 +897,7 @@ Arguments:
   - repulsion_strength: Strength of repulsive force (default: 1.0)
 
 Returns:
-  - u: [v, ω] control input (collision-free)
+  - u: [Fx, Fy] control input (v7.2: omnidirectional force, collision-free)
 """
 function compute_action_random_collision_free(
     agent::Agent,
@@ -909,9 +910,9 @@ function compute_action_random_collision_free(
     repulsion_strength::Float64=1.0
 )
     # Step 1: Goal-directed random walk
-    # agent.goal is now a direction vector (not a position)
+    # agent.d_goal is now a direction vector (not a position)
     # This enables continuous motion in torus world
-    d_pref = agent.goal  # Already normalized direction vector
+    d_pref = agent.d_goal  # Already normalized direction vector (v7.2)
 
     # Random perturbation
     u_random = d_pref .+ randn(2) .* exploration_noise
@@ -974,44 +975,167 @@ function compute_action_random_collision_free(
         end
     end
 
-    # Step 4: Normalize and scale
+    # Step 4: Normalize and scale (v7.2: Omnidirectional force control)
     u_norm = norm(u_random)
     if u_norm > 1e-6
         u_random = u_random / u_norm
     end
 
-    # Scale to reasonable velocity
-    v_desired = min(1.0, u_norm) * agent_params.u_max
+    # Scale to maximum force (v7.2: [Fx, Fy] instead of [v, ω])
+    # Strength based on combined random walk + repulsion magnitude
+    force_magnitude = min(1.0, u_norm) * agent_params.u_max
 
-    # Convert to [v, ω] format
-    # v: forward velocity
-    # ω: angular velocity (align heading with desired direction)
+    # Return omnidirectional force
+    Fx = u_random[1] * force_magnitude
+    Fy = u_random[2] * force_magnitude
 
-    # Current heading
-    current_heading = atan(agent.vel[2], agent.vel[1])
+    return [Fx, Fy]
+end
 
-    # Desired heading
-    desired_heading = atan(u_random[2], u_random[1])
+# ===== v7.2: EPH Controller with Discrete Candidate Evaluation =====
 
-    # Angular error
-    heading_error = desired_heading - current_heading
+"""
+v7.2: Generate 100 action candidates in polar coordinates.
 
-    # Normalize to [-π, π]
-    while heading_error > π
-        heading_error -= 2π
+Candidates = 20 directions × 5 magnitudes = 100 candidates
+
+Args:
+    F_max: Maximum force magnitude [N] (default: 150.0)
+    n_angles: Number of direction angles (default: 20)
+    n_magnitudes: Number of force magnitudes (default: 5)
+
+Returns:
+    candidates: Array of [Fx, Fy] vectors (100 × 2)
+"""
+function generate_action_candidates_v72(;
+    F_max::Float64=150.0,
+    n_angles::Int=20,
+    n_magnitudes::Int=5
+)
+    angles = LinRange(0.0, 2π, n_angles + 1)[1:end-1]  # Exclude 2π (same as 0)
+    magnitudes = LinRange(0.0, F_max, n_magnitudes)
+
+    candidates = Vector{Vector{Float64}}()
+
+    for angle in angles
+        for F_mag in magnitudes
+            Fx = F_mag * cos(angle)
+            Fy = F_mag * sin(angle)
+            push!(candidates, [Fx, Fy])
+        end
     end
-    while heading_error < -π
-        heading_error += 2π
+
+    return candidates
+end
+
+"""
+v7.2: Compute progress-based goal term.
+
+Φ_goal(u) = (P_pred(u) - P_target)² / (2σ_P²)
+
+where:
+  P_pred(u) = v_pred(u) · d_goal  (progress velocity)
+  d_goal: Preferred direction unit vector
+  P_target: Target progress velocity (default: 1.0 m/s)
+  σ_P: Tolerance (default: 0.5 m/s)
+
+Args:
+    v_pred: Predicted velocity [vx, vy]
+    d_goal: Preferred direction unit vector [dx, dy]
+    P_target: Target progress velocity (default: 1.0)
+    sigma_P: Tolerance (default: 0.5)
+
+Returns:
+    Phi_goal: Goal term value
+"""
+function compute_goal_term_progress(
+    v_pred::Vector{Float64},
+    d_goal::Vector{Float64};
+    P_target::Float64=1.0,
+    sigma_P::Float64=0.5
+)
+    # Progress velocity: dot product with preferred direction
+    P_pred = dot(v_pred, d_goal)
+
+    # Quadratic penalty
+    Phi_goal = (P_pred - P_target)^2 / (2.0 * sigma_P^2)
+
+    return Phi_goal
+end
+
+"""
+v7.2: EPH action selection via discrete candidate evaluation.
+
+Evaluates 100 action candidates and selects the one with minimum free energy:
+  F(u) = Φ_goal(u) + Φ_safety(u) + λ_smooth·‖u‖²
+
+Args:
+    agent: Current agent
+    spm_current: Current SPM (12×12×3)
+    other_agents: Other agents in environment
+    agent_params: Agent parameters
+    world_params: World parameters
+    spm_config: SPM configuration
+    k_2: Weight for Ch2 (proximity saliency) (default: 1.0)
+    k_3: Weight for Ch3 (collision risk) (default: 10.0)
+    lambda_smooth: Smoothness weight (default: 0.01)
+    P_target: Target progress velocity (default: 1.0 m/s)
+    sigma_P: Progress tolerance (default: 0.5 m/s)
+
+Returns:
+    u_best: Optimal control input [Fx, Fy]
+"""
+function compute_action_v72(
+    agent::Agent,
+    spm_current::Array{Float64, 3},
+    other_agents::Vector{Agent},
+    agent_params::AgentParams,
+    world_params::WorldParams,
+    spm_config;  # SPMConfig (not typed to avoid circular dependency)
+    k_2::Float64=1.0,
+    k_3::Float64=10.0,
+    lambda_smooth::Float64=0.01,
+    P_target::Float64=1.0,
+    sigma_P::Float64=0.5
+)
+    # Generate 100 action candidates
+    candidates = generate_action_candidates_v72(F_max=agent_params.u_max)
+
+    F_min = Inf
+    u_best = candidates[1]  # Default to first candidate
+
+    for u in candidates
+        # 1. Predict next state using dynamics_rk4
+        state_current = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
+        state_pred = Dynamics.dynamics_rk4(state_current, u, agent_params, world_params)
+
+        # Extract predicted velocity
+        v_pred = [state_pred[3], state_pred[4]]
+
+        # 2. Goal Term (progress-based)
+        Phi_goal = compute_goal_term_progress(v_pred, agent.d_goal; P_target=P_target, sigma_P=sigma_P)
+
+        # 3. Safety Term (from predicted SPM)
+        # For simplicity, use current SPM as approximation
+        # TODO: In full implementation, reconstruct SPM from predicted state
+        ch2 = spm_current[:, :, 2]
+        ch3 = spm_current[:, :, 3]
+        Phi_safety = k_2 * sum(ch2) + k_3 * sum(ch3)
+
+        # 4. Smoothness Term
+        S = lambda_smooth * (u[1]^2 + u[2]^2)
+
+        # 5. Total Free Energy
+        F_val = Phi_goal + Phi_safety + S
+
+        # Track minimum
+        if F_val < F_min
+            F_min = F_val
+            u_best = u
+        end
     end
 
-    # Angular velocity (proportional control)
-    ω = 2.0 * heading_error  # Simple P controller
-
-    # Clamp to limits
-    v = clamp(v_desired, 0.0, agent_params.u_max)
-    ω = clamp(ω, -agent_params.u_max, agent_params.u_max)
-
-    return [v, ω]
+    return u_best
 end
 
 end # module

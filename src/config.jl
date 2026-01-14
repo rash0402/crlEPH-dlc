@@ -94,31 +94,42 @@ function WorldParams(;
 end
 
 # ===== Agent Parameters =====
+"""
+Agent physical parameters (v7.2: Pedestrian model)
+
+Physical changes from v6.x:
+- mass: 1.0 kg → 70.0 kg (adult pedestrian)
+- damping: 0.5 N/s → 0.5 N·s²/m² (quadratic drag coefficient)
+- u_max: 10.0 N → 150.0 N (walking force)
+- k_align: NEW - 4.0 rad/s (heading alignment gain)
+"""
 struct AgentParams
-    mass::Float64           # Agent mass
-    damping::Float64        # Damping coefficient
-    r_agent::Float64        # Agent radius
+    mass::Float64           # Agent mass [kg]
+    damping::Float64        # Drag coefficient [N·s²/m²] (v7.2: quadratic drag)
+    r_agent::Float64        # Agent radius [m]
     n_agents_per_group::Int # Number of agents per group (N/S/E/W)
-    u_max::Float64          # Maximum control input magnitude
-    # Emergency avoidance parameters
-    k_emergency::Float64          # Emergency repulsion strength (lower = more freezing possible)
+    u_max::Float64          # Maximum control force magnitude [N]
+    k_align::Float64        # Heading alignment gain [rad/s] (v7.2: NEW)
+    # Emergency avoidance parameters (v6.3 data collection only)
+    k_emergency::Float64          # Emergency repulsion strength
     emergency_threshold_obs::Float64   # Distance threshold for obstacle avoidance
     emergency_threshold_agent::Float64 # Distance threshold for agent avoidance
     enable_emergency::Bool        # Enable/disable emergency avoidance
 end
 
 function AgentParams(;
-    mass=1.0,
-    damping=0.5,
-    r_agent=0.5,                # Agent radius (human shoulder width ~0.5m)
+    mass=70.0,              # v7.2: Adult pedestrian mass (was 1.0 kg)
+    damping=0.5,            # v7.2: Quadratic drag coefficient [N·s²/m²]
+    r_agent=0.5,            # Agent radius (human shoulder width ~0.5m)
     n_agents_per_group=10,
-    u_max=10.0,
-    k_emergency=20.0,           # Reduced from 100.0 to allow more natural behavior
+    u_max=150.0,            # v7.2: Walking force (was 10.0 N)
+    k_align=4.0,            # v7.2: Heading alignment gain [rad/s] (τ ≈ 0.25s)
+    k_emergency=20.0,       # v6.3 data collection parameter
     emergency_threshold_obs=0.3,
-    emergency_threshold_agent=1.1,  # Collision threshold: 2*r_agent*1.1 = 1.1m (emergency stop)
+    emergency_threshold_agent=1.1,
     enable_emergency=true
 )
-    AgentParams(mass, damping, r_agent, n_agents_per_group, u_max, 
+    AgentParams(mass, damping, r_agent, n_agents_per_group, u_max, k_align,
                 k_emergency, emergency_threshold_obs, emergency_threshold_agent, enable_emergency)
 end
 
