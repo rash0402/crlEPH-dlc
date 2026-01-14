@@ -10,9 +10,10 @@ EPH (Emergent Perceptual Haze) is a research implementation of the Free Energy P
 
 **Julia Backend** (`src/`): Core simulation logic
 - `config.jl` - System parameters
-- `spm.jl` - Saliency Polar Map generation (16x16x3ch)
+- `spm.jl` - Saliency Polar Map generation (12×12×3ch for v6.3)
 - `dynamics.jl` - Agent physics with toroidal world boundary
-- `controller.jl` - FEP-based controller with free energy minimization
+- `controller.jl` - FEP-based controller + Random walk controller (v6.3)
+- `scenarios.jl` - Scenario definitions (Scramble, Corridor, Random Obstacles)
 - `action_vae.jl` - Action-Dependent VAE (Pattern D) for Haze estimation
 - `communication.jl` - ZMQ PUB socket for real-time streaming
 - `logger.jl` - HDF5 data logging
@@ -58,26 +59,42 @@ julia --project=. scripts/validate_haze.jl
 - **Trained Models**: `models/action_vae_best.bson`
 - **Validation Results**: `results/haze_validation/`
 
-## Development Status (v5.5 Aligned)
+## Development Status (v6.3 Current)
 
 ### Completed Milestones
 
-- **M1-3 (Base v5.5)**: ✅ Pattern D VAE Architecture & Haze Logic
-  - **Encoder**: $(y[k], u[k]) \to q(z|y, u)$ (Action-Dependent)
-  - **Decoder**: $(z, u[k]) \to \hat{y}[k+1]$ (Action-Conditioned)
-  - **Haze**: $H[k] = \text{Agg}(\sigma_z^2(y[k], u[k]))$ (Counterfactual Haze)
-  - **Validation**: Haze correlates with risk of action
+- **v6.3 (Controller-Bias-Free Architecture)**: ✅ Unbiased VAE Training Data Collection
+  - **Random Walk Controller**: Geometric collision avoidance without FEP bias
+  - **3 Scenarios**: Scramble Crossing, Corridor, Random Obstacles
+  - **Raw Trajectory Data**: Position, velocity, actions, heading saved in HDF5
+  - **SPM Reconstruction**: On-the-fly generation from raw trajectories during training
+  - **Data Efficiency**: 100x storage reduction (SPM reconstructed, not stored)
 
-### Current Focus (Phase 1.5/2)
+- **Random Obstacles Scenario**: ✅ Circular obstacles with reproducible generation
+  - **Obstacle Generation**: 2-4m radius circles with safe zones
+  - **Reproducibility**: Independent obstacle_seed parameter
+  - **Integration**: Obstacles included in SPM for collision avoidance
 
-- 🎯 **VAE Training**: Optimizing Pattern D model ($\beta=0.1 \sim 1.0$)
-- 🎯 **Evaluation**: Implementing Freezing Rate metric in `scripts/evaluate_metrics.jl`
-- 🎯 **Documentation**: Defining v5.5 specifications
+- **Raw Trajectory Viewers**: ✅ Real-time visualization with SPM reconstruction
+  - `viewer/raw_v63_viewer.py` - Main viewer with 3-channel SPM display
+  - `viewer/spm_reconstructor.py` - Python SPM generator
+  - **Features**: Global/local maps, obstacle visualization, agent selection
 
-### Technical Specifications (v5.5 Pattern D)
+### Current Focus (v6.3 Phase)
 
-- **Causal Flow**: $u_k$ Proposed $\to H(y_k, u_k)$ Estimated $\to \beta_{k+1}$ Modulated
-- **Advantage**: "Risky Action" $\to$ High Haze $\to$ Low Precision $\to$ Conservative Behavior
-- **Data Structure**: HDF5 logs contain `spm`, `actions`, `haze`, `precision`
+- 🎯 **VAE Training**: Training on controller-bias-free dataset (9 files, 10MB)
+- 🎯 **Ablation Study**: Comparing v6.2 (FEP-biased) vs v6.3 (unbiased) data
+- 🎯 **Evaluation**: Collision rate, freezing rate, trajectory smoothness metrics
 
-For detailed research context, see `doc/EPH-proposal_all_v5.5.md`.
+### Technical Specifications (v6.3)
+
+- **Data Collection**: Random walk + geometric collision avoidance
+- **SPM**: 12×12 grid, D_max=6.0m, sensing_ratio=6.0
+- **Scenarios**:
+  - Scramble: 40 agents, 2.5-3.4% collision rate
+  - Corridor: 20 agents, 6.3-7.2% collision rate
+  - Random Obstacles: 40 agents, 8.9-9.6% collision rate (507-575 obstacle points)
+- **Data Structure**: HDF5 with `trajectory/`, `obstacles/`, `events/`, `metadata/`, `spm_params/`
+- **Storage**: ~10MB for 9 datasets (3 scenarios × 3 seeds × 1500 steps)
+
+For detailed research context, see `doc/v6.3_controller_bias_free_design.md`.

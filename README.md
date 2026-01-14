@@ -19,9 +19,10 @@ crlEPH-dlc/
 ├── doc/                          # ドキュメントと研究提案書
 ├── src/                          # Juliaメイン実装
 │   ├── config.jl                 # システム設定
-│   ├── spm.jl                    # SPM生成（16x16x3ch: 占有・顕著性・リスク）
+│   ├── spm.jl                    # SPM生成（12×12×3ch: 占有・顕著性・リスク）
+│   ├── scenarios.jl              # シナリオ定義（Scramble/Corridor/Random Obstacles）
 │   ├── dynamics.jl               # エージェント物理演算
-│   ├── controller.jl             # FEPベースコントローラ
+│   ├── controller.jl             # FEPベース + Random walkコントローラ（v6.3）
 │   ├── action_vae.jl             # Action-Dependent VAE (Pattern D)
 │   ├── communication.jl          # ZMQ通信
 │   ├── metrics.jl                # 評価指標・Freezing判定
@@ -29,11 +30,15 @@ crlEPH-dlc/
 ├── scripts/                      # 実行スクリプト
 │   ├── run_all.sh                # [推奨] 一括起動ランチャー
 │   ├── run_simulation.jl         # メインシミュレーション
-│   ├── train_action_vae.jl       # VAE学習スクリプト
-│   ├── validate_haze.jl          # Haze妥当性検証
-│   ├── evaluate_metrics.jl       # 評価指標計算
+│   ├── create_dataset_v63_random_collision_free.jl  # v6.3データ収集（Scramble/Corridor）
+│   ├── create_dataset_v63_random_obstacles.jl       # v6.3データ収集（Random Obstacles）
+│   ├── train_action_vae_v62.jl   # VAE学習スクリプト（v6.2/v6.3対応）
+│   ├── test_obstacles_random.jl  # Random Obstacles検証
 │   └── archive/                  # 旧スクリプトの退避場所
 ├── viewer/                       # Python可視化
+│   ├── raw_v63_viewer.py         # [NEW] 生軌跡データビューア（SPM再構成）
+│   ├── spm_reconstructor.py      # [NEW] Python SPM生成器
+│   ├── raw_v62_viewer.py         # v6.2データビューア
 │   ├── zmq_client.py             # ZMQサブスクライバ
 │   ├── main_viewer.py            # 4群表示
 │   └── detail_viewer.py          # SPM詳細ビュー
@@ -80,42 +85,82 @@ julia --project=. scripts/run_simulation.jl
 ~/local/venv/bin/python viewer/detail_viewer.py
 ```
 
-### 3. VAE学習と検証
+### 3. データ収集と可視化 (v6.3)
 
-**学習**
+**v6.3 データ収集（Controller-Bias-Free）**
 ```bash
-julia --project=. scripts/train_action_vae.jl
+# Scramble + Corridor シナリオ
+julia --project=. scripts/create_dataset_v63_random_collision_free.jl \
+  --scenario both --densities 10 --seeds 1,2,3 --steps 1500
+
+# Random Obstacles シナリオ
+julia --project=. scripts/create_dataset_v63_random_obstacles.jl \
+  --densities 10 --obstacle-counts 50 --seeds 1,2,3 --steps 1500
 ```
 
-**Haze 妥当性検証 (Pattern D)**
+**生軌跡データの可視化**
 ```bash
-julia --project=. scripts/validate_haze.jl
+# Raw trajectory viewer (SPM reconstruction)
+~/local/venv/bin/python viewer/raw_v63_viewer.py \
+  data/vae_training/raw_v63/v63_scramble_d10_s1_*.h5
 ```
 
-## アーキテクチャ (v5.5 Pattern D)
+### 4. VAE学習
 
-本実装は **Action-Dependent Uncertainty (Pattern D)** を採用しています。
+**学習（v6.2/v6.3データ対応）**
+```bash
+julia --project=. scripts/train_action_vae_v62.jl
+```
 
-### Juliaバックエンド (`src/`)
-- **action_vae.jl**: $(y_t, u_t)$ を入力とするエンコーダを持ち、反事実的な不確実性（Counterfactual Haze）を推定します。
-- **controller.jl**: 推定された Haze を用いて、自由エネルギー最小化における知覚解像度 $\beta$ を適応的に変調します。
+## アーキテクチャ (v6.3 Current)
 
-### データ出力
-- **Simulation Logs**: `data/logs/` (HDF5形式)
-- **VAE Training Data**: `data/vae_training/`
-- **Validation Results**: `results/haze_validation/`
+### v6.3の主要革新
+
+**Controller-Bias-Free Data Collection**:
+- ランダムウォーク + 幾何学的衝突回避
+- FEPコントローラの事前バイアスを排除
+- 多様な状態-行動カバレッジを実現
+
+**3つのシナリオ**:
+1. **Scramble Crossing**: 4群スクランブル交差（40エージェント）
+2. **Corridor**: 狭通路での対面流動（20エージェント、幅10m）
+3. **Random Obstacles**: ランダム配置の円形障害物環境（40エージェント、50障害物）
+
+**Raw Trajectory Architecture**:
+- SPMを保存せず、生軌跡データ（pos, vel, u, heading）のみ保存
+- 学習時にオンザフライでSPM再構成
+- ストレージ効率: 100倍削減（2GB → 20MB/simulation）
+
+### データ構造 (HDF5)
+```
+trajectory/
+  ├── pos        [T, N, 2]  # 位置
+  ├── vel        [T, N, 2]  # 速度
+  ├── u          [T, N, 2]  # 制御入力
+  ├── heading    [T, N]     # 方向角
+  ├── goal       [N, 2]     # ゴール方向ベクトル
+  └── d_pref     [T, N, 2]  # 優先方向
+
+obstacles/
+  └── data       [M, 2]     # 障害物座標
+
+events/
+  ├── collision       [T, N]  # 衝突フラグ
+  └── near_collision  [T, N]  # ニアミスフラグ
+```
 
 ## 機能
 
-### Phase 1.5: Pattern D 実装 (完了) ✅
-- **アーキテクチャ**: Action-Dependent Encoder ($q(z|y, u)$)
-- **Haze定義**: $H(y, u) = \text{Agg}(\sigma_z^2(y, u))$
-- **検証**: 行動による不確実性の変化を確認済み
+### v6.3 (完了) ✅
+- **Controller-Bias-Free Data**: ランダムウォークによるバイアスフリーデータ収集
+- **Random Obstacles**: 再現可能な障害物生成（obstacle_seed）
+- **Raw Trajectory Viewer**: リアルタイムSPM再構成機能
+- **3シナリオ × 3シード**: 合計9データセット（10MB）
 
-### Phase 2: 評価指標 (進行中) 🚧
-- **Freezing Rate**: 停止状態の定量的検出
-- **Collision Rate**: 衝突頻度の測定
-- **Jerk**: 動作の滑らかさの評価
+### 現在の焦点 🎯
+- **VAE学習**: v6.3データでの学習実験
+- **Ablation Study**: v6.2（FEPバイアス） vs v6.3（バイアスフリー）比較
+- **評価指標**: 衝突率、停止率、軌跡平滑性の定量評価
 
 ## ライセンス
 
