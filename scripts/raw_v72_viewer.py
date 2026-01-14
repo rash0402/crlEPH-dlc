@@ -115,16 +115,29 @@ class RawV72Viewer:
 
         with h5py.File(self.h5_file_path, 'r') as f:
             # Trajectory data (v7.2: includes heading)
-            self.pos = f['trajectory/pos'][:]  # [T, N, 2]
-            self.vel = f['trajectory/vel'][:]  # [T, N, 2]
-            self.heading = f['trajectory/heading'][:]  # [T, N] - v7.2 NEW
-            self.u = f['trajectory/u'][:]  # [T, N, 2] - force control
-            self.d_goal = f['trajectory/d_goal'][:]  # [N, 2] - v7.2 direction vectors
-            self.group = f['trajectory/group'][:]  # [N]
+            # Julia saves as [dims, N, T], need to transpose to [T, N, dims]
+            pos_raw = f['trajectory/pos'][:]  # Julia: [2, N, T]
+            vel_raw = f['trajectory/vel'][:]  # Julia: [2, N, T]
+            u_raw = f['trajectory/u'][:]      # Julia: [2, N, T]
 
-            # Events
-            self.collision = f['events/collision'][:]  # [T, N]
-            self.near_collision = f['events/near_collision'][:]  # [T, N]
+            self.pos = np.transpose(pos_raw, (2, 1, 0))  # [T, N, 2]
+            self.vel = np.transpose(vel_raw, (2, 1, 0))  # [T, N, 2]
+            self.u = np.transpose(u_raw, (2, 1, 0))      # [T, N, 2]
+
+            heading_raw = f['trajectory/heading'][:]     # Julia: [N, T]
+            self.heading = np.transpose(heading_raw)     # [T, N]
+
+            d_goal_raw = f['trajectory/d_goal'][:]       # Julia: [2, N]
+            self.d_goal = np.transpose(d_goal_raw)       # [N, 2]
+
+            self.group = f['trajectory/group'][:]        # [N]
+
+            # Events - Julia: [N, T], need to transpose to [T, N]
+            collision_raw = f['events/collision'][:]
+            near_collision_raw = f['events/near_collision'][:]
+
+            self.collision = np.transpose(collision_raw)           # [T, N]
+            self.near_collision = np.transpose(near_collision_raw) # [T, N]
 
             # Metadata
             self.scenario = f['metadata/scenario'][()].decode('utf-8')
@@ -292,7 +305,8 @@ class RawV72Viewer:
 
             # Draw agent circle
             is_selected = (i == self.selected_agent_idx)
-            circle = Circle(pos_i, 0.5, color=color, alpha=0.7 if is_selected else 0.3,
+            circle = Circle(pos_i, 0.5,
+                           facecolor=color, alpha=0.7 if is_selected else 0.3,
                            linewidth=2 if is_selected else 0.5,
                            edgecolor='black' if is_selected else color)
             self.ax_global.add_patch(circle)
