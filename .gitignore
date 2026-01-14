@@ -101,6 +101,7 @@ archive/v55_results/
 # Temporary files
 tmp/
 *.log
+logs/
 
 # Large media files
 *.webp
