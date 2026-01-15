@@ -139,14 +139,14 @@ function run_simulation_v72(
 
     for t in 1:max_steps
         for (i, agent) in enumerate(agents)
-            # Generate control input (v6.3-style random walk for data collection)
+            # Generate control input (v7.2: discrete candidate selection)
             other_agents = [a for a in agents if a.id != agent.id]
             u = Controller.compute_action_random_collision_free(
                 agent, other_agents, obstacle_tuples,
                 agent_params, world_params;
-                exploration_noise=0.3,
-                safety_threshold=4.0,
-                repulsion_strength=2.0
+                exploration_noise=1.0,   # Higher noise for exploration
+                safety_threshold=0.5,    # Moderate safety buffer (0.5m)
+                repulsion_strength=0.0   # Deprecated/Unused
             )
 
             # Store state before update
@@ -226,6 +226,26 @@ function run_simulation_v72(
         v72_group["mass"] = agent_params.mass
         v72_group["k_align"] = agent_params.k_align
         v72_group["u_max"] = agent_params.u_max
+
+        # Obstacles (v7.2: Fixed missing obstacles saving)
+        # Convert Obstacle structs to [M, 4] array (x_min, x_max, y_min, y_max) or centroids
+        # For SPM reconstruction, we usually need obstacle definitions.
+        # But trajectory_loader.jl expects "obstacles/data".
+        # Let's save as [M, 4] for full info.
+        
+        # However, debug_spm.jl (and likely trajectory_loader) might expect point clouds or specific format.
+        # Let's check init_obstacles results. They are Rectangles.
+        # If we save them as (x_min, x_max, y_min, y_max), trajectory_loader need to handle it.
+        # But previous error: "obstacles/data not found".
+        # Let's save as simple array for now.
+        
+        obs_data = zeros(length(obstacles), 4)
+        for (idx, obs) in enumerate(obstacles)
+            obs_data[idx, :] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
+        end
+        
+        obs_group = create_group(file, "obstacles")
+        obs_group["data"] = obs_data
     end
 
     println("    Output: $filename")

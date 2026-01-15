@@ -1,13 +1,14 @@
 # V7.2 Raw Trajectory Viewer
 
-**5D状態空間（x, y, vx, vy, θ）対応のインタラクティブ軌跡ビューワー**
+**5D状態空間（x, y, vx, vy, θ）対応のインタラクティブ軌跡ビューワー（V6.3スタイルUI）**
 
 ## 概要
 
-v7.2データ収集で生成されたHDF5ファイルを可視化するためのツールです。Heading情報を含む5D状態空間、方向ベクトル目標、全方向力制御に対応しています。
+v7.2データ収集で生成されたHDF5ファイルを可視化するためのツールです。Heading情報を含む5D状態空間、方向ベクトル目標、全方向力制御に対応し、SPM（Saliency Polar Map）の3チャンネル可視化も提供します。
 
-## v7.2の新機能
+## v7.2の主要機能
 
+### コア機能（v7.2）
 - **5D状態空間**: 位置（x, y）、速度（vx, vy）、姿勢（θ）
 - **Heading矢印**: エージェントの向き（黒矢印）を表示
 - **目標方向ベクトル**: d_goal（紫の破線矢印）
@@ -15,38 +16,106 @@ v7.2データ収集で生成されたHDF5ファイルを可視化するための
 - **全方向力制御**: [Fx, Fy]の履歴表示
 - **v7.2物理パラメータ**: m=70kg, u_max=150N, k_align=4.0 rad/s
 
+### 可視化機能（v6.3スタイル）
+- **Local View**: 選択エージェントの視界（Sensing Range + FOV表示）
+- **SPM 3チャンネル**: Occupancy, Proximity, Collision Risk
+- **SPM Info パネル**: 選択エージェントのSPM統計
+- **4×4グリッドレイアウト**: v6.3と同じインターフェース
+
 ## 使用方法
 
-### 基本的な起動（ファイル選択ダイアログ）
+### 推奨: シェルスクリプト経由
 
 ```bash
-python scripts/raw_v72_viewer.py
+# GUIファイル選択ダイアログ（デフォルト）
+./scripts/view_v72_data.sh
+
+# ターミナルメニュー
+./scripts/view_v72_data.sh --menu
 ```
 
-ファイル選択ダイアログが表示され、`data/vae_training/raw_v72/`から任意のHDF5ファイルを選択できます。
+#### オプション1: GUIダイアログ（デフォルト）
+
+```bash
+./scripts/view_v72_data.sh
+```
+
+グラフィカルなファイル選択ダイアログ（Tkinter）が表示されます。
+- ファイルブラウザーでナビゲート
+- ファイル名でソート
+- 視覚的に操作しやすい
+
+#### オプション2: ターミナルメニュー
+
+```bash
+./scripts/view_v72_data.sh --menu
+```
+
+ターミナル内でファイル一覧が表示されます：
+
+```
+========================================
+Select a file to visualize:
+========================================
+
+  1) v72_corridor_d10_s1_20260114_182900.h5
+  2) v72_scramble_d10_s1_20260114_182837.h5
+  3) v72_random_d20_n50_s2_20260114_183000.h5
+  ...
+
+Enter file number (1-48), or press Enter for most recent:
+```
+
+- **数字を入力**: 指定したファイルを開く
+- **Enterのみ**: 最新のファイルを自動選択
+
+#### 共通の利点:
+- Python仮想環境の自動アクティベーション
+- 依存パッケージの自動チェック
+- ユーザーフレンドリーなエラーメッセージ
 
 ### ファイル指定での起動
 
 ```bash
+# シェルスクリプト経由（推奨）
+./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
+
+# 直接Python実行
+~/local/venv/bin/python scripts/raw_v72_viewer.py data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
+```
+
+**シナリオ別の例:**
+```bash
 # Scramble Crossing
-python scripts/raw_v72_viewer.py data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
+./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
 
 # Corridor
-python scripts/raw_v72_viewer.py data/vae_training/raw_v72/v72_corridor_d15_s2_*.h5
+./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_corridor_d15_s2_*.h5
 
 # Random Obstacles
-python scripts/raw_v72_viewer.py data/vae_training/raw_v72/v72_random_d20_n50_s3_*.h5
+./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_random_d20_n50_s3_*.h5
 ```
 
-### 仮想環境での実行
+## 画面構成（4×4グリッドレイアウト）
 
-```bash
-~/local/venv/bin/python scripts/raw_v72_viewer.py
+```
+┌─────────────────┬─────────────────┐
+│  Global View    │  Local View     │  Row 0-1 (大パネル 2×2)
+│  (全エージェント) │  (選択エージェント) │
+│                 │  + Sensing Range│
+│                 │  + FOV Wedge    │
+├─────┬─────┬─────┼─────────────────┤
+│SPM  │SPM  │SPM  │ SPM Info        │  Row 2 (SPMチャンネル)
+│Ch1  │Ch2  │Ch3  │                 │
+├─────┼─────┼─────┼─────────────────┤
+│Head-│Cont-│Coll-│ Statistics      │  Row 3 (時系列＋統計)
+│ing  │rol  │ision│                 │
+└─────┴─────┴─────┴─────────────────┘
 ```
 
-## 画面構成
+### Row 0-1: メインビュー
 
-### 1. **Global View** (左上・メイン)
+#### 1. **Global View** (左上, 2×2)
 - 全エージェントの位置と軌跡
 - **黒矢印**: Heading（エージェントの向き）
 - **紫破線矢印**: 目標方向ベクトル（選択エージェント）
@@ -54,35 +123,63 @@ python scripts/raw_v72_viewer.py data/vae_training/raw_v72/v72_random_d20_n50_s3
 - **赤破線円**: 衝突イベント
 - **クリック**: エージェント選択
 
-### 2. **Agent Detail** (右上)
-- 選択エージェントの詳細情報
-  - 位置、速度（大きさ・方向）
-  - **Heading θ**: 姿勢角度
-  - **Heading Error**: 速度方向との差
-  - 制御力、目標方向
-  - **Progress**: v·d_goal（進捗速度）
+#### 2. **Local View** (右上, 2×2) - **NEW in v6.3 style**
+- 選択エージェント中心の視界
+- **水色破線円**: Sensing Range（D_max = 6.0m）
+- **黄色半透明扇形**: FOV（210°視野）
+- 視界内の他エージェント＋障害物
+- Heading矢印と目標方向ベクトル
+- **トーラス境界**を考慮した距離計算
 
-### 3. **Heading vs Velocity Direction** (右中央)
+### Row 2: SPM可視化
+
+#### 3-5. **SPM 3チャンネル** (Row 2, Col 0-2) - **NEW in v6.3 style**
+- **Ch1: Occupancy** (Gray colormap)
+  - 占有率（0-1）、各セルのエージェント密度
+- **Ch2: Proximity** (Hot colormap)
+  - 近接度（0-1）、距離ベースのサリエンシー
+- **Ch3: Collision Risk** (Reds colormap)
+  - 衝突危険度（0-1）、TTC（Time-To-Collision）ベース
+
+**SPM仕様**:
+- グリッド: 12×12 bins（n_rho=12, n_theta=12）
+- センシング距離: 6.0m（sensing_ratio=3.0）
+- FOV: 210°
+- Python側でリアルタイム再構成（`viewer/spm_reconstructor.py`）
+
+#### 6. **SPM Info** (Row 2, Col 3) - **NEW**
+- 選択エージェントのSPM統計
+  - Occupancy合計
+  - Max Proximity
+  - Max Collision Risk
+- エージェント情報（ID, Group, 位置, 速度, Heading）
+
+### Row 3: 時系列プロット＋統計
+
+#### 7. **Heading Alignment** (Row 3, Col 0)
 - **青線**: Heading θ（姿勢）
 - **赤破線**: 速度方向
 - Heading alignment dynamics（k_align=4.0 rad/s）の効果を確認
+- X軸: 時間[s]
 
-### 4. **Statistics** (左下)
-- シナリオ情報
-- **v7.2物理モデル**: mass, u_max, k_align
-- エージェント数、密度
-- 衝突統計
-
-### 5. **Control Forces** (中央下)
+#### 8. **Control Forces** (Row 3, Col 1)
 - 選択エージェントの制御力履歴
 - **青線**: Fx（X方向力）
 - **赤線**: Fy（Y方向力）
 - **黒線**: |F|（力の大きさ）
-- **灰破線**: u_max上限
+- **灰破線**: u_max上限（150N）
+- X軸: 時間[s]
 
-### 6. **Collision Events** (右下)
+#### 9. **Collision Events** (Row 3, Col 2)
 - 全エージェントの衝突イベント
 - 赤点 = 衝突発生
+- 選択エージェントの衝突は×印で強調
+
+#### 10. **Statistics** (Row 3, Col 3)
+- シナリオ情報（v7.2, 密度, シード）
+- **v7.2物理モデル**: m, u_max, k_align
+- 選択エージェント状態（v, θ, Δθ, |F|, Progress）
+- 衝突統計（累計, レート, 全体レート）
 
 ## 操作方法
 
@@ -91,12 +188,30 @@ python scripts/raw_v72_viewer.py data/vae_training/raw_v72/v72_random_d20_n50_s3
   - 最も近いエージェント（2m以内）を選択
   - 選択されたエージェントは太枠＋矢印で強調表示
 
+### コントロールパネル（画面下部）
+
+```
+[Open File]           [============ Time Step Slider ============]  [Play] [Reset]
+```
+
 ### スライダー
 - **Time Step**: タイムステップを変更（0 ～ max_steps-1）
+  - ドラッグで任意の時刻へジャンプ
+  - 現在の時刻と総ステップ数を表示
 
-### ボタン
+### ボタン（v6.3スタイル）
+- **Open File**: 新しいファイルを開く
+  - ファイル選択ダイアログを表示
+  - 同じディレクトリからファイルを選択可能
+  - ロード後、自動的に最初のフレームにリセット
+
 - **Play/Pause**: 自動再生の開始/停止
   - 再生速度: リアルタイム（dt=0.01s）
+  - 再生中は「Pause」、停止中は「Play」と表示
+
+- **Reset**: 最初のフレームにリセット
+  - タイムステップを0に戻す
+  - 再生を停止
 
 ## v7.2データ構造
 

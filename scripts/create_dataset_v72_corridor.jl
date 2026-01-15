@@ -124,7 +124,7 @@ function run_simulation_v72(
     # Initialize corridor agents (v7.2: includes heading and d_goal)
     Random.seed!(seed)
     agents = Dynamics.init_corridor_agents(agent_params, world_params; seed=seed)
-    obstacles = Dynamics.Obstacle[]  # No obstacles in corridor
+    obstacles = Dynamics.init_corridor_obstacles(world_params; corridor_width=corridor_width, corridor_length=corridor_length)
 
     # Convert obstacles to tuple format for controller
     obstacle_tuples = Tuple{Float64, Float64}[]
@@ -241,6 +241,15 @@ function run_simulation_v72(
         v72_group["mass"] = agent_params.mass
         v72_group["k_align"] = agent_params.k_align
         v72_group["u_max"] = agent_params.u_max
+
+        # Obstacles
+        obs_data = zeros(length(obstacles), 4)
+        for (idx, obs) in enumerate(obstacles)
+            obs_data[idx, :] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
+        end
+        
+        obs_group = create_group(file, "obstacles")
+        obs_group["data"] = obs_data
     end
 
     println("    Output: $filename")

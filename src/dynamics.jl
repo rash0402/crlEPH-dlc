@@ -399,8 +399,8 @@ function step_unicycle!(
 end
 
 """
-Update agent state using 2nd-order dynamics with collision detection
-M * a + D * v = u
+Update agent state using 2nd-order dynamics with collision detection (v7.2 Model A)
+Uses RK4 integration with heading alignment.
 
 Returns:
     collision_count::Int - Number of collisions detected this step
@@ -413,103 +413,49 @@ function step!(
     obstacles::Vector{Obstacle},
     all_agents::Vector{Agent}
 )
+    # Clamp control input (force magnitude)
+    u_norm = norm(u)
+    if u_norm > agent_params.u_max
+        u = u .* (agent_params.u_max / u_norm)
+    end
+    
+    # Construct current state vector [x, y, vx, vy, θ]
+    state_current = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
+
+    # RK4 integration (v7.2 dynamics)
+    state_next = dynamics_rk4(state_current, u, agent_params, world_params)
+
+    # Extract next state
+    agent.pos = [state_next[1], state_next[2]]
+    agent.vel = [state_next[3], state_next[4]]
+    agent.heading = state_next[5]
+
+    # Apply torus wrapping
+    agent.pos = wrap_torus(agent.pos, world_params)
+
+    # Compute acceleration for logging (approximate)
+    # Note: This includes drag and heading effects implicitly
+    agent.acc = (agent.vel - [state_current[3], state_current[4]]) / world_params.dt
+
+    # Collision detection (for metrics)
     collision_count = 0
     
-    # Clamp control input
-    u_clamped = clamp.(u, -agent_params.u_max, agent_params.u_max)
+    # Obstacle collisions
+    if check_collision(agent.pos, obstacles, agent_params.r_agent)
+        collision_count += 1
+    end
     
-    # Emergency repulsion force (configurable parameters)
-    emergency_repulsion = [0.0, 0.0]
-    
-    if agent_params.enable_emergency
-        k_emergency = agent_params.k_emergency
-        emergency_threshold_obs = agent_params.emergency_threshold_obs
-        emergency_threshold_agent = agent_params.emergency_threshold_agent
-        
-        # Check for emergency collision with obstacles
-        for obs in obstacles
-            # Check if agent is inside or very close to obstacle
-            if (agent.pos[1] + agent_params.r_agent > obs.x_min - emergency_threshold_obs && 
-                agent.pos[1] - agent_params.r_agent < obs.x_max + emergency_threshold_obs &&
-                agent.pos[2] + agent_params.r_agent > obs.y_min - emergency_threshold_obs && 
-                agent.pos[2] - agent_params.r_agent < obs.y_max + emergency_threshold_obs)
-                
-                # Calculate repulsion away from obstacle center
-                obs_center = [(obs.x_min + obs.x_max)/2, (obs.y_min + obs.y_max)/2]
-                to_obs = obs_center - agent.pos
-                dist_to_obs = norm(to_obs)
-                
-                if dist_to_obs > 0.1
-                    # Repulsion away from obstacle
-                    emergency_repulsion -= (to_obs / dist_to_obs) * k_emergency
-                end
-                
-                # Check for actual collision (inside obstacle)
-                if check_collision(agent.pos, obstacles, agent_params.r_agent)
-                    collision_count += 1
-                end
-            end
-        end
-        
-        # Check for emergency collision with other agents
-        for other in all_agents
-            if other.id != agent.id
-                rel_pos = relative_position(agent.pos, other.pos, world_params)
-                dist = norm(rel_pos)
-                min_dist = 2.0 * agent_params.r_agent
-                
-                # Check for actual collision (overlapping)
-                if dist < min_dist
-                    collision_count += 1
-                end
-                
-                # Emergency repulsion only when very close (within threshold)
-                if dist < min_dist + emergency_threshold_agent
-                    if dist > 0.1
-                        # Repulsion away from other agent (scaled by proximity)
-                        proximity_factor = 1.0 - dist / (min_dist + emergency_threshold_agent)
-                        emergency_repulsion -= (rel_pos / dist) * k_emergency * proximity_factor
-                    end
-                end
-            end
-        end
-    else
-        # Emergency avoidance disabled - only count collisions
-        # Obstacle collisions
-        if check_collision(agent.pos, obstacles, agent_params.r_agent)
-            collision_count += 1
-        end
-        
-        # Agent collisions
-        for other in all_agents
-            if other.id != agent.id
-                rel_pos = relative_position(agent.pos, other.pos, world_params)
-                dist = norm(rel_pos)
-                if dist < 2.0 * agent_params.r_agent
-                    collision_count += 1
-                end
+    # Agent collisions
+    for other in all_agents
+        if other.id != agent.id
+            rel_pos = relative_position(agent.pos, other.pos, world_params)
+            dist = norm(rel_pos)
+            if dist < 2.0 * agent_params.r_agent
+                collision_count += 1
             end
         end
     end
-    
-    # Combine FEP control with emergency repulsion (only when needed)
-    total_force = u_clamped .+ emergency_repulsion
-    total_force = clamp.(total_force, -agent_params.u_max * 3.0, agent_params.u_max * 3.0)
-    
-    # 2nd-order dynamics: a = (F - D*v) / M
-    agent.acc = (total_force .- agent_params.damping .* agent.vel) ./ agent_params.mass
-    
-    # Euler integration
-    new_vel = agent.vel .+ agent.acc .* world_params.dt
-    new_pos = agent.pos .+ new_vel .* world_params.dt
-    
-    # Update state
-    agent.vel .= new_vel
-    agent.pos .= new_pos
-    
-    # Torus wrapping
-    agent.pos = wrap_torus(agent.pos, world_params)
-    
+
     return collision_count
 end
 

@@ -248,6 +248,15 @@ function run_simulation_v72(
         v72_group["mass"] = agent_params.mass
         v72_group["k_align"] = agent_params.k_align
         v72_group["u_max"] = agent_params.u_max
+
+        # Obstacles
+        obs_data = zeros(length(obstacles), 4)
+        for (idx, obs) in enumerate(obstacles)
+            obs_data[idx, :] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
+        end
+        
+        obs_group = create_group(file, "obstacles")
+        obs_group["data"] = obs_data
     end
 
     println("    Output: $filename")

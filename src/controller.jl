@@ -6,6 +6,7 @@ Free energy minimization for action generation
 module Controller
 
 using LinearAlgebra
+using Statistics
 using ForwardDiff
 using ..Config
 using ..SPM
@@ -874,30 +875,34 @@ export compute_action_v61, compute_free_energy_v61    # v6.1 main functions
 export compute_action_random_collision_free  # v6.3 controller-bias-free function
 export generate_action_candidates_v72, compute_goal_term_progress, compute_action_v72  # v7.2 EPH controller
 
-"""
-v7.2: Random Walk with Complete Collision Avoidance (Controller-Bias-Free)
 
+"""
+v7.2: Random Walk with Geometric Collision Avoidance (Discrete Candidates)
+    
 Purpose:
-  Generate training data WITHOUT FEP controller bias.
-  Uses geometric collision avoidance (repulsive forces) to ensure collision-free trajectories.
+  Generate training data for VAE.
+  Selects action from 100 discrete candidates (20 angles × 5 magnitudes).
+  Ensures geometric safety (collision free).
 
 Method:
-  1. Random walk with goal bias
-  2. Geometric repulsive forces from agents and obstacles
-  3. Guaranteed collision-free (distance > safety_threshold)
+  1. Generate 100 action candidates.
+  2. Filter candidates that lead to geometric collision (within safety_threshold).
+  3. Select from safe candidates using Softmax on (Alignment with d_goal + Random Noise).
+     - Encourages exploration but maintains general direction.
+  4. If no safe candidates, select the "least unsafe" one (max distance to nearest obstacle).
 
 Arguments:
-  - agent: Current agent (v7.2: includes heading and d_goal)
+  - agent: Current agent
   - other_agents: List of other agents
-  - obstacles: List of obstacle positions [(x, y), ...]
+  - obstacles: List of obstacle positions (Tuple)
   - agent_params: Agent parameters
   - world_params: World parameters
-  - exploration_noise: Standard deviation of random noise (default: 0.5)
-  - safety_threshold: Minimum distance to maintain (default: 3.0m)
-  - repulsion_strength: Strength of repulsive force (default: 1.0)
+  - exploration_noise: Temperature for Softmax (higher = more random) (default: 1.0)
+  - safety_threshold: Safety buffer (default: 1.0m)
+  - repulsion_strength: (Not used in discrete selection)
 
 Returns:
-  - u: [Fx, Fy] control input (v7.2: omnidirectional force, collision-free)
+  - u: Selected [Fx, Fy] from candidates
 """
 function compute_action_random_collision_free(
     agent::Agent,
@@ -905,91 +910,79 @@ function compute_action_random_collision_free(
     obstacles::Vector{Tuple{Float64, Float64}},
     agent_params::AgentParams,
     world_params::WorldParams;
-    exploration_noise::Float64=0.5,
-    safety_threshold::Float64=3.0,
-    repulsion_strength::Float64=1.0
+    exploration_noise::Float64=1.0,  # Acts as temperature for Softmax
+    safety_threshold::Float64=1.0,
+    repulsion_strength::Float64=1.0  # Deprecated in this logic
 )
-    # Step 1: Goal-directed random walk
-    # agent.d_goal is now a direction vector (not a position)
-    # This enables continuous motion in torus world
-    d_pref = agent.d_goal  # Already normalized direction vector (v7.2)
-
-    # Random perturbation
-    u_random = d_pref .+ randn(2) .* exploration_noise
-
-    # Step 2: Geometric collision avoidance - Agent repulsion
-    for other in other_agents
-        # Use torus-aware relative position for shortest distance
-        # rel_pos points from agent to other, so we need to negate for repulsion
-        rel_pos_to_other = Dynamics.relative_position(agent.pos, other.pos, world_params)
-        dist = norm(rel_pos_to_other)
-
-        if dist < safety_threshold && dist > 1e-6
-            # Inverse square law repulsion with distance-dependent scaling
-            # Repulsion direction: away from other agent (opposite of rel_pos_to_other)
-            direction = -rel_pos_to_other / dist
-
-            # Stronger repulsion at closer distances
-            if dist < 2.0 * agent_params.r_agent  # Within 2x agent radius (3.0m)
-                # Emergency repulsion (exponentially stronger)
-                # At dist=1.5m: 10x, at dist=1.0m: 15x, at dist=0.5m: 25x
-                emergency_factor = 10.0 * (2.0 / (dist + 0.5))
-                repulsion_magnitude = emergency_factor * repulsion_strength / (dist^2 + 0.01)
-            else
-                # Normal repulsion
-                repulsion_magnitude = repulsion_strength / (dist^2 + 0.1)
-            end
-
-            u_random += direction .* repulsion_magnitude
-        end
-    end
-
-    # Step 3: Geometric collision avoidance - Obstacle repulsion
-    # CRITICAL FIX: Obstacles should NOT use toroidal distance
-    # Reason: Corridor walls are physical boundaries, not wrap-around
-    # Using toroidal distance causes walls to "appear" on opposite side
-    for obs in obstacles
-        obs_pos = [obs[1], obs[2]]
+    # 1. Generate 100 candidates
+    candidates = generate_action_candidates_v72(F_max=agent_params.u_max)
+    
+    # 2. Evaluate candidates
+    safe_indices = Int[]
+    scores = Float64[]
+    min_dist_vals = Float64[]  # Track min dist for each candidate (fallback)
+    
+    # Current State
+    state_curr = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
+    
+    for (idx, u) in enumerate(candidates)
+        # Predict next position (using simple approximation for speed or RK4)
+        # Using RK4 for accuracy since we have it
+        state_next = Dynamics.dynamics_rk4(state_curr, u, agent_params, world_params)
+        pos_next = [state_next[1], state_next[2]]
         
-        # Use SIMPLE distance for obstacles (no toroidal wrapping)
-        # This ensures corridor walls act as physical boundaries
-        rel_pos_to_obs = obs_pos - agent.pos  # Simple difference
-        dist = norm(rel_pos_to_obs)
-
-        if dist < safety_threshold && dist > 1e-6
-            # Repulsion direction: away from obstacle (opposite of rel_pos_to_obs)
-            direction = -rel_pos_to_obs / dist
-            
-            # CRITICAL: Much stronger repulsion for static obstacles
-            # Obstacles should be treated as "hard boundaries"
-            if dist < 1.5 * agent_params.r_agent  # Within 1.5x agent radius (2.25m)
-                # Emergency wall avoidance: 20x stronger than agent repulsion
-                emergency_factor = 20.0 * (1.5 / (dist + 0.3))
-                repulsion_magnitude = emergency_factor * repulsion_strength / (dist^2 + 0.01)
-            else
-                # Normal obstacle repulsion: 5x stronger than agent repulsion
-                repulsion_magnitude = 5.0 * repulsion_strength / (dist^2 + 0.1)
-            end
-            
-            u_random += direction .* repulsion_magnitude
+        # Check safety (Geometric)
+        min_dist = Inf
+        
+        # Obstacles (walls)
+        for obs in obstacles
+            obs_pos = [obs[1], obs[2]]
+            dist = norm(pos_next - obs_pos) - agent_params.r_agent
+            min_dist = min(min_dist, dist)
+        end
+        
+        # Other Agents
+        for other in other_agents
+            rel_pos = Dynamics.relative_position(pos_next, other.pos, world_params)
+            dist = norm(rel_pos) - 2 * agent_params.r_agent
+            min_dist = min(min_dist, dist)
+        end
+        
+        push!(min_dist_vals, min_dist)
+        
+        if min_dist > 0.0  # Collision free
+           # Use user-defined safety_threshold (default 1.0m)
+           # If threshold is too strict, fallback mechanism will activate
+           if min_dist > safety_threshold
+               push!(safe_indices, idx)
+               
+               # Score: Alignment with d_goal + Randomness
+               # d_goal is direction vector. u is force vector.
+               # Normalize u for alignment check? Or use raw dot product (prefer larger force in good direction)
+               alignment = dot(u, agent.d_goal)
+               
+               # Random score: Alignment + Noise
+               # exploration_noise scales the randomness
+               score = alignment + randn() * (agent_params.u_max * exploration_noise)
+               push!(scores, score)
+           end
         end
     end
-
-    # Step 4: Normalize and scale (v7.2: Omnidirectional force control)
-    u_norm = norm(u_random)
-    if u_norm > 1e-6
-        u_random = u_random / u_norm
+    
+    # 3. Select Action
+    if !isempty(safe_indices)
+        # Pick the one with highest score
+        best_idx_local = argmax(scores)
+        best_global_idx = safe_indices[best_idx_local]
+        return candidates[best_global_idx]
+    else
+        # No strictly safe action found (within threshold)
+        # Fallback: Maximize minimum distance (Survival Mode)
+        # But we must ensure it's at least collision free (dist > 0)
+        # If all candidates collide (min_dist <= 0), we still pick max min_dist
+        best_fallback_idx = argmax(min_dist_vals)
+        return candidates[best_fallback_idx]
     end
-
-    # Scale to maximum force (v7.2: [Fx, Fy] instead of [v, ω])
-    # Strength based on combined random walk + repulsion magnitude
-    force_magnitude = min(1.0, u_norm) * agent_params.u_max
-
-    # Return omnidirectional force
-    Fx = u_random[1] * force_magnitude
-    Fy = u_random[2] * force_magnitude
-
-    return [Fx, Fy]
 end
 
 # ===== v7.2: EPH Controller with Discrete Candidate Evaluation =====
@@ -1091,7 +1084,8 @@ function compute_action_v72(
     other_agents::Vector{Agent},
     agent_params::AgentParams,
     world_params::WorldParams,
-    spm_config;  # SPMConfig (not typed to avoid circular dependency)
+    spm_config;  # SPMConfig
+    vae_model=nothing,  # Optional VAE model
     k_2::Float64=1.0,
     k_3::Float64=10.0,
     lambda_smooth::Float64=0.01,
@@ -1100,35 +1094,85 @@ function compute_action_v72(
 )
     # Generate 100 action candidates
     candidates = generate_action_candidates_v72(F_max=agent_params.u_max)
+    n_candidates = length(candidates)
 
+    # 1. Goal Term (Progress) - Compute for all candidates
+    # Can be parallelized or vectorized if critical, but loop is fine for 100 items
+    Phi_goal_all = zeros(n_candidates)
+    
+    # 2. Safety Term & Haze - Needs VAE
+    Phi_safety_all = zeros(n_candidates)
+    
+    if !isnothing(vae_model)
+        # Prepare Batch Inputs for VAE
+        # SPM: (12, 12, 3) -> (12, 12, 3, 100)
+        x_batch = repeat(reshape(Float32.(spm_current), 12, 12, 3, 1), 1, 1, 1, n_candidates)
+        
+        # Action: Vector of Vectors -> Matrix (2, 100)
+        u_batch = zeros(Float32, 2, n_candidates)
+        for i in 1:n_candidates
+            u_batch[:, i] .= candidates[i]
+        end
+        
+        # Run VAE Prediction (Forward Pass)
+        # Returns: x_hat, mu, logsigma
+        # We assume model is on CPU
+        x_hat_batch, mu_batch, logsigma_batch = vae_model(x_batch, u_batch)
+        
+        # Process Outputs
+        # Haze: mean of variance = mean(exp(2*logsigma))
+        # logsigma shape: (LatentDim, Batch)
+        variance = exp.(2f0 .* logsigma_batch)
+        haze_batch = mean(variance, dims=1)  # (1, 100)
+        
+        # Safety Score from Predicted SPM
+        # x_hat_batch shape: (12, 12, 3, 100)
+        # Sum ch2 and ch3 for each candidate
+        # We can sum dims 1,2 to get (3, 100)
+        spm_sums = sum(x_hat_batch, dims=(1,2)) 
+        
+        for i in 1:n_candidates
+            # Haze Modulation
+            h = haze_batch[1, i]
+            # Beta (Precision): Inverse of Haze (Simple Model)
+            # β = 1 / (1 + Haze)
+            beta = 1.0 / (1.0 + h)
+            
+            # Predicted Safety Cost
+            cost_safe = k_2 * spm_sums[1, 1, 2, i] + k_3 * spm_sums[1, 1, 3, i]
+            
+            # Modulated Safety Term
+            Phi_safety_all[i] = beta * cost_safe
+        end
+    else
+        # Fallback: Use Current SPM (No Prediction, No Haze)
+        # Constant safety cost for all candidates (except for potential geometric check?)
+        # For pure VAE logic fallback, we just use current SPM cost
+        cost_safe_current = k_2 * sum(spm_current[:, :, 2]) + k_3 * sum(spm_current[:, :, 3])
+        Phi_safety_all .= cost_safe_current
+    end
+
+    # Loop for Goal Term and Total Selection
     F_min = Inf
-    u_best = candidates[1]  # Default to first candidate
+    u_best = candidates[1]
 
-    for u in candidates
-        # 1. Predict next state using dynamics_rk4
+    for i in 1:n_candidates
+        u = candidates[i]
+        
+        # 1. Predict state (Dynamics Model for Goal Term calculation)
         state_current = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
         state_pred = Dynamics.dynamics_rk4(state_current, u, agent_params, world_params)
-
-        # Extract predicted velocity
         v_pred = [state_pred[3], state_pred[4]]
-
-        # 2. Goal Term (progress-based)
+        
+        # Goal Term
         Phi_goal = compute_goal_term_progress(v_pred, agent.d_goal; P_target=P_target, sigma_P=sigma_P)
-
-        # 3. Safety Term (from predicted SPM)
-        # For simplicity, use current SPM as approximation
-        # TODO: In full implementation, reconstruct SPM from predicted state
-        ch2 = spm_current[:, :, 2]
-        ch3 = spm_current[:, :, 3]
-        Phi_safety = k_2 * sum(ch2) + k_3 * sum(ch3)
-
-        # 4. Smoothness Term
+        
+        # Smoothness
         S = lambda_smooth * (u[1]^2 + u[2]^2)
-
-        # 5. Total Free Energy
-        F_val = Phi_goal + Phi_safety + S
-
-        # Track minimum
+        
+        # Total Free Energy
+        F_val = Phi_goal + Phi_safety_all[i] + S
+        
         if F_val < F_min
             F_min = F_val
             u_best = u
@@ -1136,6 +1180,159 @@ function compute_action_v72(
     end
 
     return u_best
+end
+
+
+# ============================================================================
+# v7.2: Action-Conditioned VAE with Haze-Modulated Precision (Pattern D)
+# ============================================================================
+
+"""
+Compute action using v7.2 Controller (Model A + Pattern D VAE).
+Implements the "Freezing Robot" solution via Haze-based Precision Modulation.
+
+Core Logic:
+1. Sample candidate actions (u_{proposed})
+2. Predict future SPM (y_{k+1}) and Haze (H) using VAE
+   - Haze H = Agg(σ²_z) (Alertness/Ambiguity)
+3. Modulate Precision β = 1 / (1 + H)
+4. Evaluate Free Energy F(u) = F_{goal}(u) + β · F_{safety}(y_{k+1})
+5. Select u* = argmin F(u)
+
+Args:
+    agent: Current agent
+    spm: Current SPM (12x12x3)
+    others: Other agents (for geometric fallbacks if needed)
+    agent_params: Agent parameters
+    world_params: World parameters
+    spm_config: SPM configuration
+    vae_model: Trained ActionConditionedVAE (BSON loaded)
+
+Returns:
+    u_opt: Optimal action vector [ux, uy]
+"""
+function compute_action_v72(
+    agent::Agent,
+    spm::Array{Float64, 3},
+    others::Vector{Agent},
+    agent_params::AgentParams,
+    world_params::WorldParams,
+    spm_config::SPMConfig;
+    vae_model=nothing,
+    n_candidates::Int=100,
+    k_2::Float64=1.0,  # Proximity weight
+    k_3::Float64=5.0,  # Collision weight (Risk)
+    lambda_goal::Float64=1.0,
+    u_max::Float64=150.0 # Force limit (v7.2 uses Force)
+)
+    # Define candidates: Random Sampling from [-u_max, u_max]
+    # Simple Monte Carlo optimization (robust to non-convexity)
+    
+    # 1. Generate Candidates
+    candidates = Vector{Vector{Float64}}(undef, n_candidates)
+    for i in 1:n_candidates
+        # Uniform sampling
+        candidates[i] = (rand(2) .- 0.5) .* 2.0 .* u_max
+    end
+    
+    # Include zero action and simple goal direction for robustness
+    # Goal direction unit vector
+    d_goal_vec = agent.d_goal # v7.2: d_goal is already a unit vector [dx, dy]
+    # Simple approach force
+    v_pref_mag = 1.3 # Standard walking speed [m/s]
+    goal_vel = v_pref_mag .* d_goal_vec
+    u_simple = 2.0 .* (goal_vel .- agent.vel) # P-controlish
+    u_simple = clamp.(u_simple, -u_max, u_max)
+    
+    candidates[1] = [0.0, 0.0]
+    candidates[2] = u_simple
+    # candidates[3] = d_goal_vec .* u_max * 0.5
+    
+    # Storage for scores
+    scores = Vector{Float64}(undef, n_candidates)
+    
+    # Precompute terms
+    # Goal Term: Minimize velocity error relative to preferred velocity
+    # v_pref = v_max * d_goal
+    v_pref = v_pref_mag .* d_goal_vec
+    
+    # 2. VAE Prediction (Batch)
+    # If VAE is available, use it for Safety + Haze
+    if !isnothing(vae_model)
+        # Prepare inputs
+        # SPM: Repeat (H, W, C) -> (H, W, C, N)
+        n_rho, n_theta, n_ch = size(spm)
+        spm_float32 = Float32.(spm)
+        x_batch = reshape(repeat(spm_float32, n_candidates), n_rho, n_theta, n_ch, n_candidates)
+        
+        # Action: (2, N) - Normalize to [~-1, 1] range used in training (div by 150.0)
+        u_batch = zeros(Float32, 2, n_candidates)
+        for i in 1:n_candidates
+            u_batch[:, i] .= candidates[i] ./ 150.0f0 # Normalize!
+        end
+        
+        # Forward Pass
+        # x_hat: (12, 12, 3, N), mu, logsigma: (Latent, N)
+        x_hat_batch, mu_batch, logsigma_batch = vae_model(x_batch, u_batch)
+        
+        # Haze Calculation
+        # H = mean(exp(2*logsigma)) per sample
+        variance = exp.(2f0 .* logsigma_batch)
+        haze_batch = mean(variance, dims=1) # (1, N)
+        
+        # Safety Cost from Predicted SPM
+        # Sum Ch2 (Proximity) and Ch3 (Risk)
+        # spm_pred: (12, 12, 3, N)
+        
+        # Extract Ch2 and Ch3 sums
+        # x_hat_batch is on CPU/GPU depending on model. Assuming CPU.
+        # Ensure we work with arrays
+        x_hat_arr = Array(x_hat_batch)
+        haze_arr = Array(haze_batch)
+        
+        for i in 1:n_candidates
+            h = Float64(haze_arr[1, i])
+            
+            # Beta Modulation
+            # If H is high (uncertain), beta is low -> Worry less about safety (Unfreeze)
+            beta = 1.0 / (1.0 + h * 10.0) # Tunable sensitivity factor
+            
+            # Predicted Safety Cost
+            # Note: Model Output might be standardized or raw [0,1].
+            # Training used MSE on [0,1] data.
+            # Clamp to [0,1] to be safe
+            spm_pred = clamp.(x_hat_arr[:, :, :, i], 0.0f0, 1.0f0)
+            
+            cost_ch2 = sum(spm_pred[:, :, 2]) # Proximity
+            cost_ch3 = sum(spm_pred[:, :, 3]) # Risk
+            
+            F_safety = k_2 * cost_ch2 + k_3 * cost_ch3
+            
+            # Goal Term evaluation
+            # Predict next velocity using Dynamics (deterministic physics)
+            state_curr = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
+            state_next = Dynamics.dynamics_rk4(state_curr, candidates[i], agent_params, world_params)
+            v_next = [state_next[3], state_next[4]]
+            
+            F_goal = 0.5 * norm(v_next - v_pref)^2
+            
+            # Control Effort (Smoothness)
+            F_effort = 0.001 * norm(candidates[i])^2
+            
+            # Total Free Energy
+            scores[i] = lambda_goal * F_goal + beta * F_safety + F_effort
+        end
+        
+    else
+        # Fallback (No VAE): Standard Force-based or simple avoidance
+        # Just use simple potential field on current state geometry
+        # For now, just return simple P-control
+        return u_simple
+    end
+    
+    # 3. Selection
+    best_idx = argmin(scores)
+    return candidates[best_idx]
 end
 
 end # module

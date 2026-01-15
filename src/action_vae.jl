@@ -60,7 +60,7 @@ function ActionConditionedVAE(latent_dim::Int=32, u_dim::Int=2)
         MaxPool((2, 2)),
         Flux.flatten
     )
-    flat_dim = 4 * 4 * 32  # 512
+    flat_dim = 3 * 3 * 32  # 288 (for 12x12 input)
     
     # 2. Process Action (for encoder)
     enc_u = Dense(u_dim, 64, relu)
@@ -87,7 +87,7 @@ function ActionConditionedVAE(latent_dim::Int=32, u_dim::Int=2)
     
     decoder_conv = Chain(
         Dense(combined_dim, flat_dim, relu),
-        x -> reshape(x, 4, 4, 32, :),
+        x -> reshape(x, 3, 3, 32, :),
         ConvTranspose((4, 4), 32 => 16, relu, stride=2, pad=1),
         ConvTranspose((4, 4), 16 => 3, sigmoid, stride=2, pad=1)
     )
@@ -183,7 +183,7 @@ function action_vae_loss(m::ActionConditionedVAE, x_current, u, x_next; β=1.0f0
     x_hat, μ, logσ = m(x_current, u)
     
     # Prediction Loss (MSE between predicted and actual next SPM)
-    pred_loss = Flux.mse(x_hat, x_next) * (16 * 16 * 3)
+    pred_loss = Flux.mse(x_hat, x_next) * (12 * 12 * 3)
     
     # KL Divergence
     kld = -0.5f0 * mean(sum(1 .+ 2 .* logσ .- μ.^2 .- exp.(2 .* logσ), dims=1))

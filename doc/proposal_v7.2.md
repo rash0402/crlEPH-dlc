@@ -60,7 +60,18 @@ tags:
 
 ### 学術的新規性 (Academic Novelty)
 
-本研究の学術的新規性は以下の3点に集約される:
+本研究は、**先行研究が個別に扱っていた複数の要素を、Free Energy Principleという統一原理の下で初めて統合**した点に学術的新規性がある。特に、2次系動力学モデルに基づくActive Inference実装は、既存研究に存在しない。
+
+#### 従来手法との本質的差異
+
+| 手法カテゴリ | 代表例 | 限界 | EPHの克服方法 |
+|------------|--------|------|--------------|
+| **反応的手法** | DWA (Fox et al., 1997)<br>Social Force (Helbing & Molnár, 1995) | 予測なし、手動ルール、局所最適、1次系 | 統一自由エネルギー最小化＋VAE予測＋**2次系動力学** |
+| **学習ベース** | Deep RL (Chen et al., 2017, 2019) | データ非効率、解釈性低、報酬設計必要 | 自由エネルギー原理（理論駆動）＋創発的社会行動 |
+| **Active Inference** | Pio-Lopez et al. (2016)<br>Lanillos et al. (2021) | **1次系(瞬時制御)**、単一エージェント、Precision = 感覚不確実性のみ | **2次系動力学**、多エージェント、**Haze (Environmental + Self-hazing)** |
+| **創発研究** | Vicsek et al. (1995)<br>Couzin et al. (2002) | 観察・モデル化が中心、制御手法なし | **設計者制御可能な創発誘導** |
+
+#### 本研究の3つの主要な新規性
 
 **1. Haze理論: 創発を誘導する知覚変調の定式化 (初)**
 
@@ -77,7 +88,7 @@ $$
 
 **2. 2次系Active Inference: 真の創発を可能にする理論的拡張 (初)**
 
-既存Active Inference研究が1次系(瞬時制御)に限定されていたのに対し、本研究は**2次系動力学モデル**(質量・慣性)を導入:
+既存Active Inference研究（Pio-Lopez et al., 2016; Lanillos et al., 2021）は全て**1次系(瞬時制御)**に限定されており、2次系動力学モデルに基づく実装は存在しない。本研究は**2次系動力学モデル**(質量・慣性)を導入し、Active Inferenceを物理的に妥当な系へ拡張:
 
 $$
 m \dot{\mathbf{v}}_i = \mathbf{F}_i - \mathbf{f}_{\text{drag}}, \quad \dot{\theta}_i = k_{\text{align}} \cdot (\theta_{\text{velocity}} - \theta_i)
@@ -100,7 +111,7 @@ Headingが視野を制御 → 知覚-行動ループの完結
 
 **3. Active Inference原理の厳密な遵守 (初)**
 
-従来研究が目標を「状態の一部」として扱い最適化問題化していたのに対し、本研究はActive Inferenceの原理に厳密に従う:
+従来研究（Pio-Lopez et al., 2016等）が目標を「状態の一部」として扱い最適化問題化していたのに対し、本研究はActive Inferenceの原理に厳密に従う:
 
 - **目標表現**: 固定方向ベクトル $\mathbf{d}_{\text{goal}}$ を事前分布に組み込み
   - $p(s|\mathbf{d}_{\text{goal}}) \propto \exp(-(P - P_{\text{target}})^2 / 2\sigma_P^2)$
@@ -124,18 +135,18 @@ where:
 - **Precision**: $\Pi(\rho,\theta; \mathbf{x}_i, t) = 1/(H_{\text{total}} + \epsilon)$
 
 **Key Components**:
-1. **2次系ダイナミクス**: Newton's 2nd law with inertia (m=70kg, 歩行者モデル)
-2. **Heading追従**: 速度方向に自動追従 ($k_{\text{align}}=4.0$ rad/s)
-3. **Pattern D VAE**: Action-conditioned prediction of SPM + **full state** (x, y, v_x, v_y, θ)
+1. **2次系ダイナミクス**: Newton's 2nd law with inertia (m=1.0kg, 基礎エージェント)
+2. **Heading追従**: 速度方向に自動追従 ($k_{\text{align}}=5.0$ rad/s)
+3. **VAE**: Action-conditioned prediction of **next SPM** only (状態は動力学モデルで計算)
 4. **Environmental Haze Field**: Designer-specified $H_{\text{env}}: \mathbb{R}^2 \to [0, 1]$
 5. **Self-hazing**: $A(t) = \exp(-\lambda \|\text{SPM}_{\text{obs}} - \text{SPM}_{\text{pred}}\|_2)$
 
-**Physical Parameters** (歩行者モデル):
+**Physical Parameters** (基礎エージェント):
 ```python
-m = 70.0 kg         # Mass (adult pedestrian)
-c_d = 0.5 N·s²/m²   # Drag coefficient
-k_align = 4.0 rad/s # Heading alignment gain
-F_max = 150.0 N     # Maximum force
+m = 1.0 kg         # Mass 
+c_d = 1.0 N·s²/m²   # Drag coefficient
+k_align = 5.0 rad/s # Heading alignment gain
+F_max = 15.0 N     # Maximum force
 dt = 0.01 s         # Timestep
 ```
 
@@ -264,7 +275,7 @@ where:
 $$
 \mathcal{U}_{\text{sample}} = \{(F_{\text{mag},j} \cos\phi_k, F_{\text{mag},j} \sin\phi_k) : j \in [1,5], k \in [1,20]\}
 $$
-- $F_{\text{mag},j} \in \{0, 37.5, 75, 112.5, 150\}$ N (5段階)
+- $F_{\text{mag},j} \in \{0, 3.75, 7.5, 11.25, 15.0\}$ N (5段階、F_max=15.0Nに基づく)
 - $\phi_k \in \{0°, 18°, 36°, \ldots, 342°\}$ (20方向)
 - **Total**: 5 × 20 = 100候補
 
@@ -286,9 +297,9 @@ m \dot{\mathbf{v}}_i = \mathbf{F}_i - \mathbf{f}_{\text{drag}}(\mathbf{v}_i)
 $$
 
 where:
-- $m = 70.0$ kg (歩行者の質量)
+- $m = 1.0$ kg (基礎エージェントの質量)
 - $\mathbf{F}_i = (F_{x,i}, F_{y,i})$: 全方向制御力
-- $\mathbf{f}_{\text{drag}} = -c_d \|\mathbf{v}_i\| \mathbf{v}_i$, $c_d = 0.5$ N·s²/m² (空気抵抗)
+- $\mathbf{f}_{\text{drag}} = -c_d \|\mathbf{v}_i\| \mathbf{v}_i$, $c_d = 1.0$ N·s²/m² (空気抵抗係数)
 
 **Heading の追従動力学** (速度方向への1次遅れ):
 $$
@@ -297,7 +308,7 @@ $$
 
 where:
 - $\theta_{\text{target},i} = \text{atan2}(v_{y,i}, v_{x,i})$: 速度ベクトルの方向
-- $k_{\text{align}} = 4.0$ rad/s: Heading追従ゲイン（時定数 $\tau \approx 0.25$秒）
+- $k_{\text{align}} = 5.0$ rad/s: Heading追従ゲイン（時定数 $\tau \approx 0.2$秒）
 - $\text{angle\_diff}(\alpha, \beta) = \text{atan2}(\sin(\alpha - \beta), \cos(\alpha - \beta))$: 最短角度差
 
 **設計原理**:
@@ -333,9 +344,9 @@ def dynamics_rk4(state, u, dt, params):
     state: [x, y, vx, vy, theta]  (5D)
     u: [Fx, Fy]  (全方向力)
     """
-    m = params['mass']           # 70 kg
-    cd = params['drag_coeff']     # 0.5
-    k_align = params['k_align']   # 4.0 rad/s
+    m = params['mass']           # 1.0 kg
+    cd = params['drag_coeff']     # 1.0
+    k_align = params['k_align']   # 5.0 rad/s
 
     def f(s, u):
         x, y, vx, vy, theta = s
@@ -380,7 +391,7 @@ $$
 \text{SPM}_i(t) \in \mathbb{R}^{K_\rho \times K_\theta \times C}
 $$
 
-where $K_\rho = 16$ (動径), $K_\theta = 16$ (角度), $C = 3$ (RGB)。
+where $K_\rho = 12$ (動径), $K_\theta = 12$ (角度), $C = 3$ (RGB)。
 
 **重要な特性**:
 1. SPMは**エゴセントリック**(自己中心的)表現であり、エージェントの視点から見た周囲環境を対数極座標で encode する
@@ -774,7 +785,7 @@ Lane Formation が物理制約から創発
 - **更新**: $O(1)$ (静的) / $O(N)$ (動的堆積)
 
 **Self-hazing**:
-- **計算**: $O(K)$ where $K = $ SPM次元 (16×16=256)
+- **計算**: $O(K)$ where $K = $ SPM次元 (12×12=144)
 - 予測誤差は既に計算済み → 追加コストなし
 
 **Total Overhead**:
@@ -869,15 +880,14 @@ EPHシステムは、以下の4つのコアコンポーネントから構成さ�
 
 ---
 
-### 3.2 Pattern D VAE: 行動条件付き状態・SPM予測
+### 3.2 Pattern D VAE: 行動条件付きSPM予測
 
 #### 3.2.1 アーキテクチャ
 
 Pattern D VAEは、**行動条件付きVariational Autoencoder**であり、以下を予測する:
-1. **Next State**: $s_{t+1} = (x, y, v_x, v_y, \theta)$ ∈ ℝ⁵
-2. **Next SPM**: $\text{SPM}_{t+1} \in \mathbb{R}^{16 \times 16 \times 3}$
+- **Next SPM**: $\text{SPM}_{t+1} \in \mathbb{R}^{12 \times 12 \times 3}$
 
-**重要**: 状態は5次元（位置、速度、heading）。Heading は速度方向に追従するため、VAEは速度予測から heading を推定可能。
+**重要**: VAEは状態（$s_{t+1}$）を予測しない。次状態は動力学モデル（RK4）で計算する。これにより、VAEは知覚予測（SPM）に専念し、物理的整合性を保つ。
 
 **ネットワーク構成**:
 
@@ -886,46 +896,33 @@ class PatternDVAE(nn.Module):
     def __init__(self):
         # Encoder: SPM_t → z_t
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=4, stride=2, padding=1),  # 16×16 → 8×8
+            nn.Conv2d(3, 32, kernel_size=4, stride=2, padding=1),  # 12×12 → 6×6
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1), # 8×8 → 4×4
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1), # 6×6 → 3×3
             nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1), # 4×4 → 2×2
-            nn.ReLU(),
-            nn.Flatten(),  # 128×2×2 = 512
+            nn.Flatten(),  # 64×3×3 = 576
         )
 
         # Latent space
-        self.fc_mu = nn.Linear(512, 32)      # → μ_z
-        self.fc_logvar = nn.Linear(512, 32)  # → log σ²_z
+        self.fc_mu = nn.Linear(576, 32)      # → μ_z
+        self.fc_logvar = nn.Linear(576, 32)  # → log σ²_z
 
-        # Decoder: (z_t, u, s_t) → (s_{t+1}, SPM_{t+1})
-        self.fc_decode = nn.Linear(32 + 2 + 5, 512)  # z + u(Fx,Fy) + s(5D) → hidden
-
-        # State prediction head
-        self.state_head = nn.Sequential(
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, 5)  # → (x, y, vx, vy, θ)
-        )
+        # Decoder: (z_t, u, s_t) → SPM_{t+1}
+        self.fc_decode = nn.Linear(32 + 2 + 5, 576)  # z + u(Fx,Fy) + s(5D) → hidden
 
         # SPM reconstruction head
         self.spm_decoder = nn.Sequential(
-            nn.Linear(512, 128*2*2),
-            nn.ReLU(),
-            nn.Unflatten(1, (128, 2, 2)),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
+            nn.Unflatten(1, (64, 3, 3)),
             nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
             nn.ReLU(),
             nn.ConvTranspose2d(32, 3, kernel_size=4, stride=2, padding=1),
-            nn.Sigmoid()  # → SPM ∈ [0, 1]
+            nn.Sigmoid()  # → SPM ∈ [0, 1], 12×12×3
         )
 ```
 
 **損失関数**:
 $$
-\mathcal{L}_{\text{VAE}} = \underbrace{\|\text{SPM}_{t+1} - \hat{\text{SPM}}_{t+1}\|_2^2}_{\text{SPM reconstruction}} + \lambda_s \cdot \underbrace{\|s_{t+1} - \hat{s}_{t+1}\|_2^2}_{\text{State prediction}} + \beta \cdot \underbrace{D_{KL}[q(z)||p(z)]}_{\text{KL regularization}}
+\mathcal{L}_{\text{VAE}} = \underbrace{\|\text{SPM}_{t+1} - \hat{\text{SPM}}_{t+1}\|_2^2}_{\text{SPM reconstruction}} + \beta \cdot \underbrace{D_{KL}[q(z)||p(z)]}_{\text{KL regularization}}
 $$
 
 ---
@@ -937,7 +934,7 @@ $$
 ```
 Input:
   - Current state s_t = (x, y, vx, vy, θ) ∈ ℝ⁵
-  - Current SPM o_t ∈ ℝ^(16×16×3)
+  - Current SPM o_t ∈ ℝ^(12×12×3)
   - Goal direction d_goal (固定ベクトル)
   - Haze parameters (α, β, H_env)
 Output: Optimal action u* = (Fx*, Fy*)
@@ -945,11 +942,11 @@ Output: Optimal action u* = (Fx*, Fy*)
 1: U_candidates ← GenerateCandidates()
    // 20 angles × 5 magnitudes = 100 candidates
    // angles: [0°, 18°, 36°, ..., 342°]
-   // magnitudes: [0, 37.5, 75, 112.5, 150] N
+   // magnitudes: [0, 3.75, 7.5, 11.25, 15.0] N (F_max=15.0Nに基づく)
 
-2: // Predict outcomes for all candidates (parallel on GPU)
-3: (S_next[], SPM_next[]) ← VAE.predict_batch(o_t, U_candidates, s_t)
-   // S_next[u] = (x', y', vx', vy', θ') where θ' follows velocity
+2: // Predict next SPM for all candidates (parallel on GPU)
+3: SPM_next[] ← VAE.predict_batch(o_t, U_candidates, s_t)
+   // VAE出力: SPM_next[u] ∈ ℝ^(12×12×3) (状態は予測しない)
 
 4: // Compute Haze
 5: H_env ← GetEnvironmentalHaze(s_t.position)
@@ -957,32 +954,37 @@ Output: Optimal action u* = (Fx*, Fy*)
 
 7: // Evaluate free energy for all candidates
 8: for each u in U_candidates do
-9:     H_total ← H_spatial · (1 + α·H_env) · (1 + β·(1-A))
-10:     Π ← 1 / (H_total + ε)
+9:     // Compute next state using dynamics model (RK4)
+10:    s_next ← dynamics_rk4(s_t, u, dt, params)
+       // s_next = (x', y', vx', vy', θ') where θ' follows velocity
 11:
-12:     // Goal Term (進捗速度ベース)
-13:     v_pred ← S_next[u].velocity  // (vx', vy')
-14:     P_pred ← v_pred · d_goal  // 進捗速度
-15:     Φ_goal ← (P_pred - P_target)² / (2σ_P²)
-16:
-17:     // Safety Term (Haze変調SPM)
-18:     Φ_safety ← Σ_{ρ,θ} Π(ρ,θ) · SPM_next[u](ρ,θ)
+12:    H_total ← H_spatial · (1 + α·H_env) · (1 + β·(1-A))
+13:    Π ← 1 / (H_total + ε)
+14:
+15:    // Goal Term (進捗速度ベース)
+16:    v_pred ← s_next[3:4]  // (vx', vy')
+17:    P_pred ← v_pred · d_goal  // 進捗速度
+18:    Φ_goal ← (P_pred - P_target)² / (2σ_P²)
 19:
-20:     // Smoothness Term
-21:     S ← ||u||² / (2σ_u²)
+20:    // Safety Term (Haze変調SPM)
+21:    Φ_safety ← Σ_{ρ,θ} Π(ρ,θ) · SPM_next[u](ρ,θ)
 22:
-23:     // Total Free Energy
-24:     F[u] ← w_goal·Φ_goal + w_safety·Φ_safety + w_entropy·S
-25: end for
-26:
-27: u* ← argmin_u F[u]  // ✅ 離散探索 (NOT 自動微分)
-28: return u*
+23:    // Smoothness Term
+24:    S ← ||u||² / (2σ_u²)
+25:
+26:    // Total Free Energy
+27:    F[u] ← w_goal·Φ_goal + w_safety·Φ_safety + w_entropy·S
+28: end for
+29:
+30: u* ← argmin_u F[u]  // ✅ 離散探索 (NOT 自動微分)
+31: return u*
 ```
 
 **重要な設計ポイント**:
-- Line 13-15: Goal Term は進捗速度 $P = \mathbf{v} \cdot \mathbf{d}_{\text{goal}}$ で評価
-- Line 3: VAE は heading も予測するが、これは速度から導出される
-- Line 27: 100個の候補から離散的に最小値を選択（EPHの核心）
+- Line 3: VAEは次SPMのみを予測（状態は予測しない）
+- Line 10: 次状態は動力学モデル（RK4）で計算（物理的整合性を保つ）
+- Line 16-18: Goal Term は進捗速度 $P = \mathbf{v} \cdot \mathbf{d}_{\text{goal}}$ で評価
+- Line 30: 100個の候補から離散的に最小値を選択（EPHの核心）
 
 ---
 
@@ -1000,7 +1002,7 @@ $$
 
 where:
 - $\mathbf{F}_i = (F_{x,i}, F_{y,i})$: 全方向制御力
-- $k_{\text{align}} = 4.0$ rad/s: Heading追従ゲイン
+- $k_{\text{align}} = 5.0$ rad/s: Heading追従ゲイン
 
 **Runge-Kutta 4次積分** (dt=0.01s):
 ```python
@@ -1011,9 +1013,9 @@ def dynamics_rk4(state, u, dt, params):
     state: [x, y, vx, vy, theta] (5D)
     u: [Fx, Fy] (全方向力)
     """
-    m = params['mass']           # 70 kg
-    cd = params['drag_coeff']     # 0.5
-    k_align = params['k_align']   # 4.0 rad/s
+    m = params['mass']           # 1.0 kg
+    cd = params['drag_coeff']     # 1.0
+    k_align = params['k_align']   # 5.0 rad/s
 
     def f(s, u):
         x, y, vx, vy, theta = s
@@ -1049,13 +1051,13 @@ def dynamics_rk4(state, u, dt, params):
     return state + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
 ```
 
-**物理パラメータ** (歩行者モデル):
+**物理パラメータ** (基礎エージェント):
 | Parameter | Value | Unit | 説明 |
 |-----------|-------|------|------|
-| $m$ | 70.0 | kg | 成人歩行者の質量 |
-| $c_d$ | 0.5 | N·s²/m² | 空気抵抗係数 |
-| $k_{\text{align}}$ | 4.0 | rad/s | Heading追従ゲイン (τ≈0.25s) |
-| $F_{\max}$ | 150.0 | N | 最大力（歩行時） |
+| $m$ | 1.0 | kg | 基礎エージェントの質量 |
+| $c_d$ | 1.0 | N·s²/m² | 空気抵抗係数 |
+| $k_{\text{align}}$ | 5.0 | rad/s | Heading追従ゲイン (τ≈0.2s) |
+| $F_{\max}$ | 15.0 | N | 最大力 |
 | $dt$ | 0.01 | s | タイムステップ |
 
 ---
@@ -1481,7 +1483,7 @@ EPHの優位性を示すため、以下のベースラインと比較:
 | **A1** | Environmental Haze | Corridor: CR増加 (+50%) |
 | **A2** | Self-hazing | 探索性低下、デッドロック増加 |
 | **A3** | 2次系 → 1次系 | EI低下 (0.6 → 0.2) |
-| **A4** | State prediction (VAE) | SPMのみ予測 → 精度低下 |
+| **A4** | VAE (SPM予測のみ) | 状態予測なし → 動力学モデルで計算 |
 
 ---
 
@@ -1513,9 +1515,10 @@ EPHの優位性を示すため、以下のベースラインと比較:
 | **EPH (本研究)** | **多数(N>10)** | **2次系** | **5D** | **Haze (外部+内部)** | **✅** |
 
 **本研究の新規性**:
-1. **多エージェントへの拡張**: N=20規模の集団制御
-2. **2次系ダイナミクス**: 慣性による真の創発
-3. **設計者制御可能なPrecision**: Environmental Haze
+1. **2次系Active Inferenceの初の実装**: 既存研究（Pio-Lopez et al., 2016; Lanillos et al., 2021）は全て1次系に限定。2次系動力学モデルに基づくActive Inference実装は本研究が初。
+2. **多エージェントへの拡張**: 既存Active Inference研究が単一エージェントに限定されていたのに対し、N=20規模の集団制御を実現。
+3. **設計者制御可能なPrecision (Haze)**: Environmental Haze + Self-hazingの二層構造により、設計者が創発パターンを確率的に誘導可能。既存研究はPrecisionを内部パラメータとしてのみ扱う。
+4. **慣性誘導型創発の理論的定式化**: 物理的慣性と情報理論的創発の関係を数理的に定式化し、Lane Formation等の大域パターンが物理制約から創発するメカニズムを解明。
 
 ---
 
@@ -1566,7 +1569,7 @@ EPHの優位性を示すため、以下のベースラインと比較:
 - 既存研究: 観察・モデル化が中心
 - **本研究**: 制御手法として実装
 
-**新規性**: 慣性誘導型創発を**設計者が制御可能**にする点
+**新規性**: 慣性誘導型創発を**設計者が制御可能**にする点。既存研究（Vicsek et al., 1995; Couzin et al., 2002）は観察・モデル化が中心で、制御手法として実装した研究は存在しない。
 
 ---
 
@@ -1577,9 +1580,9 @@ EPHの優位性を示すため、以下のベースラインと比較:
 - **Feldman & Friston (2010)**: Attention as precision modulation
 
 **本研究の拡張**:
-- 既存: Precisionは内部パラメータ
-- **本研究**: Precisionを**空間的に変調** (Environmental Haze)
-- **新規性**: 設計者が直接制御可能な外部Precision
+- 既存: Precisionは内部パラメータ（Friston & Kiebel, 2009; Feldman & Friston, 2010）
+- **本研究**: Precisionを**空間的に変調** (Environmental Haze) + **時間的に変調** (Self-hazing)
+- **新規性**: 設計者が直接制御可能な外部Precision (Environmental Haze) と、エージェント自身による内発的変調 (Self-hazing) の二層構造。既存研究にこのような実装は存在しない。
 
 ---
 

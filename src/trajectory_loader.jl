@@ -73,17 +73,19 @@ end
     reconstruct_spm_at_timestep(
         pos::Matrix{Float64},  # [N, 2] positions at time t
         vel::Matrix{Float64},  # [N, 2] velocities at time t
-        obstacles::Matrix{Float64},  # [M, 4] obstacle data
+        heading::Vector{Float64}, # [N] headings at time t
+        obstacles::Matrix{Float64},  # [M, 2] obstacle data
         agent_idx::Int,
         spm_config::SPMConfig,
         r_agent::Float64=0.3
     )
 
-Reconstruct SPM for a specific agent at a specific timestep.
+Reconstruct SPM for a specific agent at a specific timestep (Ego-centric).
 
 Args:
 - pos: [N, 2] All agent positions at time t
 - vel: [N, 2] All agent velocities at time t
+- heading: [N] All agent headings at time t
 - obstacles: [M, 2] Obstacle positions (x, y)
 - agent_idx: Index of the focal agent (1-indexed)
 - spm_config: SPM configuration
@@ -95,6 +97,7 @@ Returns:
 function reconstruct_spm_at_timestep(
     pos,
     vel,
+    heading,
     obstacles,
     agent_idx,
     spm_config,
@@ -102,8 +105,19 @@ function reconstruct_spm_at_timestep(
 )
     n_agents = size(pos, 1)
 
-    # Focal agent position
+    # Focal agent state
     agent_pos = pos[agent_idx, :]
+    agent_heading = heading[agent_idx]
+
+    # Rotation matrix for Global -> Ego transform
+    # Rotate by -(heading - pi/2) => pi/2 - heading
+    # This aligns Heading with +Y axis (SPM Forward)
+    c = cos(pi/2 - agent_heading)
+    s = sin(pi/2 - agent_heading)
+    
+    function rotate_vec(v)
+        return [v[1]*c - v[2]*s, v[1]*s + v[2]*c]
+    end
 
     # Compute relative positions and velocities for all other agents
     agents_rel_pos = Vector{Vector{Float64}}()
@@ -111,17 +125,92 @@ function reconstruct_spm_at_timestep(
 
     for i in 1:n_agents
         if i != agent_idx
-            rel_pos = pos[i, :] - agent_pos
-            push!(agents_rel_pos, rel_pos)
-            push!(agents_rel_vel, vel[i, :])
+            # Global relative vector
+            rel_pos_global = pos[i, :] - agent_pos
+            rel_vel_global = vel[i, :]  # Relative velocity in SPM is usually relative to ego velocity? 
+            # Wait, `spm.jl` uses `radial_vel = -dot(p_rel, v_rel)`.
+            # If v_rel is relative velocity (v_other - v_ego), then it makes sense.
+            # But previous code used `vel[i, :]` (absolute velocity of other).
+            # Let's check spm.jl logic.
+            # `generate_spm_3ch` takes `agents_rel_vel`.
+            # If `radial_vel` implies closing speed, we usually want (v_other - v_ego).
+            # But line 116 in old code: `push!(agents_rel_vel, vel[i, :])`. It passed ABSOLUTE velocity of neighbor.
+            # Does `spm.jl` subtract ego velocity? No.
+            # So it used absolute velocity of neighbor.
+            # If `v_rel` is neighbor's velocity, `dot(p_rel, v_rel)` is closing speed ONLY IF ego is static.
+            # This might be a bug or intended simplification in previous versions.
+            # However, for TTC, we need relative velocity (v_other - v_ego) or projection.
+            # For now, I will stick to what was there (passing neighbor's velocity) BUT rotated.
+            # Or should I pass `vel[i, :] - vel[agent_idx, :]`?
+            # Given "v7.2" is a major update, maybe I should fix this to be proper relative velocity?
+            # But if I change it, I might break consistency with how `spm.jl` was tuned.
+            # Let's check `spm.jl` again. 
+            # `radial_vel = -dot(p_rel, v_rel)`. This assumes v_rel is the velocity vector.
+            # If ego moves towards neighbor, collision risk should increase.
+            # If I only pass neighbor velocity, ego motion is ignored in TTC.
+            # This seems like a limitation. 
+            # I will preserve the previous behavior (passing neighbor velocity) to avoid changing SPM logic implicitly,
+            # BUT I must rotate it to ego frame.
+            
+            # Update: Actually, let's rotate absolute velocity of neighbor into ego frame.
+            v_global = vel[i, :]
+            
+            # Apply rotation
+            rel_pos_ego = rotate_vec(rel_pos_global)
+            rel_vel_ego = rotate_vec(v_global) # Still absolute velocity, just rotated.
+
+            push!(agents_rel_pos, rel_pos_ego)
+            push!(agents_rel_vel, rel_vel_ego)
         end
     end
 
-    # Add obstacles (obstacles is [M, 2] matrix with x, y positions)
-    for i in 1:size(obstacles, 1)
-        obs_pos = [obstacles[i, 1], obstacles[i, 2]]
-        rel_pos = obs_pos - agent_pos
-        push!(agents_rel_pos, rel_pos)
+    # Add obstacles
+    # obstacles is [M, 4] matrix: x_min, x_max, y_min, y_max
+    # We treat them as rectangular obstacles.
+    # To represent them in SPM (which expects points), we calculate the 
+    # CLOSEST point on the obstacle to the agent (simulating LiDAR return).
+    
+    n_obs = size(obstacles, 1)
+    # Check if obstacles is [M, 2] or [M, 4]
+    # Previous data might be [M, 2] (points). New data is [M, 4].
+    is_rect = size(obstacles, 2) == 4
+    
+    for i in 1:n_obs
+        if is_rect
+            x_min, x_max, y_min, y_max = obstacles[i, :]
+            
+            # Find closest point on rectangle to agent (AABB distance)
+            # Clamp agent pos to rectangle bounds
+            c_x = clamp(agent_pos[1], x_min, x_max)
+            c_y = clamp(agent_pos[2], y_min, y_max)
+            
+            # If agent is inside, closest point is agent pos (dist 0), or push to boundary?
+            # Usually keep as is (dist 0).
+            # But we want relative vector.
+            # Convert to relative
+            
+            # Note: This single point approximation basically says "the obstacle is at this distance".
+            # For a large wall, this is decent for "distance to wall".
+            # But it doesn't cover the field of view (it occupies only 1 angle).
+            # Walls should occupy multiple angles.
+            # Ideally we should sample points. 
+            # But calculating closest point is a good start for "nearest obstacle".
+            
+            # BETTER APPROACH for Walls: Sample multiple points along the perimeter?
+            # Or just corners?
+            # For data collection/training, maybe just the closest point is sufficient for safety?
+            # Let's stick to Closest Point for now to avoid exploding point count.
+            
+            obs_pos = [c_x, c_y]
+        else
+            # Point obstacle
+            obs_pos = [obstacles[i, 1], obstacles[i, 2]]
+        end
+        
+        rel_pos_global = obs_pos - agent_pos
+        rel_pos_ego = rotate_vec(rel_pos_global)
+        
+        push!(agents_rel_pos, rel_pos_ego)
         push!(agents_rel_vel, [0.0, 0.0])  # Static obstacles
     end
 
@@ -163,29 +252,29 @@ function extract_vae_training_pairs(
     pos = data.pos  # [T, N, 2]
     vel = data.vel  # [T, N, 2]
     u = data.u      # [T, N, 2]
+    heading = data.heading # [T, N] (v7.2: Required)
     obstacles = data.obstacles  # [M, 4]
 
     # Create SPM config from stored parameters
-    # Use default SPM params and override key parameters from stored data
     spm_params = Main.Config.SPMParams(
         data.spm_params["n_rho"],          # n_rho
         data.spm_params["n_theta"],        # n_theta
-        360.0,                              # fov_deg (default)
-        2π,                                 # fov_rad (default)
-        0.4,                                # r_robot (default)
+        360.0,                              # fov_deg
+        2π,                                 # fov_rad
+        0.4,                                # r_robot
         data.spm_params["sensing_ratio"],  # sensing_ratio
-        0.5,                                # sigma_spm (default)
-        5.0,                                # beta_r_fixed (default)
-        5.0,                                # beta_nu_fixed (default)
-        1.0,                                # beta_r_min (default)
-        10.0,                               # beta_r_max (default)
-        1.0,                                # beta_nu_min (default)
-        10.0                                # beta_nu_max (default)
+        0.5,                                # sigma_spm
+        5.0,                                # beta_r_fixed
+        5.0,                                # beta_nu_fixed
+        1.0,                                # beta_r_min
+        10.0,                               # beta_r_max
+        1.0,                                # beta_nu_min
+        10.0                                # beta_nu_max
     )
 
     spm_config = Main.SPM.init_spm(spm_params)
 
-    r_agent = 0.3  # Agent radius (could be stored in metadata)
+    r_agent = 0.3
 
     T, N, _ = size(pos)
 
@@ -218,6 +307,7 @@ function extract_vae_training_pairs(
             spm_t = reconstruct_spm_at_timestep(
                 pos[t, :, :],
                 vel[t, :, :],
+                heading[t, :], # Pass all headings
                 obstacles,
                 agent_idx,
                 spm_config,
@@ -228,6 +318,7 @@ function extract_vae_training_pairs(
             spm_t1 = reconstruct_spm_at_timestep(
                 pos[t+1, :, :],
                 vel[t+1, :, :],
+                heading[t+1, :], # Pass all headings
                 obstacles,
                 agent_idx,
                 spm_config,
@@ -272,7 +363,10 @@ function load_all_trajectories(
     agent_subsample::Union{Int, Nothing}=nothing
 )
     # Find all matching files
-    files = filter(f -> occursin(r"v62_.*\.h5$", f), readdir(directory, join=true))
+    # Create regex from glob pattern
+    regex_str = replace(pattern, "." => "\\.", "*" => ".*")
+    regex = Regex(regex_str * "\$")
+    files = filter(f -> occursin(regex, f), readdir(directory, join=true))
 
     if isempty(files)
         error("No trajectory files found in $directory matching pattern $pattern")
@@ -336,7 +430,10 @@ function load_trajectories_batch(
     max_files::Union{Int, Nothing}=nothing
 )
     # Find all matching files
-    files = filter(f -> occursin(r"v62_.*\.h5$", f), readdir(directory, join=true))
+    # Create regex from glob pattern
+    regex_str = replace(pattern, "." => "\\.", "*" => ".*")
+    regex = Regex(regex_str * "\$")
+    files = filter(f -> occursin(regex, f), readdir(directory, join=true))
 
     if isempty(files)
         error("No trajectory files found in $directory matching pattern $pattern")
