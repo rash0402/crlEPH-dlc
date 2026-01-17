@@ -51,11 +51,13 @@ include("../src/dynamics.jl")
 include("../src/prediction.jl")  # Required by controller.jl
 include("../src/action_vae.jl")  # Required by controller.jl
 include("../src/controller.jl")
+include("../src/scenarios.jl")  # NEW: for initialize_scenario
 
 using .Config
 using .SPM
 using .Dynamics
 using .Controller
+using .Scenarios  # NEW
 
 """
 Parse command line arguments
@@ -104,17 +106,29 @@ function run_simulation_v72(
         u_max=150.0,         # v7.2: Walking force
         k_align=4.0          # v7.2: Heading alignment gain
     )
-    spm_params = SPMParams(n_rho=12, n_theta=12, sensing_ratio=3.0)  # D_max=6.0m
+    spm_params = SPMParams(n_rho=12, n_theta=12, sensing_ratio=9.0)  # D_max=18.0m (v7.2: 100×100 world)
 
-    # Initialize agents (v7.2: includes heading and d_goal)
+    # Initialize scenario using Scenarios module (ensures correct 4-corner placement)
     Random.seed!(seed)
-    agents = Dynamics.init_agents(agent_params, world_params; seed=seed)
-    obstacles = Dynamics.init_obstacles(world_params)
-
-    # Convert obstacles to tuple format for controller
-    obstacle_tuples = [(obs.x_min + (obs.x_max - obs.x_min)/2,
-                        obs.y_min + (obs.y_max - obs.y_min)/2)
-                       for obs in obstacles]
+    agents, scenario_params = Scenarios.initialize_scenario(
+        Scenarios.SCRAMBLE_CROSSING,
+        density;
+        seed=seed
+    )
+    
+    # Get obstacles from scenario (corner obstacles for corridor simulation)
+    obstacles_tuples = Scenarios.get_obstacles(scenario_params)
+    
+    # Convert tuples to Obstacle structs for dynamics AND storage
+    obstacles = Dynamics.Obstacle[]
+    obstacle_radius = 0.5  # 0.5m radius for individual obstacle points
+    for (x, y) in obstacles_tuples
+        # Create rectangular bounding box for circular obstacle
+        push!(obstacles, Dynamics.Obstacle(
+            x - obstacle_radius, x + obstacle_radius,  # x_min, x_max
+            y - obstacle_radius, y + obstacle_radius   # y_min, y_max
+        ))
+    end
 
     # Storage
     n_agents = length(agents)
@@ -142,7 +156,7 @@ function run_simulation_v72(
             # Generate control input (v7.2: discrete candidate selection)
             other_agents = [a for a in agents if a.id != agent.id]
             u = Controller.compute_action_random_collision_free(
-                agent, other_agents, obstacle_tuples,
+                agent, other_agents, obstacles_tuples,
                 agent_params, world_params;
                 exploration_noise=1.0,   # Higher noise for exploration
                 safety_threshold=0.5,    # Moderate safety buffer (0.5m)
@@ -238,14 +252,14 @@ function run_simulation_v72(
         # If we save them as (x_min, x_max, y_min, y_max), trajectory_loader need to handle it.
         # But previous error: "obstacles/data not found".
         # Let's save as simple array for now.
-        
-        obs_data = zeros(length(obstacles), 4)
+        # Obstacles - store in Python-compatible format (should be empty for Scramble)
+        obs_data = zeros(4, length(obstacles))  # Julia: (4, N_obs)
         for (idx, obs) in enumerate(obstacles)
-            obs_data[idx, :] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
+            obs_data[:, idx] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
         end
         
         obs_group = create_group(file, "obstacles")
-        obs_group["data"] = obs_data
+        obs_group["data"] = obs_data  # Saved as (4, N_obs), should be (4, 0) for Scramble
     end
 
     println("    Output: $filename")

@@ -52,11 +52,13 @@ include("../src/dynamics.jl")
 include("../src/prediction.jl")  # Required by controller.jl
 include("../src/action_vae.jl")  # Required by controller.jl
 include("../src/controller.jl")
+include("../src/scenarios.jl")
 
 using .Config
 using .SPM
 using .Dynamics
 using .Controller
+using .Scenarios
 
 """
 Parse command line arguments
@@ -78,9 +80,9 @@ function parse_commandline()
             arg_type = Int
             default = 1500
         "--corridor-width"
-            help = "Corridor width (meters)"
+            help = "Corridor passage width (meters, must be < world height)"
             arg_type = Float64
-            default = 20.0
+            default = 10.0  # 10m passage in 20m world
         "--corridor-length"
             help = "Corridor length (meters)"
             arg_type = Float64
@@ -106,10 +108,12 @@ function run_simulation_v72(
     output_dir::String
 )
     # Configuration (v7.2 parameters)
+    # v7.2: Long corridor (100m × 20m) with obstacles on top/bottom
+    # corridor_width is the passage width (10m), world height is fixed at 20m
     world_params = WorldParams(
         dt=0.01,  # v7.2: 10ms timestep
-        width=corridor_length,
-        height=corridor_width
+        width=corridor_length,   # 100m (horizontal length)
+        height=20.0              # 20m (world height, fixed)
     )
     agent_params = AgentParams(
         mass=70.0,           # v7.2: Pedestrian mass
@@ -119,15 +123,30 @@ function run_simulation_v72(
         u_max=150.0,         # v7.2: Walking force
         k_align=4.0          # v7.2: Heading alignment gain
     )
-    spm_params = SPMParams(n_rho=12, n_theta=12, sensing_ratio=3.0)  # D_max=6.0m
+    spm_params = SPMParams(n_rho=12, n_theta=12, sensing_ratio=9.0)  # D_max=18.0m (v7.2: 100×100 world)
 
-    # Initialize corridor agents (v7.2: includes heading and d_goal)
+    # Initialize scenario using Scenarios module (v7.2 unified approach)
     Random.seed!(seed)
-    agents = Dynamics.init_corridor_agents(agent_params, world_params; seed=seed)
-    obstacles = Dynamics.init_corridor_obstacles(world_params; corridor_width=corridor_width, corridor_length=corridor_length)
+    agents, scenario_params = Scenarios.initialize_scenario(
+        Scenarios.CORRIDOR,
+        density;
+        seed=seed,
+        corridor_width=corridor_width
+    )
 
-    # Convert obstacles to tuple format for controller
-    obstacle_tuples = Tuple{Float64, Float64}[]
+    # Get obstacles from scenario
+    obstacles_tuples = Scenarios.get_obstacles(scenario_params)
+
+    # Convert tuples to Obstacle structs for dynamics
+    obstacles = Dynamics.Obstacle[]
+    for (x, y) in obstacles_tuples
+        # Point obstacles represented as 0.5m radius circles
+        r = 0.5
+        push!(obstacles, Dynamics.Obstacle(
+            x - r, x + r,  # x_min, x_max
+            y - r, y + r   # y_min, y_max
+        ))
+    end
 
     # Storage
     n_agents = length(agents)
@@ -155,7 +174,7 @@ function run_simulation_v72(
             # Generate control input (v6.3-style random walk for data collection)
             other_agents = [a for a in agents if a.id != agent.id]
             u = Controller.compute_action_random_collision_free(
-                agent, other_agents, obstacle_tuples,
+                agent, other_agents, obstacles_tuples,
                 agent_params, world_params;
                 exploration_noise=0.3,
                 safety_threshold=4.0,
@@ -242,14 +261,16 @@ function run_simulation_v72(
         v72_group["k_align"] = agent_params.k_align
         v72_group["u_max"] = agent_params.u_max
 
-        # Obstacles
-        obs_data = zeros(length(obstacles), 4)
-        for (idx, obs) in enumerate(obstacles)
-            obs_data[idx, :] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
+        # Obstacles - store obstacle point positions
+        if length(obstacles_tuples) > 0
+            obs_data = zeros(2, length(obstacles_tuples))  # Julia: (2, N_points)
+            for (idx, (x, y)) in enumerate(obstacles_tuples)
+                obs_data[:, idx] = [x, y]
+            end
+
+            obs_group = create_group(file, "obstacles")
+            obs_group["data"] = obs_data  # Saved as (2, N_points), Python will transpose
         end
-        
-        obs_group = create_group(file, "obstacles")
-        obs_group["data"] = obs_data
     end
 
     println("    Output: $filename")

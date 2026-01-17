@@ -106,8 +106,14 @@ while true
             if length(obs_raw) > 0
                 obstacles = zeros(length(obs_raw), 4)
                 for i in 1:length(obs_raw)
-                    for j in 1:4
-                        obstacles[i, j] = obs_raw[i][j]
+                    obs_item = obs_raw[i]
+                    # Handle both Vector and tuple formats
+                    if obs_item isa AbstractVector || obs_item isa Tuple
+                        for j in 1:min(4, length(obs_item))
+                            obstacles[i, j] = Float64(obs_item[j])
+                        end
+                    else
+                        println(stderr, "WARNING: Unexpected obstacle format at index $i: $(typeof(obs_item))")
                     end
                 end
             else

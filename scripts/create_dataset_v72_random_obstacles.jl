@@ -119,7 +119,7 @@ function run_simulation_v72(
         u_max=150.0,         # v7.2: Walking force
         k_align=4.0          # v7.2: Heading alignment gain
     )
-    spm_params = SPMParams(n_rho=12, n_theta=12, sensing_ratio=3.0)  # D_max=6.0m
+    spm_params = SPMParams(n_rho=12, n_theta=12, sensing_ratio=9.0)  # D_max=18.0m (v7.2: 100×100 world)
 
     # Initialize scenario using Scenarios module
     Random.seed!(seed)
@@ -134,8 +134,17 @@ function run_simulation_v72(
     # Get obstacles from scenario
     obstacles_tuples = Scenarios.get_obstacles(scenario_params)
 
-    # Convert to Obstacle struct for dynamics (empty, since we only use tuples for controller)
+    # Convert tuples to Obstacle structs for dynamics AND storage
+    # Scenarios.get_obstacles returns (x, y) tuples, radius is fixed
     obstacles = Dynamics.Obstacle[]
+    obstacle_radius = 2.0  # Fixed radius for all obstacles (as per data collection spec)
+    for (x, y) in obstacles_tuples
+        # Create rectangular bounding box for circular obstacle
+        push!(obstacles, Dynamics.Obstacle(
+            x - obstacle_radius, x + obstacle_radius,  # x_min, x_max
+            y - obstacle_radius, y + obstacle_radius   # y_min, y_max
+        ))
+    end
 
     # Storage
     n_agents = length(agents)
@@ -249,14 +258,14 @@ function run_simulation_v72(
         v72_group["k_align"] = agent_params.k_align
         v72_group["u_max"] = agent_params.u_max
 
-        # Obstacles
-        obs_data = zeros(length(obstacles), 4)
+        # Obstacles - store in Python-compatible row-major order
+        obs_data = zeros(4, length(obstacles))  # Julia: (4, N_obs)
         for (idx, obs) in enumerate(obstacles)
-            obs_data[idx, :] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
+            obs_data[:, idx] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
         end
         
         obs_group = create_group(file, "obstacles")
-        obs_group["data"] = obs_data
+        obs_group["data"] = obs_data  # Saved as (4, N_obs), Python will transpose
     end
 
     println("    Output: $filename")

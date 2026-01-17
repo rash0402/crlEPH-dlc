@@ -90,7 +90,7 @@ class JuliaServer:
             "vel": vel.tolist(),
             "heading": heading.tolist(),
             "obstacles": obstacles.tolist() if len(obstacles) > 0 else [],
-            "agent_idx": int(agent_idx)
+            "agent_idx": int(agent_idx) + 1  # Convert to 1-based indexing for Julia
         }
         self._send(request)
         response = self._recv()
@@ -190,7 +190,7 @@ class VAEViewer(QMainWindow):
         # Controls
         ctrl = QHBoxLayout()
         self.btn_open = QPushButton("Open File")
-        self.btn_open.clicked.connect(self._open_file)
+        self.btn_open.clicked.connect(self._ask_open_file)
         ctrl.addWidget(self.btn_open)
         self.lbl_file = QLabel("No file")
         ctrl.addWidget(self.lbl_file)
@@ -255,8 +255,10 @@ class VAEViewer(QMainWindow):
         
         self.statusBar().showMessage("Ready")
     
-    def _open_file(self):
-        default_dir = str(PROJECT_ROOT / "data" / "logs")
+    def _ask_open_file(self):
+        # Default directory for v7.2 training data
+        default_dir = str(Path(__file__).parent.parent / "data" / "vae_training" / "raw_v72")
+        
         filepath, _ = QFileDialog.getOpenFileName(
             self, "Select HDF5 File", default_dir, "HDF5 files (*.h5)"
         )
@@ -334,6 +336,17 @@ class VAEViewer(QMainWindow):
         ax.set_ylabel("Y [m]")
         ax.set_aspect('equal')
         ax.grid(True, alpha=0.3)
+        
+        # Draw obstacles first (so agents render on top)
+        if self.data.obstacles.shape[0] > 0:
+            for i in range(self.data.obstacles.shape[0]):
+                xmin, xmax, ymin, ymax = self.data.obstacles[i]
+                width = xmax - xmin
+                height = ymax - ymin
+                rect = plt.Rectangle((xmin, ymin), width, height,
+                                    facecolor='gray', edgecolor='black',
+                                    alpha=0.5, zorder=0)
+                ax.add_patch(rect)
         
         pos = self.data.pos[t]
         vel = self.data.vel[t]

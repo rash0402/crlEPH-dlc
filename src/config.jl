@@ -218,7 +218,7 @@ end
 const DEFAULT_SPM = SPMParams(
     n_rho=12,
     n_theta=12,
-    sensing_ratio=3.0  # v6.3: Human-like cognitive range (D_max=6.0m), optimized resolution
+    sensing_ratio=9.0  # v7.2: Extended range for 100×100 world (D_max=18.0m), balanced Critical/Peripheral zones
 )
 const DEFAULT_WORLD = WorldParams()
 const DEFAULT_AGENT = AgentParams()
