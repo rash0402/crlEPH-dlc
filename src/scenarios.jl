@@ -49,22 +49,24 @@ Initialize Scramble Crossing scenario.
 - `ScenarioParams`: Scenario configuration
 """
 function init_scramble_crossing(num_agents_per_group::Int)
-    world_size = (50.0, 50.0)
-    center = (25.0, 25.0)
+    world_size = (100.0, 100.0)  # v7.2: Unified 100×100 world
+    center = (50.0, 50.0)
 
-    # 4グループの初期位置とゴール（90度間隔）
+    # 4グループの初期位置とゴール（東西南北の4方向、通路模擬）
+    # 中心から30m離れた位置に配置（100×100世界にスケール）
+    margin_from_center = 30.0
     positions = [
-        (center[1] - 15.0, center[2]),       # West
-        (center[1], center[2] + 15.0),       # North
-        (center[1] + 15.0, center[2]),       # East
-        (center[1], center[2] - 15.0)        # South
+        (center[1] - margin_from_center, center[2]),       # West (20, 50)
+        (center[1], center[2] + margin_from_center),       # North (50, 80)
+        (center[1] + margin_from_center, center[2]),       # East (80, 50)
+        (center[1], center[2] - margin_from_center)        # South (50, 20)
     ]
 
     goals = [
-        (center[1] + 15.0, center[2]),       # West → East
-        (center[1], center[2] - 15.0),       # North → South
-        (center[1] - 15.0, center[2]),       # East → West
-        (center[1], center[2] + 15.0)        # South → North
+        (center[1] + margin_from_center, center[2]),       # West → East (80, 50)
+        (center[1], center[2] - margin_from_center),       # North → South (50, 20)
+        (center[1] - margin_from_center, center[2]),       # East → West (20, 50)
+        (center[1], center[2] + margin_from_center)        # South → North (50, 80)
     ]
 
     return ScenarioParams(
@@ -91,17 +93,20 @@ Bidirectional flow in narrow passage.
 - `ScenarioParams`: Scenario configuration
 """
 function init_corridor(num_agents_per_group::Int; corridor_width::Float64=10.0)
-    world_size = (60.0, 20.0)
+    # v7.2: Long corridor with obstacles on top/bottom
+    world_size = (100.0, 20.0)  # 100m long, 20m wide
+    center_y = world_size[2] / 2.0  # 10m
 
     # 2グループ: 左→右、右→左
+    # 初期位置は通路中央（Y=10m）で左右端に配置
     positions = [
-        (5.0, 10.0),    # Group 1: Left side
-        (55.0, 10.0)    # Group 2: Right side
+        (10.0, center_y),    # Group 1: Left side, center of corridor
+        (90.0, center_y)     # Group 2: Right side, center of corridor
     ]
 
     goals = [
-        (55.0, 10.0),   # Group 1 goal: Right side
-        (5.0, 10.0)     # Group 2 goal: Left side
+        (90.0, center_y),   # Group 1 goal: Right side
+        (10.0, center_y)    # Group 2 goal: Left side
     ]
 
     return ScenarioParams(
@@ -133,23 +138,23 @@ function init_random_obstacles(
     num_obstacles::Int=50,
     obstacle_seed::Int=42
 )
-    world_size = (50.0, 50.0)
-    center = (25.0, 25.0)
+    world_size = (100.0, 100.0)  # v7.2: Unified 100×100 world
+    center = (50.0, 50.0)
 
     # 4グループの初期位置とゴール（Scrambleと同様だが、障害物回避が必要）
-    # 各グループは対角線上の目標に向かう
+    # 各グループは対角線上の目標に向かう（100×100世界にスケール）
     positions = [
-        (5.0, 5.0),      # Bottom-left
-        (5.0, 45.0),     # Top-left
-        (45.0, 45.0),    # Top-right
-        (45.0, 5.0)      # Bottom-right
+        (10.0, 10.0),      # Bottom-left
+        (10.0, 90.0),      # Top-left
+        (90.0, 90.0),      # Top-right
+        (90.0, 10.0)       # Bottom-right
     ]
 
     goals = [
-        (45.0, 45.0),    # Bottom-left → Top-right
-        (45.0, 5.0),     # Top-left → Bottom-right
-        (5.0, 5.0),      # Top-right → Bottom-left
-        (5.0, 45.0)      # Bottom-right → Top-left
+        (90.0, 90.0),      # Bottom-left → Top-right
+        (90.0, 10.0),      # Top-left → Bottom-right
+        (10.0, 10.0),      # Top-right → Bottom-left
+        (10.0, 90.0)       # Bottom-right → Top-left
     ]
 
     return ScenarioParams(
@@ -219,15 +224,27 @@ function initialize_scenario(
         goal_pos = params.group_goals[group_id]
 
         for i in 1:num_agents_per_group
-            # グループ内でランダムに分散
+            # グループ内でランダムに分散（v7.2: バラつきを大幅に拡大）
             if params.scenario_type == CORRIDOR
-                # Corridor: Y方向は通路幅の1/4以内に制限、X方向は2.0m
+                # Corridor: X方向は広く±10.0m、Y方向は通路幅内に厳密に制限
                 corridor_width_param = params.corridor_width === nothing ? 10.0 : params.corridor_width
-                y_std = min(1.5, corridor_width_param / 6.0)  # 通路幅の1/6以内（例: 10m→1.67m）
-                pos = [start_pos[1] + randn() * 2.0, start_pos[2] + randn() * y_std]
+                center_y = params.world_size[2] / 2.0  # World height center
+                x_std = 10.0  # 左右に広く分散（10エージェント→約20m幅）
+                y_std = min(2.0, corridor_width_param / 5.0)  # 通路幅の1/5以内
+
+                # Generate position with clamping to ensure agents stay in corridor
+                pos_x = start_pos[1] + randn() * x_std
+                pos_y = start_pos[2] + randn() * y_std
+
+                # Clamp Y to corridor bounds (center ± width/2), with 1m margin
+                y_min = center_y - corridor_width_param / 2.0 + 1.0  # e.g., 10 - 5 + 1 = 6m
+                y_max = center_y + corridor_width_param / 2.0 - 1.0  # e.g., 10 + 5 - 1 = 14m
+                pos_y = clamp(pos_y, y_min, y_max)
+
+                pos = [pos_x, pos_y]
             else
-                # Scramble / Random Obstacles: 両方向とも2.0m
-                pos = [start_pos[1] + randn() * 2.0, start_pos[2] + randn() * 2.0]
+                # Scramble / Random Obstacles: 両方向とも±5.0m（10エージェント→約10m四方）
+                pos = [start_pos[1] + randn() * 5.0, start_pos[2] + randn() * 5.0]
             end
 
             # ゴール方向（単位ベクトル）- 位置ではなく方向を指定 (v7.2)
@@ -276,82 +293,81 @@ Get scenario-specific obstacles.
 function get_obstacles(params::ScenarioParams)
     obstacles = Tuple{Float64, Float64}[]
 
-    if params.scenario_type == CORRIDOR
-        # 通路の壁を障害物として定義
-        # 漏斗（Funnel）型: 両端が広く、中央が狭い。斜めの壁でエージェントを誘導
-        width = params.corridor_width
-        center_y = params.world_size[2] / 2.0
-        world_x = params.world_size[1]
-        world_y = params.world_size[2]
+    if params.scenario_type == SCRAMBLE_CROSSING
+        # Scramble Crossing: 四隅に障害物を配置（通路の模擬）
+        # v7.2: 100×100世界に対応
+        world_x, world_y = params.world_size
+        obstacle_size = 10.0  # 10m × 10m の障害物（100×100にスケール）
 
-        # 狭い通路の範囲（中央50%、例: 60mなら15-45m）
-        corridor_start = world_x * 0.25  # 15m
-        corridor_end = world_x * 0.75    # 45m
-
-        # 障害物密度（1.0m間隔で配置して壁を「埋める」）
-        # 0.5m間隔だと2000+個になり計算コストが高すぎる
+        # 四隅に障害物領域を設定（1m間隔で配置）
         spacing = 1.0
 
-        # === 左側: 斜めの壁領域を埋める（開放空間 → 狭い通路） ===
-        # 上側の壁領域を埋める (y > 上側斜め壁)
-        for x in 0:spacing:corridor_start
-            # 上側斜め壁のy座標
-            t = x / corridor_start
-            wall_y = world_y * (1 - t) + (center_y + width/2.0) * t
-
-            # 壁の上側を障害物で埋める (wall_y < y <= world_y)
-            for y in wall_y:spacing:world_y
+        # 左下コーナー (0-10m, 0-10m)
+        for x in 0:spacing:obstacle_size
+            for y in 0:spacing:obstacle_size
                 push!(obstacles, (x, y))
             end
         end
 
-        # 下側の壁領域を埋める (y < 下側斜め壁)
-        for x in 0:spacing:corridor_start
-            t = x / corridor_start
-            wall_y = 0.0 * (1 - t) + (center_y - width/2.0) * t
-
-            # 壁の下側を障害物で埋める (0 <= y < wall_y)
-            for y in 0:spacing:wall_y
+        # 左上コーナー (0-10m, 90-100m)
+        for x in 0:spacing:obstacle_size
+            for y in (world_y - obstacle_size):spacing:world_y
                 push!(obstacles, (x, y))
             end
         end
 
-        # === 中央: 水平の壁領域を埋める（狭い通路部分） ===
-        # 上側の壁領域を埋める
-        for x in corridor_start:spacing:corridor_end
-            for y in (center_y + width/2.0):spacing:world_y
+        # 右上コーナー (90-100m, 90-100m)
+        for x in (world_x - obstacle_size):spacing:world_x
+            for y in (world_y - obstacle_size):spacing:world_y
                 push!(obstacles, (x, y))
             end
         end
 
-        # 下側の壁領域を埋める
-        for x in corridor_start:spacing:corridor_end
-            for y in 0:spacing:(center_y - width/2.0)
+        # 右下コーナー (90-100m, 0-10m)
+        for x in (world_x - obstacle_size):spacing:world_x
+            for y in 0:spacing:obstacle_size
                 push!(obstacles, (x, y))
             end
         end
 
-        # === 右側: 斜めの壁領域を埋める（狭い通路 → 開放空間） ===
-        corridor_width_x = world_x - corridor_end
+    elseif params.scenario_type == CORRIDOR
+        # v7.2: 可変幅通路 - X=40-60mのみ狭く、その他は広い
+        # 世界サイズ: 100m × 20m
+        # 狭隘部: X=40-60m, 幅=corridor_width (default 4m)
+        # 広い部: X=0-40m, X=60-100m, 幅=12m
+        narrow_width = params.corridor_width  # 狭隘部の幅（デフォルト4m）
+        wide_width = 12.0  # 広い部分の幅（12m）
+        narrow_x_start = 40.0  # 狭隘部開始X座標
+        narrow_x_end = 60.0    # 狭隘部終了X座標
 
-        # 上側の壁領域を埋める
-        for x in corridor_end:spacing:world_x
-            t = (x - corridor_end) / corridor_width_x
-            wall_y = (center_y + width/2.0) * (1 - t) + world_y * t
+        center_y = params.world_size[2] / 2.0  # 10m
+        world_x = params.world_size[1]  # 100m
+        world_y = params.world_size[2]  # 20m
+        spacing = 1.0  # 1.0m間隔で障害物を配置
 
-            # 壁の上側を障害物で埋める
-            for y in wall_y:spacing:world_y
+        # X位置に応じて通路幅を変える関数
+        function get_corridor_width_at_x(x)
+            if narrow_x_start <= x <= narrow_x_end
+                return narrow_width  # 狭隘部
+            else
+                return wide_width    # 広い部
+            end
+        end
+
+        # 上側の障害物壁を生成
+        for x in 0:spacing:world_x
+            current_width = get_corridor_width_at_x(x)
+            upper_wall_y_start = center_y + current_width / 2.0
+            for y in upper_wall_y_start:spacing:world_y
                 push!(obstacles, (x, y))
             end
         end
 
-        # 下側の壁領域を埋める
-        for x in corridor_end:spacing:world_x
-            t = (x - corridor_end) / corridor_width_x
-            wall_y = (center_y - width/2.0) * (1 - t) + 0.0 * t
-
-            # 壁の下側を障害物で埋める
-            for y in 0:spacing:wall_y
+        # 下側の障害物壁を生成
+        for x in 0:spacing:world_x
+            current_width = get_corridor_width_at_x(x)
+            lower_wall_y_end = center_y - current_width / 2.0
+            for y in 0:spacing:lower_wall_y_end
                 push!(obstacles, (x, y))
             end
         end
@@ -396,6 +412,7 @@ function get_obstacles(params::ScenarioParams)
 
     elseif params.scenario_type == RANDOM_OBSTACLES
         # Random circular obstacles of varying sizes
+        # v7.2: 100×100世界に対応
         world_x, world_y = params.world_size
         num_obstacles = params.num_obstacles === nothing ? 50 : params.num_obstacles
         obstacle_seed = params.obstacle_seed === nothing ? 42 : params.obstacle_seed
@@ -403,14 +420,15 @@ function get_obstacles(params::ScenarioParams)
         # Use separate RNG for obstacle generation (independent of agent seed)
         rng = Random.MersenneTwister(obstacle_seed)
 
-        # Define safe zones (agent start/goal areas, 10m radius around each corner)
-        safe_radius = 10.0
+        # Define safe zones (agent start/goal areas, 15m radius around each corner)
+        # v7.2: スケーリングして半径も拡大
+        safe_radius = 15.0
 
         safe_zones = [
-            (5.0, 5.0),      # Bottom-left
-            (5.0, 45.0),     # Top-left
-            (45.0, 45.0),    # Top-right
-            (45.0, 5.0)      # Bottom-right
+            (10.0, 10.0),      # Bottom-left
+            (10.0, 90.0),      # Top-left
+            (90.0, 90.0),      # Top-right
+            (90.0, 10.0)       # Bottom-right
         ]
 
         spacing = 1.0  # 1.0m spacing for filling circular obstacles
@@ -420,9 +438,10 @@ function get_obstacles(params::ScenarioParams)
         max_attempts = num_obstacles * 10  # Prevent infinite loop
 
         while length(obstacles) < num_obstacles * 10 && attempts < max_attempts
-            # Random center position (avoid boundaries: 5m margin)
-            cx = 5.0 + rand(rng) * (world_x - 10.0)
-            cy = 5.0 + rand(rng) * (world_y - 10.0)
+            # Random center position (avoid boundaries: 10m margin for 100×100 world)
+            margin = 10.0
+            cx = margin + rand(rng) * (world_x - 2 * margin)
+            cy = margin + rand(rng) * (world_y - 2 * margin)
 
             # Random radius (2.0 - 4.0 m) - generate first to check full obstacle boundary
             radius = 2.0 + rand(rng) * 2.0
