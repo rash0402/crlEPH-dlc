@@ -78,6 +78,7 @@ class RawV72Viewer:
         self.window_open = True  # Track window state
         self.animation_timer = None  # Timer for animation
         self.spm_update_counter = 0  # Counter for SPM update throttling
+        self.colorbars = {}  # Cache colorbars to avoid duplication
 
         # Setup GUI
         self.setup_figure()
@@ -244,7 +245,7 @@ class RawV72Viewer:
 
         # Create 4×4 grid layout (v6.3-compatible)
         gs = GridSpec(4, 4, figure=self.fig, hspace=0.35, wspace=0.35,
-                      left=0.05, right=0.95, top=0.92, bottom=0.06)
+                      left=0.05, right=0.95, top=0.92, bottom=0.12)
 
         # Row 0-1: Large plots (2×2 each)
         self.ax_global = self.fig.add_subplot(gs[0:2, 0:2])
@@ -480,6 +481,8 @@ class RawV72Viewer:
 
             if distances[nearest_idx] < 2.0:  # Within 2m
                 self.selected_agent_idx = nearest_idx
+                # Clear colorbar cache when changing agent
+                self.colorbars = {}
                 print(f"Selected agent {nearest_idx} (Group {self.group[nearest_idx]})")
                 self.update_display()
 
@@ -703,7 +706,12 @@ class RawV72Viewer:
                     im = ax.imshow(channel_data, cmap=cmap, vmin=0, vmax=1,
                                   origin='lower', aspect='auto', interpolation='nearest')
                     self.spm_real_images[ch_idx] = im
-                    self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+                    # Create colorbar only if it doesn't exist (avoid duplication)
+                    cbar_key = f'spm_ch{ch_idx}'
+                    if cbar_key not in self.colorbars or self.colorbars[cbar_key] is None:
+                        cbar = self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                        self.colorbars[cbar_key] = cbar
                 else:
                     # Update existing image
                     self.spm_real_images[ch_idx].set_data(channel_data)
