@@ -424,13 +424,20 @@ class RawV72Viewer:
             self.animation_timer = self.fig.canvas.new_timer(interval=interval_ms)
             self.animation_timer.add_callback(self.animation_step)
 
-        if not self.animation_timer.running:
+        try:
             self.animation_timer.start()
+        except RuntimeError:
+            # Timer already running, ignore
+            pass
 
     def stop_animation(self):
         """Stop timer-based animation"""
-        if self.animation_timer is not None and self.animation_timer.running:
-            self.animation_timer.stop()
+        if self.animation_timer is not None:
+            try:
+                self.animation_timer.stop()
+            except (RuntimeError, AttributeError):
+                # Timer not running or already stopped, ignore
+                pass
 
     def animation_step(self):
         """Single step of animation (called by timer)"""
