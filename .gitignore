@@ -17,6 +17,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 venv/
+.venv/
 .pytest_cache/
 .coverage
 htmlcov/
