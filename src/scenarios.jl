@@ -269,6 +269,12 @@ function initialize_scenario(
                 pos = [start_pos[1] + randn() * 5.0, start_pos[2] + randn() * 5.0]
             end
 
+            # Clamp position to world bounds (prevent out-of-bounds initialization)
+            world_x = params.world_size[1]
+            world_y = params.world_size[2]
+            pos[1] = clamp(pos[1], 0.0, world_x)
+            pos[2] = clamp(pos[2], 0.0, world_y)
+
             # ゴール方向（単位ベクトル）- 位置ではなく方向を指定 (v7.2)
             direction = [goal_pos[1] - start_pos[1], goal_pos[2] - start_pos[2]]
             direction_normalized = direction / norm(direction)
@@ -467,10 +473,11 @@ function get_obstacles(params::ScenarioParams)
         spacing = 1.0  # 1.0m spacing for filling circular obstacles
 
         # Generate random circular obstacles
+        num_circles_generated = 0
         attempts = 0
         max_attempts = num_obstacles * 10  # Prevent infinite loop
 
-        while length(obstacles) < num_obstacles * 10 && attempts < max_attempts
+        while num_circles_generated < num_obstacles && attempts < max_attempts
             # Random center position (avoid boundaries: 10m margin for 100×100 world)
             margin = 10.0
             cx = margin + rand(rng) * (world_x - 2 * margin)
@@ -491,7 +498,6 @@ function get_obstacles(params::ScenarioParams)
             end
 
             if !in_safe_zone
-
                 # Fill circular obstacle with 1.0m-spaced points
                 # Use grid approach: check all points within bounding box
                 x_min = max(0.0, cx - radius)
@@ -508,6 +514,9 @@ function get_obstacles(params::ScenarioParams)
                         end
                     end
                 end
+
+                # Successfully generated one circular obstacle
+                num_circles_generated += 1
             end
 
             attempts += 1

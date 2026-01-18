@@ -754,15 +754,21 @@ function step_v72!(
     agent.vel = [state_next[3], state_next[4]]
     agent.heading = state_next[5]
 
-    # Detect funnel corridor scenario
+    # Detect scenario type by world size
     is_funnel_corridor = (world_params.width == 100.0 && world_params.height == 50.0)
+    is_scramble = (world_params.width == 50.0 && world_params.height == 50.0)
+    is_random_obstacles = (world_params.width == 100.0 && world_params.height == 100.0)
 
     # Apply boundary conditions based on scenario
     if is_funnel_corridor
-        # For corridor: NO torus wrapping, only clamp to corridor bounds
+        # Corridor: NO torus wrapping, clamp to corridor bounds
         agent.pos = clamp_to_corridor(agent.pos, world_params)
+    elseif is_random_obstacles
+        # Random obstacles: NO torus wrapping, clamp to world bounds
+        agent.pos[1] = clamp(agent.pos[1], 0.0, world_params.width)
+        agent.pos[2] = clamp(agent.pos[2], 0.0, world_params.height)
     else
-        # For other scenarios (scramble, random obstacles): use torus wrapping
+        # Scramble: use torus wrapping (periodic boundaries)
         agent.pos = wrap_torus(agent.pos, world_params)
     end
 
