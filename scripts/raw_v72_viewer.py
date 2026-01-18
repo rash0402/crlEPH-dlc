@@ -313,8 +313,8 @@ class RawV72Viewer:
 
     def setup_widgets(self):
         """Setup interactive widgets (v6.3-style)"""
-        # Time slider
-        ax_slider = plt.axes([0.15, 0.02, 0.60, 0.03])
+        # Time slider - raised to y=0.04 to avoid overlap
+        ax_slider = plt.axes([0.15, 0.04, 0.60, 0.03])
         self.time_slider = Slider(
             ax_slider, 'Time Step',
             0, self.T - 1,
@@ -323,18 +323,18 @@ class RawV72Viewer:
         )
         self.time_slider.on_changed(self.on_slider_change)
 
-        # Open File button (v6.3)
-        ax_open = plt.axes([0.05, 0.02, 0.08, 0.03])
+        # Open File button (v6.3) - raised to y=0.04
+        ax_open = plt.axes([0.05, 0.04, 0.08, 0.03])
         self.open_button = Button(ax_open, 'Open File')
         self.open_button.on_clicked(self.on_open_button)
 
-        # Play button
-        ax_play = plt.axes([0.77, 0.02, 0.05, 0.03])
+        # Play button - raised to y=0.04
+        ax_play = plt.axes([0.77, 0.04, 0.05, 0.03])
         self.play_button = Button(ax_play, 'Play')
         self.play_button.on_clicked(self.on_play_button)
 
-        # Reset button (v6.3)
-        ax_reset = plt.axes([0.83, 0.02, 0.05, 0.03])
+        # Reset button (v6.3) - raised to y=0.04
+        ax_reset = plt.axes([0.83, 0.04, 0.05, 0.03])
         self.reset_button = Button(ax_reset, 'Reset')
         self.reset_button.on_clicked(self.on_reset_button)
 
