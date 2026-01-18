@@ -212,28 +212,46 @@ class RawV72Viewer:
             rho_index_critical=6
         )
 
-        # Determine actual movement range from trajectory data (for proper display)
-        # Use percentile-based range to focus on main activity area (ignore outliers)
-        # This automatically detects if agents are in 50×50 or 100×100 active area
-        pos_p05 = np.percentile(self.pos, 5, axis=(0, 1))   # 5th percentile [x, y]
-        pos_p95 = np.percentile(self.pos, 95, axis=(0, 1))  # 95th percentile [x, y]
-
-        # Add margin (10% of active range, minimum 5m)
-        x_range = pos_p95[0] - pos_p05[0]
-        y_range = pos_p95[1] - pos_p05[1]
-        margin_x = max(x_range * 0.1, 5.0)
-        margin_y = max(y_range * 0.1, 5.0)
-
-        # Set display bounds (fixed throughout simulation)
-        # This will show ~[0-50] for 50×50 active area, or ~[0-100] for full 100×100
-        self.display_xlim = (pos_p05[0] - margin_x, pos_p95[0] + margin_x)
-        self.display_ylim = (pos_p05[1] - margin_y, pos_p95[1] + margin_y)
-
         # Keep world_size for reference (from metadata)
         self.world_size = (
             float(self.metadata.get('world_width', 100.0)),
             float(self.metadata.get('world_height', 100.0))
         )
+
+        # Calculate agent position percentiles for statistics
+        pos_p05 = np.percentile(self.pos, 5, axis=(0, 1))   # 5th percentile [x, y]
+        pos_p95 = np.percentile(self.pos, 95, axis=(0, 1))  # 95th percentile [x, y]
+
+        # Determine display range based on scenario type
+        scenario = self.metadata.get('scenario', 'unknown')
+
+        if scenario == 'corridor' or len(self.obstacles) > 100:
+            # For corridor scenarios or scenarios with many obstacles,
+            # use obstacle range to determine world size
+            if len(self.obstacles) > 0:
+                obs_x_min = np.min(self.obstacles[:, 0])
+                obs_x_max = np.max(self.obstacles[:, 0])
+                obs_y_min = np.min(self.obstacles[:, 1])
+                obs_y_max = np.max(self.obstacles[:, 1])
+
+                # Display range is obstacle range with small margin
+                self.display_xlim = (obs_x_min - 2.0, obs_x_max + 2.0)
+                self.display_ylim = (obs_y_min - 2.0, obs_y_max + 2.0)
+            else:
+                # Fallback to world_size from metadata
+                self.display_xlim = (0, self.world_size[0])
+                self.display_ylim = (0, self.world_size[1])
+        else:
+            # For other scenarios, use percentile-based range
+            # This automatically detects if agents are in 50×50 or 100×100 active area
+            # Add margin (10% of active range, minimum 5m)
+            x_range = pos_p95[0] - pos_p05[0]
+            y_range = pos_p95[1] - pos_p05[1]
+            margin_x = max(x_range * 0.1, 5.0)
+            margin_y = max(y_range * 0.1, 5.0)
+
+            self.display_xlim = (pos_p05[0] - margin_x, pos_p95[0] + margin_x)
+            self.display_ylim = (pos_p05[1] - margin_y, pos_p95[1] + margin_y)
 
         print(f"  Loaded: {self.n_steps} steps, {self.n_agents} agents")
         print(f"  Scenario: {self.metadata.get('scenario', 'Unknown')}")

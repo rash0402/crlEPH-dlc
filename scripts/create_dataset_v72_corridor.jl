@@ -108,12 +108,12 @@ function run_simulation_v72(
     output_dir::String
 )
     # Configuration (v7.2 parameters)
-    # v7.2: Long corridor (100m × 20m) with obstacles on top/bottom
-    # corridor_width is the passage width (10m), world height is fixed at 20m
+    # v7.2: Funnel corridor (100m × 50m) with variable-width passage
+    # corridor_width is the passage width (10m at narrow section), world height is 50m
     world_params = WorldParams(
         dt=0.01,  # v7.2: 10ms timestep
         width=corridor_length,   # 100m (horizontal length)
-        height=20.0              # 20m (world height, fixed)
+        height=50.0              # 50m (world height for funnel corridor)
     )
     agent_params = AgentParams(
         mass=70.0,           # v7.2: Pedestrian mass
@@ -177,7 +177,7 @@ function run_simulation_v72(
                 agent, other_agents, obstacles_tuples,
                 agent_params, world_params;
                 exploration_noise=0.3,
-                safety_threshold=4.0,
+                safety_threshold=6.0,  # 壁から十分離れる（spacing=1.0m対策）
                 repulsion_strength=2.0
             )
 

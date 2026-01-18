@@ -93,12 +93,12 @@ Bidirectional flow in narrow passage.
 - `ScenarioParams`: Scenario configuration
 """
 function init_corridor(num_agents_per_group::Int; corridor_width::Float64=10.0)
-    # v7.2: Long corridor with obstacles on top/bottom
-    world_size = (100.0, 20.0)  # 100m long, 20m wide
-    center_y = world_size[2] / 2.0  # 10m
+    # v7.2: Funnel-shaped corridor with tapered walls
+    world_size = (100.0, 50.0)  # 100m long, 50m wide
+    center_y = world_size[2] / 2.0  # 25m
 
     # 2グループ: 左→右、右→左
-    # 初期位置は通路中央（Y=10m）で左右端に配置
+    # 初期位置は通路中央（Y=25m）で左右端に配置
     positions = [
         (10.0, center_y),    # Group 1: Left side, center of corridor
         (90.0, center_y)     # Group 2: Right side, center of corridor
@@ -226,19 +226,41 @@ function initialize_scenario(
         for i in 1:num_agents_per_group
             # グループ内でランダムに分散（v7.2: バラつきを大幅に拡大）
             if params.scenario_type == CORRIDOR
-                # Corridor: X方向は広く±10.0m、Y方向は通路幅内に厳密に制限
-                corridor_width_param = params.corridor_width === nothing ? 10.0 : params.corridor_width
+                # Funnel-shaped Corridor: X位置に応じて幅が変化
+                narrow_width = params.corridor_width === nothing ? 10.0 : params.corridor_width
+                wide_width = 40.0  # 入口/出口の幅
+                narrow_x_start = 40.0
+                narrow_x_end = 60.0
+                world_x = params.world_size[1]
                 center_y = params.world_size[2] / 2.0  # World height center
-                x_std = 10.0  # 左右に広く分散（10エージェント→約20m幅）
-                y_std = min(2.0, corridor_width_param / 5.0)  # 通路幅の1/5以内
 
-                # Generate position with clamping to ensure agents stay in corridor
+                # X位置をランダムに分散
+                x_std = 10.0  # 左右に広く分散
                 pos_x = start_pos[1] + randn() * x_std
+
+                # このX位置での通路幅を計算（funnel形状）
+                function get_corridor_width_at_x(x)
+                    if x < narrow_x_start
+                        t = x / narrow_x_start
+                        return wide_width - (wide_width - narrow_width) * t
+                    elseif x <= narrow_x_end
+                        return narrow_width
+                    else
+                        t = (x - narrow_x_end) / (world_x - narrow_x_end)
+                        return narrow_width + (wide_width - narrow_width) * t
+                    end
+                end
+
+                # 現在のX位置での幅を取得
+                current_width = get_corridor_width_at_x(pos_x)
+                y_std = min(3.0, current_width / 8.0)  # 通路幅の1/8以内
+
+                # Y座標をランダムに分散
                 pos_y = start_pos[2] + randn() * y_std
 
-                # Clamp Y to corridor bounds (center ± width/2), with 1m margin
-                y_min = center_y - corridor_width_param / 2.0 + 1.0  # e.g., 10 - 5 + 1 = 6m
-                y_max = center_y + corridor_width_param / 2.0 - 1.0  # e.g., 10 + 5 - 1 = 14m
+                # Clamp Y to corridor bounds (center ± width/2), with 2m margin
+                y_min = center_y - current_width / 2.0 + 2.0
+                y_max = center_y + current_width / 2.0 - 2.0
                 pos_y = clamp(pos_y, y_min, y_max)
 
                 pos = [pos_x, pos_y]
@@ -331,30 +353,41 @@ function get_obstacles(params::ScenarioParams)
         end
 
     elseif params.scenario_type == CORRIDOR
-        # v7.2: 可変幅通路 - X=40-60mのみ狭く、その他は広い
-        # 世界サイズ: 100m × 20m
-        # 狭隘部: X=40-60m, 幅=corridor_width (default 4m)
-        # 広い部: X=0-40m, X=60-100m, 幅=12m
-        narrow_width = params.corridor_width  # 狭隘部の幅（デフォルト4m）
-        wide_width = 12.0  # 広い部分の幅（12m）
+        # v7.2: Funnel-shaped corridor with linearly tapered walls
+        # 世界サイズ: 100m × 50m
+        # 設計:
+        #   X=0-40m:   幅40m → 10m (線形遷移、斜め壁)
+        #   X=40-60m:  幅10m (狭隘部、一定幅)
+        #   X=60-100m: 幅10m → 40m (線形遷移、斜め壁)
+        narrow_width = params.corridor_width  # 狭隘部の幅（デフォルト10m）
+        wide_width = 40.0  # 入口/出口の幅（40m）
         narrow_x_start = 40.0  # 狭隘部開始X座標
         narrow_x_end = 60.0    # 狭隘部終了X座標
 
-        center_y = params.world_size[2] / 2.0  # 10m
+        center_y = params.world_size[2] / 2.0  # 25m
         world_x = params.world_size[1]  # 100m
-        world_y = params.world_size[2]  # 20m
-        spacing = 1.0  # 1.0m間隔で障害物を配置
+        world_y = params.world_size[2]  # 50m
+        spacing = 1.0  # 1.0m間隔で障害物を配置（高速計算）
 
-        # X位置に応じて通路幅を変える関数
+        # X位置に応じて通路幅を線形補間で計算
         function get_corridor_width_at_x(x)
-            if narrow_x_start <= x <= narrow_x_end
-                return narrow_width  # 狭隘部
+            if x < narrow_x_start
+                # 入口部: 40m → 10m に線形遷移
+                # width(x) = 40 - 30*(x/40)
+                t = x / narrow_x_start  # 0→1
+                return wide_width - (wide_width - narrow_width) * t
+            elseif x <= narrow_x_end
+                # 狭隘部: 一定幅10m
+                return narrow_width
             else
-                return wide_width    # 広い部
+                # 出口部: 10m → 40m に線形遷移
+                # width(x) = 10 + 30*((x-60)/40)
+                t = (x - narrow_x_end) / (world_x - narrow_x_end)  # 0→1
+                return narrow_width + (wide_width - narrow_width) * t
             end
         end
 
-        # 上側の障害物壁を生成
+        # 上側の障害物壁を生成（斜め壁）
         for x in 0:spacing:world_x
             current_width = get_corridor_width_at_x(x)
             upper_wall_y_start = center_y + current_width / 2.0
@@ -363,7 +396,7 @@ function get_obstacles(params::ScenarioParams)
             end
         end
 
-        # 下側の障害物壁を生成
+        # 下側の障害物壁を生成（斜め壁）
         for x in 0:spacing:world_x
             current_width = get_corridor_width_at_x(x)
             lower_wall_y_end = center_y - current_width / 2.0

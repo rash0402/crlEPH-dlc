@@ -904,6 +904,43 @@ Arguments:
 Returns:
   - u: Selected [Fx, Fy] from candidates
 """
+function distance_to_corridor_wall(pos::Vector{Float64}, world_params::WorldParams, r_agent::Float64)
+    # Calculate minimum distance to corridor walls (funnel-shaped corridor)
+    # For funnel corridor (100m × 50m), calculates distance from position to nearest wall
+
+    # Funnel corridor parameters
+    narrow_width = 10.0
+    wide_width = 40.0
+    narrow_x_start = 40.0
+    narrow_x_end = 60.0
+    world_x = world_params.width
+    center_y = world_params.height / 2.0
+
+    x = pos[1]
+    y = pos[2]
+
+    # Calculate corridor width at this X position
+    if x < narrow_x_start
+        t = x / narrow_x_start
+        current_width = wide_width - (wide_width - narrow_width) * t
+    elseif x <= narrow_x_end
+        current_width = narrow_width
+    else
+        t = (x - narrow_x_end) / (world_x - narrow_x_end)
+        current_width = narrow_width + (wide_width - narrow_width) * t
+    end
+
+    # Distance to upper and lower walls
+    y_upper = center_y + current_width / 2.0
+    y_lower = center_y - current_width / 2.0
+
+    dist_to_upper = (y_upper - y) - r_agent
+    dist_to_lower = (y - y_lower) - r_agent
+
+    # Return minimum distance to either wall
+    return min(dist_to_upper, dist_to_lower)
+end
+
 function compute_action_random_collision_free(
     agent::Agent,
     other_agents::Vector{Agent},
@@ -916,29 +953,39 @@ function compute_action_random_collision_free(
 )
     # 1. Generate 100 candidates
     candidates = generate_action_candidates_v72(F_max=agent_params.u_max)
-    
+
     # 2. Evaluate candidates
     safe_indices = Int[]
     scores = Float64[]
     min_dist_vals = Float64[]  # Track min dist for each candidate (fallback)
-    
+
     # Current State
     state_curr = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
-    
+
+    # Detect funnel corridor scenario
+    is_funnel_corridor = (world_params.width == 100.0 && world_params.height == 50.0)
+
     for (idx, u) in enumerate(candidates)
         # Predict next position (using simple approximation for speed or RK4)
         # Using RK4 for accuracy since we have it
         state_next = Dynamics.dynamics_rk4(state_curr, u, agent_params, world_params)
         pos_next = [state_next[1], state_next[2]]
-        
+
         # Check safety (Geometric)
         min_dist = Inf
-        
+
         # Obstacles (walls)
-        for obs in obstacles
-            obs_pos = [obs[1], obs[2]]
-            dist = norm(pos_next - obs_pos) - agent_params.r_agent
-            min_dist = min(min_dist, dist)
+        if is_funnel_corridor
+            # Use corridor wall distance calculation
+            dist_wall = distance_to_corridor_wall(pos_next, world_params, agent_params.r_agent)
+            min_dist = min(min_dist, dist_wall)
+        else
+            # Original point-based obstacle distance
+            for obs in obstacles
+                obs_pos = [obs[1], obs[2]]
+                dist = norm(pos_next - obs_pos) - agent_params.r_agent
+                min_dist = min(min_dist, dist)
+            end
         end
         
         # Other Agents

@@ -644,6 +644,81 @@ function dynamics_rk4(
 end
 
 """
+Clamp position to valid corridor bounds (v7.2 funnel-shaped corridor)
+
+For corridor scenarios, ensures agents stay within the funnel-shaped passage.
+X=0-40m: width 40→10m (linear transition)
+X=40-60m: width 10m (constant)
+X=60-100m: width 10→40m (linear transition)
+"""
+function clamp_to_corridor(pos::Vector{Float64}, world_params::WorldParams)
+    # Funnel corridor parameters (matching scenarios.jl)
+    narrow_width = 10.0
+    wide_width = 40.0
+    narrow_x_start = 40.0
+    narrow_x_end = 60.0
+    world_x = world_params.width
+    world_y = world_params.height
+    center_y = world_y / 2.0
+    margin = 1.0  # Safety margin from walls
+
+    x = pos[1]
+    y = pos[2]
+
+    # Calculate valid corridor width at this X position
+    if x < narrow_x_start
+        t = x / narrow_x_start
+        current_width = wide_width - (wide_width - narrow_width) * t
+    elseif x <= narrow_x_end
+        current_width = narrow_width
+    else
+        t = (x - narrow_x_end) / (world_x - narrow_x_end)
+        current_width = narrow_width + (wide_width - narrow_width) * t
+    end
+
+    # Clamp Y to valid range
+    y_min = center_y - current_width / 2.0 + margin
+    y_max = center_y + current_width / 2.0 - margin
+    y_clamped = clamp(y, y_min, y_max)
+
+    return [x, y_clamped]
+end
+
+function check_corridor_wall_collision(pos::Vector{Float64}, world_params::WorldParams, r_agent::Float64)
+    # Check if agent is colliding with funnel corridor walls
+    # Returns true if agent (with radius r_agent) penetrates the corridor walls
+    
+    # Funnel corridor parameters (matching scenarios.jl and clamp_to_corridor)
+    narrow_width = 10.0
+    wide_width = 40.0
+    narrow_x_start = 40.0
+    narrow_x_end = 60.0
+    world_x = world_params.width
+    center_y = world_params.height / 2.0
+    
+    x = pos[1]
+    y = pos[2]
+    
+    # Calculate corridor width at this X position
+    if x < narrow_x_start
+        t = x / narrow_x_start
+        current_width = wide_width - (wide_width - narrow_width) * t
+    elseif x <= narrow_x_end
+        current_width = narrow_width
+    else
+        t = (x - narrow_x_end) / (world_x - narrow_x_end)
+        current_width = narrow_width + (wide_width - narrow_width) * t
+    end
+    
+    # Calculate wall positions
+    y_upper = center_y + current_width / 2.0
+    y_lower = center_y - current_width / 2.0
+    
+    # Check if agent penetrates either wall (agent center + radius exceeds wall boundary)
+    return (y + r_agent > y_upper) || (y - r_agent < y_lower)
+end
+
+"""
 Update agent state using v7.2 dynamics (wrapper for dynamics_rk4).
 
 Args:
@@ -665,6 +740,9 @@ function step_v72!(
     obstacles::Vector{Obstacle},
     all_agents::Vector{Agent}
 )
+    # Store previous position for collision recovery
+    prev_pos = copy(agent.pos)
+
     # Construct current state vector
     state_current = [agent.pos[1], agent.pos[2], agent.vel[1], agent.vel[2], agent.heading]
 
@@ -676,8 +754,17 @@ function step_v72!(
     agent.vel = [state_next[3], state_next[4]]
     agent.heading = state_next[5]
 
-    # Apply torus wrapping
-    agent.pos = wrap_torus(agent.pos, world_params)
+    # Detect funnel corridor scenario
+    is_funnel_corridor = (world_params.width == 100.0 && world_params.height == 50.0)
+
+    # Apply boundary conditions based on scenario
+    if is_funnel_corridor
+        # For corridor: NO torus wrapping, only clamp to corridor bounds
+        agent.pos = clamp_to_corridor(agent.pos, world_params)
+    else
+        # For other scenarios (scramble, random obstacles): use torus wrapping
+        agent.pos = wrap_torus(agent.pos, world_params)
+    end
 
     # Compute acceleration for logging
     agent.acc = (agent.vel - [state_current[3], state_current[4]]) / world_params.dt
@@ -685,9 +772,17 @@ function step_v72!(
     # Collision detection (for metrics only)
     collision_count = 0
 
-    # Obstacle collisions
-    if check_collision(agent.pos, obstacles, agent_params.r_agent)
-        collision_count += 1
+    # Obstacle/Wall collisions
+    if is_funnel_corridor
+        # Use continuous corridor wall collision detection
+        if check_corridor_wall_collision(agent.pos, world_params, agent_params.r_agent)
+            collision_count += 1
+        end
+    else
+        # Use discrete obstacle collision detection for other scenarios
+        if check_collision(agent.pos, obstacles, agent_params.r_agent)
+            collision_count += 1
+        end
     end
 
     # Agent collisions
