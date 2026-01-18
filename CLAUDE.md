@@ -80,21 +80,23 @@ julia --project=. scripts/validate_haze.jl
   - `viewer/spm_reconstructor.py` - Python SPM generator
   - **Features**: Global/local maps, obstacle visualization, agent selection
 
-### Current Focus (v6.3 Phase)
+### Current Focus (v7.2 Phase)
 
-- 🎯 **VAE Training**: Training on controller-bias-free dataset (9 files, 10MB)
-- 🎯 **Ablation Study**: Comparing v6.2 (FEP-biased) vs v6.3 (unbiased) data
-- 🎯 **Evaluation**: Collision rate, freezing rate, trajectory smoothness metrics
+- 🎯 **VAE Training**: Training on 5D state space dataset (9 files, 25MB)
+- 🎯 **Heading Integration**: Full 5D dynamics (x, y, vx, vy, θ) with RK4 + heading alignment
+- 🎯 **Circular Obstacles**: True geometric collision avoidance (center + radius)
 
-### Technical Specifications (v6.3)
+### Technical Specifications (v7.2)
 
-- **Data Collection**: Random walk + geometric collision avoidance
-- **SPM**: 12×12 grid, D_max=6.0m, sensing_ratio=6.0
+- **Data Collection**: Random walk + geometric collision avoidance (controller-bias-free)
+- **Dynamics**: RK4 integration with heading alignment (k_align=4.0 rad/s)
+- **Physical Model**: m=70kg, u_max=150N (omnidirectional force control)
+- **SPM**: 12×12 grid, D_max=18.0m (sensing_ratio=9.0 for 100×100m world)
 - **Scenarios**:
-  - Scramble: 40 agents, 2.5-3.4% collision rate
-  - Corridor: 20 agents, 6.3-7.2% collision rate
-  - Random Obstacles: 40 agents, 8.9-9.6% collision rate (507-575 obstacle points)
-- **Data Structure**: HDF5 with `trajectory/`, `obstacles/`, `events/`, `metadata/`, `spm_params/`
-- **Storage**: ~10MB for 9 datasets (3 scenarios × 3 seeds × 1500 steps)
+  - Scramble: 40 agents (d=10), 6.78% collision rate
+  - Corridor: 20 agents (d=10), 1.91% collision rate
+  - Random Obstacles: 40 agents (d=10, 30 obstacles), 2.16% collision rate
+- **Data Structure**: HDF5 with `trajectory/{pos,vel,heading,u,d_goal}`, `obstacles/data`, `events/`, `metadata/`, `v72_params/`
+- **Storage**: 25MB for 9 datasets (3 scenarios × 3 seeds × 1500 steps)
 
-For detailed research context, see `doc/v6.3_controller_bias_free_design.md`.
+For detailed research context, see `doc/v6.3_controller_bias_free_design.md` and `doc/proposal_v7.3.md`.
