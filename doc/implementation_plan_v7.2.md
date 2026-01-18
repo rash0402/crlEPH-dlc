@@ -243,7 +243,7 @@ Model A は、状態空間を 5D に簡略化し、Heading が速度方向に自
 - [ ] **Precision変換**: Π = 1 / (H_total + ε) が正しく計算されるか。
 
 ### 4.2 Integration Tests
-- [ ] **Data Viewer**: 新しいデータ形式を `scripts/view_v72_data.sh` で表示できるか。
+- [ ] **Data Viewer**: 新しいデータ形式を `scripts/run_viewer_v72.sh` で表示できるか。
 - [ ] **Short Simulation**: 100ステップ程度でエラー落ちしないか。
 
 ### 4.3 Evaluation Metrics (提案書4.1節に準拠)
@@ -263,6 +263,6 @@ Model A は、状態空間を 5D に簡略化し、Heading が速度方向に自
 
 1. `src/dynamics.jl` の改修。
 2. `scripts/create_dataset_v72.jl` の整備とテスト収集。
-3. `view_v72_data.sh` でデータ確認。
+3. `run_viewer_v72.sh` でデータ確認。
 4. VAE学習。
 5. `src/controller.jl` 実装とシミュレーション実行。

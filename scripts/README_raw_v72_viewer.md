@@ -28,72 +28,28 @@ v7.2データ収集で生成されたHDF5ファイルを可視化するための
 
 ```bash
 # GUIファイル選択ダイアログ（デフォルト）
-./scripts/view_v72_data.sh
+./scripts/run_viewer_v72.sh
 
-# ターミナルメニュー
-./scripts/view_v72_data.sh --menu
-```
-
-#### オプション1: GUIダイアログ（デフォルト）
-
-```bash
-./scripts/view_v72_data.sh
-```
-
-グラフィカルなファイル選択ダイアログ（Tkinter）が表示されます。
-- ファイルブラウザーでナビゲート
-- ファイル名でソート
-- 視覚的に操作しやすい
-
-#### オプション2: ターミナルメニュー
-
-```bash
-./scripts/view_v72_data.sh --menu
-```
-
-ターミナル内でファイル一覧が表示されます：
-
-```
-========================================
-Select a file to visualize:
-========================================
-
-  1) v72_corridor_d10_s1_20260114_182900.h5
-  2) v72_scramble_d10_s1_20260114_182837.h5
-  3) v72_random_d20_n50_s2_20260114_183000.h5
-  ...
-
-Enter file number (1-48), or press Enter for most recent:
-```
-
-- **数字を入力**: 指定したファイルを開く
-- **Enterのみ**: 最新のファイルを自動選択
-
-#### 共通の利点:
-- Python仮想環境の自動アクティベーション
-- 依存パッケージの自動チェック
-- ユーザーフレンドリーなエラーメッセージ
-
-### ファイル指定での起動
-
-```bash
-# シェルスクリプト経由（推奨）
-./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
-
-# 直接Python実行
-~/local/venv/bin/python scripts/raw_v72_viewer.py data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
+# ファイル指定での起動
+./scripts/run_viewer_v72.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
 ```
 
 **シナリオ別の例:**
 ```bash
 # Scramble Crossing
-./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
+./scripts/run_viewer_v72.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
 
 # Corridor
-./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_corridor_d15_s2_*.h5
+./scripts/run_viewer_v72.sh data/vae_training/raw_v72/v72_corridor_d15_s2_*.h5
 
 # Random Obstacles
-./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_random_d20_n50_s3_*.h5
+./scripts/run_viewer_v72.sh data/vae_training/raw_v72/v72_random_d20_n50_s3_*.h5
+```
+
+### 直接Python実行
+
+```bash
+~/local/venv/bin/python viewer/raw_viewer_v72.py data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
 ```
 
 ## 画面構成（4×4グリッドレイアウト）

@@ -10,63 +10,32 @@ v7.2実装（5D状態空間 + Heading Alignment）のデータ収集と可視化
 
 ## 📊 1. データ可視化スクリプト
 
-### `view_v72_data.sh`
+### `run_viewer_v72.sh`
 
 **v7.2軌跡データのインタラクティブビューワーを起動**
 
 #### 機能
 - Python仮想環境（`~/local/venv`）を自動アクティベート
-- 依存パッケージ（h5py, numpy, matplotlib）の自動チェック
-- データディレクトリの存在確認
-- **GUIファイル選択ダイアログ**（デフォルト）
-- **ターミナルメニュー**（`--menu`オプション）
-- エラーハンドリングとユーザーフレンドリーなメッセージ
+- GUIファイル選択ダイアログ（デフォルト）
+- 簡潔でシンプルな起動スクリプト
 
 #### 使用方法
 
 **基本的な起動（GUIダイアログ - デフォルト）:**
 ```bash
-./scripts/view_v72_data.sh
+./scripts/run_viewer_v72.sh
 ```
-
-実行すると、グラフィカルなファイル選択ダイアログが表示されます（Tkinter）。
-- ファイルブラウザーでナビゲート
-- プレビュー機能
-- ファイル名でソート
-
-**ターミナルメニューモード:**
-```bash
-./scripts/view_v72_data.sh --menu
-```
-
-実行すると、ターミナル内でファイル一覧が表示されます：
-```
-========================================
-Select a file to visualize:
-========================================
-
-  1) v72_corridor_d10_s1_20260114_182900.h5
-  2) v72_corridor_d10_s2_20260114_182900.h5
-  3) v72_corridor_d10_s3_20260114_182900.h5
-  ...
- 48) v72_scramble_d20_s3_20260114_182838.h5
-
-Enter file number (1-48), or press Enter for most recent:
-```
-
-- **数字を入力**: 指定したファイルを開く
-- **Enterのみ**: 最新のファイルを自動選択
 
 **ファイルを直接指定:**
 ```bash
 # Scramble Crossing
-./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
+./scripts/run_viewer_v72.sh data/vae_training/raw_v72/v72_scramble_d10_s1_*.h5
 
 # Corridor
-./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_corridor_d15_s2_*.h5
+./scripts/run_viewer_v72.sh data/vae_training/raw_v72/v72_corridor_d15_s2_*.h5
 
 # Random Obstacles
-./scripts/view_v72_data.sh data/vae_training/raw_v72/v72_random_d20_n50_s3_*.h5
+./scripts/run_viewer_v72.sh data/vae_training/raw_v72/v72_random_d20_n50_s3_*.h5
 ```
 
 #### 必要な準備
@@ -74,27 +43,7 @@ Enter file number (1-48), or press Enter for most recent:
 **Python仮想環境の作成（初回のみ）:**
 ```bash
 python3 -m venv ~/local/venv
-~/local/venv/bin/pip install h5py numpy matplotlib
-```
-
-#### 出力例
-
-```
-========================================
-V7.2 Raw Trajectory Viewer
-========================================
-
-Checking Python dependencies...
-✓ All dependencies found
-
-Found 45 HDF5 file(s) in data/vae_training/raw_v72
-
-Usage:
-  1. File selection dialog will appear (default)
-  2. Or specify file as argument:
-     ./scripts/view_v72_data.sh path/to/file.h5
-
-Launching V7.2 Trajectory Viewer...
+~/local/venv/bin/pip install h5py numpy matplotlib PyQt5
 ```
 
 ---
@@ -218,14 +167,16 @@ Next steps:
 
 ```
 scripts/
-├── view_v72_data.sh              # データ可視化スクリプト
+├── run_viewer_v72.sh             # データ可視化スクリプト
 ├── collect_v72_data.sh           # データ収集スクリプト
-├── raw_v72_viewer.py             # Pythonビューワー本体
 ├── README_v72_scripts.md         # このファイル
 ├── README_raw_v72_viewer.md      # ビューワー詳細ドキュメント
 ├── create_dataset_v72_scramble.jl
 ├── create_dataset_v72_corridor.jl
 └── create_dataset_v72_random_obstacles.jl
+
+viewer/
+└── raw_viewer_v72.py             # Pythonビューワー本体
 
 data/vae_training/raw_v72/        # 生成データ（.gitignore）
 logs/                             # 実行ログ（.gitignore推奨）
@@ -311,7 +262,7 @@ julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ./scripts/collect_v72_data.sh --quick
 
 # 可視化
-./scripts/view_v72_data.sh
+./scripts/run_viewer_v72.sh
 ```
 
 ### 3. フルデータ収集
@@ -325,7 +276,7 @@ ls -lh data/vae_training/raw_v72/*.h5 | wc -l
 # → 45
 
 # データ確認
-./scripts/view_v72_data.sh
+./scripts/run_viewer_v72.sh
 ```
 
 ---
