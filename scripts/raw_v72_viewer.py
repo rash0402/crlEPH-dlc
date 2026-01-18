@@ -833,8 +833,14 @@ class RawV72Viewer:
                              transform=self.ax_controls.transAxes,
                              fontsize=9, verticalalignment='top', family='monospace')
 
-        # Refresh canvas
-        self.fig.canvas.draw_idle()
+        # Refresh canvas - CRITICAL: use draw() + flush during playback
+        if self.playing:
+            # During playback, use immediate draw with flush to avoid GIL issues
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+        else:
+            # When not playing, use draw_idle for efficiency
+            self.fig.canvas.draw_idle()
 
     def run(self):
         """Run the viewer"""
