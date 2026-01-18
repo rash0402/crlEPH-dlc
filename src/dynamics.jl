@@ -653,8 +653,8 @@ X=60-100m: width 10→40m (linear transition)
 """
 function clamp_to_corridor(pos::Vector{Float64}, world_params::WorldParams)
     # Funnel corridor parameters (matching scenarios.jl)
-    narrow_width = 10.0
-    wide_width = 40.0
+    narrow_width = 15.0
+    wide_width = 50.0
     narrow_x_start = 40.0
     narrow_x_end = 60.0
     world_x = world_params.width
@@ -689,8 +689,8 @@ function check_corridor_wall_collision(pos::Vector{Float64}, world_params::World
     # Returns true if agent (with radius r_agent) penetrates the corridor walls
     
     # Funnel corridor parameters (matching scenarios.jl and clamp_to_corridor)
-    narrow_width = 10.0
-    wide_width = 40.0
+    narrow_width = 15.0
+    wide_width = 50.0
     narrow_x_start = 40.0
     narrow_x_end = 60.0
     world_x = world_params.width

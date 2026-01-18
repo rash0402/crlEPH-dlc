@@ -92,7 +92,7 @@ Bidirectional flow in narrow passage.
 # Returns
 - `ScenarioParams`: Scenario configuration
 """
-function init_corridor(num_agents_per_group::Int; corridor_width::Float64=10.0)
+function init_corridor(num_agents_per_group::Int; corridor_width::Float64=15.0)
     # v7.2: Funnel-shaped corridor with tapered walls
     world_size = (100.0, 50.0)  # 100m long, 50m wide
     center_y = world_size[2] / 2.0  # 25m
@@ -227,8 +227,8 @@ function initialize_scenario(
             # グループ内でランダムに分散（v7.2: バラつきを大幅に拡大）
             if params.scenario_type == CORRIDOR
                 # Funnel-shaped Corridor: X位置に応じて幅が変化
-                narrow_width = params.corridor_width === nothing ? 10.0 : params.corridor_width
-                wide_width = 40.0  # 入口/出口の幅
+                narrow_width = params.corridor_width === nothing ? 15.0 : params.corridor_width
+                wide_width = 50.0  # 入口/出口の幅
                 narrow_x_start = 40.0
                 narrow_x_end = 60.0
                 world_x = params.world_size[1]
@@ -356,11 +356,11 @@ function get_obstacles(params::ScenarioParams)
         # v7.2: Funnel-shaped corridor with linearly tapered walls
         # 世界サイズ: 100m × 50m
         # 設計:
-        #   X=0-40m:   幅40m → 10m (線形遷移、斜め壁)
-        #   X=40-60m:  幅10m (狭隘部、一定幅)
-        #   X=60-100m: 幅10m → 40m (線形遷移、斜め壁)
-        narrow_width = params.corridor_width  # 狭隘部の幅（デフォルト10m）
-        wide_width = 40.0  # 入口/出口の幅（40m）
+        #   X=0-40m:   幅50m → 15m (線形遷移、斜め壁)
+        #   X=40-60m:  幅15m (狭隘部、一定幅)
+        #   X=60-100m: 幅15m → 50m (線形遷移、斜め壁)
+        narrow_width = params.corridor_width  # 狭隘部の幅（デフォルト15m）
+        wide_width = 50.0  # 入口/出口の幅（50m）
         narrow_x_start = 40.0  # 狭隘部開始X座標
         narrow_x_end = 60.0    # 狭隘部終了X座標
 
@@ -372,16 +372,16 @@ function get_obstacles(params::ScenarioParams)
         # X位置に応じて通路幅を線形補間で計算
         function get_corridor_width_at_x(x)
             if x < narrow_x_start
-                # 入口部: 40m → 10m に線形遷移
-                # width(x) = 40 - 30*(x/40)
+                # 入口部: 50m → 15m に線形遷移
+                # width(x) = 50 - 35*(x/40)
                 t = x / narrow_x_start  # 0→1
                 return wide_width - (wide_width - narrow_width) * t
             elseif x <= narrow_x_end
-                # 狭隘部: 一定幅10m
+                # 狭隘部: 一定幅15m
                 return narrow_width
             else
-                # 出口部: 10m → 40m に線形遷移
-                # width(x) = 10 + 30*((x-60)/40)
+                # 出口部: 15m → 50m に線形遷移
+                # width(x) = 15 + 35*((x-60)/40)
                 t = (x - narrow_x_end) / (world_x - narrow_x_end)  # 0→1
                 return narrow_width + (wide_width - narrow_width) * t
             end

@@ -909,8 +909,8 @@ function distance_to_corridor_wall(pos::Vector{Float64}, world_params::WorldPara
     # For funnel corridor (100m × 50m), calculates distance from position to nearest wall
 
     # Funnel corridor parameters
-    narrow_width = 10.0
-    wide_width = 40.0
+    narrow_width = 15.0
+    wide_width = 50.0
     narrow_x_start = 40.0
     narrow_x_end = 60.0
     world_x = world_params.width

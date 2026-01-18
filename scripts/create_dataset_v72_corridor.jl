@@ -18,7 +18,7 @@ Purpose:
 
 Configuration:
   - Scenario: Corridor (2-group bidirectional flow)
-  - Corridor: 20m × 100m (width × length)
+  - Corridor: Funnel-shaped (50m→15m→50m width, 100m length)
   - D_max = 6.0m (12×12 SPM grid)
   - Safety threshold = 4.0m (collision avoidance)
   - Exploration noise = 0.3 std
@@ -82,7 +82,7 @@ function parse_commandline()
         "--corridor-width"
             help = "Corridor passage width (meters, must be < world height)"
             arg_type = Float64
-            default = 10.0  # 10m passage in 20m world
+            default = 15.0  # 15m passage at narrow section
         "--corridor-length"
             help = "Corridor length (meters)"
             arg_type = Float64
