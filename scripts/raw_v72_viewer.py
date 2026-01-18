@@ -77,6 +77,7 @@ class RawV72Viewer:
         self.playing = False
         self.window_open = True  # Track window state
         self.animation_timer = None  # Timer for animation
+        self.spm_update_counter = 0  # Counter for SPM update throttling
 
         # Setup GUI
         self.setup_figure()
@@ -445,6 +446,9 @@ class RawV72Viewer:
             self.stop_animation()
             return
 
+        # Update SPM counter for throttling
+        self.spm_update_counter += 1
+
         if self.current_step < self.T - 1:
             self.current_step += 1
             self.time_slider.set_val(self.current_step)
@@ -483,6 +487,10 @@ class RawV72Viewer:
         """Update all display elements (v6.3-style with SPM)"""
         t = self.current_step
 
+        # During playback, skip SPM updates for performance and GIL safety
+        # Update SPM every 5 frames during playback
+        skip_spm = self.playing and (self.spm_update_counter % 5 != 0)
+
         # Clear axes
         self.ax_global.clear()
         self.ax_local.clear()
@@ -492,11 +500,12 @@ class RawV72Viewer:
         self.ax_spm_info.clear()
         self.ax_controls.clear()
 
-        # Clear SPM channel axes and reset image cache
-        for ax, _ in self.spm_real_axes:
-            ax.clear()
-        # Reset SPM images after clearing axes (they are now invalid)
-        self.spm_real_images = [None, None, None]
+        # Clear SPM channel axes only if updating (avoid GIL issues during playback)
+        if not skip_spm:
+            for ax, _ in self.spm_real_axes:
+                ax.clear()
+            # Reset SPM images after clearing axes (they are now invalid)
+            self.spm_real_images = [None, None, None]
 
         # === Global View ===
         self.ax_global.set_title(f"Global View (Step {t}/{self.T-1}, t={t*self.dt:.2f}s)")
@@ -658,75 +667,78 @@ class RawV72Viewer:
         self.ax_local.add_patch(goal_arrow)
 
         # === SPM Reconstruction (v6.3-style) ===
-        # Reconstruct SPM for selected agent
-        all_positions_t = self.pos[t, :, :]  # [N, 2]
-        all_velocities_t = self.vel[t, :, :]  # [N, 2]
-        ego_velocity = selected_vel
+        # Skip SPM during playback for performance and GIL safety
+        if not skip_spm:
+            # Reconstruct SPM for selected agent
+            all_positions_t = self.pos[t, :, :]  # [N, 2]
+            all_velocities_t = self.vel[t, :, :]  # [N, 2]
+            ego_velocity = selected_vel
 
-        spm = reconstruct_spm_3ch(
-            selected_pos,
-            selected_heading,
-            all_positions_t,
-            all_velocities_t,
-            self.obstacles,
-            self.spm_config,
-            r_agent=self.spm_config.r_agent,
-            world_size=self.world_size,
-            ego_velocity=ego_velocity
-        )
+            spm = reconstruct_spm_3ch(
+                selected_pos,
+                selected_heading,
+                all_positions_t,
+                all_velocities_t,
+                self.obstacles,
+                self.spm_config,
+                r_agent=self.spm_config.r_agent,
+                world_size=self.world_size,
+                ego_velocity=ego_velocity
+            )
 
-        # Display SPM channels
-        for ch_idx, (ax, title) in enumerate(self.spm_real_axes):
-            channel_data = spm[:, :, ch_idx]
+            # Display SPM channels
+            for ch_idx, (ax, title) in enumerate(self.spm_real_axes):
+                channel_data = spm[:, :, ch_idx]
 
-            # Use consistent colormaps
-            if ch_idx == 0:
-                cmap = 'gray'  # Occupancy: binary
-            elif ch_idx == 1:
-                cmap = 'hot'   # Proximity: distance-based
-            else:
-                cmap = 'Reds'  # Collision Risk: danger
+                # Use consistent colormaps
+                if ch_idx == 0:
+                    cmap = 'gray'  # Occupancy: binary
+                elif ch_idx == 1:
+                    cmap = 'hot'   # Proximity: distance-based
+                else:
+                    cmap = 'Reds'  # Collision Risk: danger
 
-            if self.spm_real_images[ch_idx] is None:
-                # Create initial image
-                im = ax.imshow(channel_data, cmap=cmap, vmin=0, vmax=1,
-                              origin='lower', aspect='auto', interpolation='nearest')
-                self.spm_real_images[ch_idx] = im
-                self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-            else:
-                # Update existing image
-                self.spm_real_images[ch_idx].set_data(channel_data)
+                if self.spm_real_images[ch_idx] is None:
+                    # Create initial image
+                    im = ax.imshow(channel_data, cmap=cmap, vmin=0, vmax=1,
+                                  origin='lower', aspect='auto', interpolation='nearest')
+                    self.spm_real_images[ch_idx] = im
+                    self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                else:
+                    # Update existing image
+                    self.spm_real_images[ch_idx].set_data(channel_data)
 
-            ax.set_title(f"{title}")
-            ax.set_xticks([])
-            ax.set_yticks([])
+                ax.set_title(f"{title}")
+                ax.set_xticks([])
+                ax.set_yticks([])
 
         # === SPM Info Panel ===
         self.ax_spm_info.set_title("SPM Info")
         self.ax_spm_info.axis('off')
 
-        # Calculate SPM statistics
-        spm_occupancy_sum = np.sum(spm[:, :, 0])
-        spm_proximity_max = np.max(spm[:, :, 1])
-        spm_risk_max = np.max(spm[:, :, 2])
+        # Calculate SPM statistics (only if SPM was updated)
+        if not skip_spm:
+            spm_occupancy_sum = np.sum(spm[:, :, 0])
+            spm_proximity_max = np.max(spm[:, :, 1])
+            spm_risk_max = np.max(spm[:, :, 2])
 
-        spm_info_text = (
-            f"Agent {self.selected_agent_idx}\n"
-            f"Group: {int(self.group[self.selected_agent_idx])}\n"
-            f"Position:\n"
-            f"  ({selected_pos[0]:.2f}, {selected_pos[1]:.2f}) m\n"
-            f"Velocity:\n"
-            f"  ({selected_vel[0]:.2f}, {selected_vel[1]:.2f}) m/s\n"
-            f"Heading:\n"
-            f"  {np.rad2deg(selected_heading):.1f}°\n"
-            f"\nSPM Stats:\n"
-            f"  Occupancy: {spm_occupancy_sum:.1f}\n"
-            f"  Max Proximity: {spm_proximity_max:.2f}\n"
-            f"  Max Risk: {spm_risk_max:.2f}\n"
-        )
-        self.ax_spm_info.text(0.05, 0.95, spm_info_text,
-                             transform=self.ax_spm_info.transAxes,
-                             fontsize=9, verticalalignment='top', family='monospace')
+            spm_info_text = (
+                f"Agent {self.selected_agent_idx}\n"
+                f"Group: {int(self.group[self.selected_agent_idx])}\n"
+                f"Position:\n"
+                f"  ({selected_pos[0]:.2f}, {selected_pos[1]:.2f}) m\n"
+                f"Velocity:\n"
+                f"  ({selected_vel[0]:.2f}, {selected_vel[1]:.2f}) m/s\n"
+                f"Heading:\n"
+                f"  {np.rad2deg(selected_heading):.1f}°\n"
+                f"\nSPM Stats:\n"
+                f"  Occupancy: {spm_occupancy_sum:.1f}\n"
+                f"  Max Proximity: {spm_proximity_max:.2f}\n"
+                f"  Max Risk: {spm_risk_max:.2f}\n"
+            )
+            self.ax_spm_info.text(0.05, 0.95, spm_info_text,
+                                 transform=self.ax_spm_info.transAxes,
+                                 fontsize=9, verticalalignment='top', family='monospace')
 
         # === Heading Plot ===
         self.ax_heading.set_title("Heading Alignment")
