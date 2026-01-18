@@ -851,11 +851,6 @@ function step_v72!(
     end
 
     return collision_count
-end            end
-        end
-    end
-
-    return collision_count
 end
 
 export dynamics_rk4, step_v72!, angle_diff
