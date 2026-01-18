@@ -151,27 +151,47 @@ class RawV72Viewer:
             # Load group IDs
             self.group = np.array(f['trajectory/group'])  # [N]
 
-            # Load obstacles (v7.2 format: [M, 4] or [M, 2])
+            # Load obstacles (v7.2 format: [M, 3] for circular, [M, 4] for rectangular, [M, 2] for points)
             if 'obstacles/data' in f:
                 obs_raw = np.array(f['obstacles/data'])
-                # Convert to center points for visualization
+                # Julia stores as (3, M), Python reads as (M, 3) after transpose
+                # But HDF5 might not auto-transpose, so check shape
+                if obs_raw.shape[0] == 3 and obs_raw.shape[1] > 3:
+                    # Julia format: (3, M) -> need to transpose
+                    obs_raw = obs_raw.T  # Now (M, 3)
+
                 if obs_raw.shape[0] > 0:
-                    if obs_raw.shape[1] == 4:
-                        # Format: [M, 4] - xmin, xmax, ymin, ymax
-                        self.obstacles = np.column_stack([
+                    if obs_raw.shape[1] == 3:
+                        # v7.2: Circular obstacles - (x_center, y_center, radius)
+                        self.obstacle_centers = obs_raw[:, :2]  # [M, 2]
+                        self.obstacle_radii = obs_raw[:, 2]     # [M]
+                        self.obstacles_are_circular = True
+                    elif obs_raw.shape[1] == 4:
+                        # Legacy: Rectangular obstacles - xmin, xmax, ymin, ymax
+                        self.obstacle_centers = np.column_stack([
                             (obs_raw[:, 0] + obs_raw[:, 1]) / 2,  # x_center
                             (obs_raw[:, 2] + obs_raw[:, 3]) / 2   # y_center
                         ])
+                        self.obstacle_radii = np.ones(len(self.obstacle_centers)) * 0.5
+                        self.obstacles_are_circular = False
                     elif obs_raw.shape[1] == 2:
-                        # Format: [M, 2] - x_center, y_center (already in correct format)
-                        self.obstacles = obs_raw
+                        # Legacy: Point obstacles
+                        self.obstacle_centers = obs_raw
+                        self.obstacle_radii = np.ones(len(self.obstacle_centers)) * 0.5
+                        self.obstacles_are_circular = False
                     else:
                         print(f"Warning: Unexpected obstacle shape {obs_raw.shape}, using empty array")
-                        self.obstacles = np.zeros((0, 2))
+                        self.obstacle_centers = np.zeros((0, 2))
+                        self.obstacle_radii = np.zeros(0)
+                        self.obstacles_are_circular = False
                 else:
-                    self.obstacles = np.zeros((0, 2))
+                    self.obstacle_centers = np.zeros((0, 2))
+                    self.obstacle_radii = np.zeros(0)
+                    self.obstacles_are_circular = False
             else:
-                self.obstacles = np.zeros((0, 2))
+                self.obstacle_centers = np.zeros((0, 2))
+                self.obstacle_radii = np.zeros(0)
+                self.obstacles_are_circular = False
 
             # Load events (Julia: [N, T], need [T, N])
             collision_raw = np.array(f['events/collision'])           # [N, T]
@@ -191,6 +211,9 @@ class RawV72Viewer:
             self.spm_params = {key: f['spm_params'][key][()] for key in f['spm_params'].keys()}
 
         self.n_steps, self.n_agents, _ = self.pos.shape
+
+        # Backward compatibility: self.obstacles as alias for obstacle_centers
+        self.obstacles = self.obstacle_centers
 
         # v7.2: sensing_ratio = 3.0, r_robot=0.5, r_agent=0.5 -> D_max = 3.0 * 1.0 = 3.0m
         # But according to scripts, D_max=6.0m, so r_robot should be 1.5m
@@ -479,10 +502,21 @@ class RawV72Viewer:
         ax.set_aspect('equal', adjustable='box')  # Maintain 1:1 aspect ratio
         ax.grid(True, alpha=0.3)
 
-        # Draw obstacles
-        if len(self.obstacles) > 0:
-            ax.scatter(self.obstacles[:, 0], self.obstacles[:, 1],
-                      c='gray', s=100, marker='s', alpha=0.5, label='Obstacles')
+        # Draw obstacles (v7.2: circular obstacles)
+        if len(self.obstacle_centers) > 0:
+            if self.obstacles_are_circular:
+                # Draw as circles
+                for i in range(len(self.obstacle_centers)):
+                    circle = plt.Circle(
+                        self.obstacle_centers[i],
+                        self.obstacle_radii[i],
+                        color='gray', alpha=0.4, zorder=1, linewidth=1, edgecolor='darkgray'
+                    )
+                    ax.add_patch(circle)
+            else:
+                # Legacy: draw as points
+                ax.scatter(self.obstacle_centers[:, 0], self.obstacle_centers[:, 1],
+                          c='gray', s=100, marker='s', alpha=0.5, label='Obstacles')
 
         # Draw agents
         pos = self.pos[t]
@@ -612,16 +646,28 @@ class RawV72Viewer:
                         head_width=0.2, head_length=0.1,
                         fc=color, ec=color, alpha=alpha*0.7, zorder=2)
 
-        # Draw obstacles in ego frame
-        if len(self.obstacles) > 0:
-            for obs_pos in self.obstacles:
+        # Draw obstacles in ego frame (v7.2: circular obstacles)
+        if len(self.obstacle_centers) > 0:
+            for i in range(len(self.obstacle_centers)):
+                obs_pos = self.obstacle_centers[i]
+                obs_radius = self.obstacle_radii[i]
                 rel_obs = obs_pos - ego_pos
                 dist_obs = np.linalg.norm(rel_obs)
                 if dist_obs > fov_r * 1.2:
                     continue
                 rel_obs_ego = R @ rel_obs
-                ax.scatter(rel_obs_ego[0], rel_obs_ego[1],
-                          c='gray', s=150, marker='s', alpha=0.6, zorder=2)
+                if self.obstacles_are_circular:
+                    # Draw as circle
+                    circle = plt.Circle(
+                        rel_obs_ego,
+                        obs_radius,
+                        color='gray', alpha=0.5, zorder=2, linewidth=1, edgecolor='darkgray'
+                    )
+                    ax.add_patch(circle)
+                else:
+                    # Legacy: draw as square marker
+                    ax.scatter(rel_obs_ego[0], rel_obs_ego[1],
+                              c='gray', s=150, marker='s', alpha=0.6, zorder=2)
 
         ax.set_xlim(-fov_r*1.1, fov_r*1.1)
         ax.set_ylim(-fov_r*0.3, fov_r*1.1)

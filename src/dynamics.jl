@@ -9,8 +9,9 @@ using LinearAlgebra
 using Random
 using ..Config
 
-export Agent, AgentGroup, Obstacle, init_agents, init_obstacles, step!, wrap_torus, relative_position, check_collision, predict_state, predict_other_agents
+export Agent, AgentGroup, Obstacle, CircularObstacle, init_agents, init_obstacles, step!, wrap_torus, relative_position, check_collision, predict_state, predict_other_agents
 export init_corridor_agents, init_corridor_obstacles
+export distance_to_circular_obstacle
 
 """
 Agent group identifiers (N/S/E/W)
@@ -30,6 +31,17 @@ struct Obstacle
     x_max::Float64
     y_min::Float64
     y_max::Float64
+end
+
+"""
+Circular obstacle for collision detection and visualization (v7.2)
+
+Used for Random Obstacles scenario where obstacles are circular with varying radii.
+Provides accurate collision detection compared to point-based approximation.
+"""
+struct CircularObstacle
+    center::Tuple{Float64, Float64}  # (x, y) center position
+    radius::Float64                   # Obstacle radius
 end
 
 """
@@ -477,6 +489,31 @@ function relative_position(pos_self::Vector{Float64}, pos_other::Vector{Float64}
     return [dx, dy]
 end
 
+"""
+Calculate distance from a point to a circular obstacle (v7.2)
+
+Computes the minimum distance from a point (e.g., agent position) to the edge of a
+circular obstacle, accounting for both the obstacle radius and agent radius.
+
+Args:
+    pos: Position [x, y]
+    obstacle: CircularObstacle
+    agent_radius: Radius of the agent (default: 0.5m)
+
+Returns:
+    Distance to obstacle edge (negative if penetrating)
+"""
+function distance_to_circular_obstacle(
+    pos::Vector{Float64},
+    obstacle::CircularObstacle,
+    agent_radius::Float64=0.5
+)
+    center = [obstacle.center[1], obstacle.center[2]]
+    center_distance = norm(pos - center)
+    # Distance to obstacle edge = center distance - obstacle radius - agent radius
+    return center_distance - obstacle.radius - agent_radius
+end
+
 # ===== Predictive Functions for M4 =====
 
 """
@@ -775,23 +812,34 @@ function step_v72!(
     # Compute acceleration for logging
     agent.acc = (agent.vel - [state_current[3], state_current[4]]) / world_params.dt
 
-    # Collision detection (for metrics only)
+    # Collision detection and processing
     collision_count = 0
+    collided = false
 
-    # Obstacle/Wall collisions
+    # 1. Discrete Obstacle Collision (Check ALL obstacles regardless of scenario)
+    # This prevents agents from entering discrete obstacles (or wall points)
+    if check_collision(agent.pos, obstacles, agent_params.r_agent)
+        collision_count += 1
+        collided = true
+    end
+
+    # 2. Funnel Wall Collision (Specific to corridor, ensures mathematical boundary)
     if is_funnel_corridor
-        # Use continuous corridor wall collision detection
         if check_corridor_wall_collision(agent.pos, world_params, agent_params.r_agent)
-            collision_count += 1
-        end
-    else
-        # Use discrete obstacle collision detection for other scenarios
-        if check_collision(agent.pos, obstacles, agent_params.r_agent)
             collision_count += 1
         end
     end
 
-    # Agent collisions
+    # 3. Physical Blocking (Revert position if collided)
+    if collided
+        # Simple separation logic: Revert to previous position and stop
+        # This effectively treats obstacles as solid walls
+        agent.pos = prev_pos
+        agent.vel = [0.0, 0.0]  # Kill velocity
+        # Keep heading
+    end
+
+    # Agent collisions (Metrics only, no physical blocking usually for pedestrians)
     for other in all_agents
         if other.id != agent.id
             rel_pos = relative_position(agent.pos, other.pos, world_params)
@@ -799,6 +847,11 @@ function step_v72!(
             if dist < 2.0 * agent_params.r_agent
                 collision_count += 1
             end
+        end
+    end
+
+    return collision_count
+end            end
         end
     end
 

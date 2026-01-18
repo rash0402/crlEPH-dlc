@@ -117,11 +117,15 @@ def reconstruct_spm_3ch(
         ego_heading: Ego agent heading angle [rad]
         all_positions: [N, 2] All agent positions
         all_velocities: [N, 2] All agent velocities
-        obstacles: [M, 2] Obstacle positions
+        obstacles: [M, 2] Obstacle center positions (v7.2: for circular obstacles, centers are used)
         config: SPM configuration
         r_agent: Agent radius
         world_size: (width, height) for toroidal world
         ego_velocity: [2] Ego agent velocity (for obstacle collision risk calculation)
+
+    Note:
+        v7.2: For circular obstacles, only centers are mapped to SPM (radius is not used).
+        This is a simplification suitable for 12×12 SPM resolution.
 
     Returns:
         spm: [n_rho, n_theta, 3] SPM tensor

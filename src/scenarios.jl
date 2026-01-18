@@ -9,7 +9,7 @@ using Random
 using LinearAlgebra
 
 # Import parent modules
-import ..Dynamics: Agent, AgentGroup, NORTH, SOUTH, EAST, WEST
+import ..Dynamics: Agent, AgentGroup, CircularObstacle, NORTH, SOUTH, EAST, WEST
 
 export ScenarioType, ScenarioParams
 export initialize_scenario, get_obstacles
@@ -450,8 +450,8 @@ function get_obstacles(params::ScenarioParams)
         end
 
     elseif params.scenario_type == RANDOM_OBSTACLES
-        # Random circular obstacles of varying sizes
-        # v7.2: 100×100世界に対応
+        # v7.2: Random circular obstacles (now using CircularObstacle struct)
+        # Provides accurate collision detection with true circular geometry
         world_x, world_y = params.world_size
         num_obstacles = params.num_obstacles === nothing ? 50 : params.num_obstacles
         obstacle_seed = params.obstacle_seed === nothing ? 42 : params.obstacle_seed
@@ -460,7 +460,6 @@ function get_obstacles(params::ScenarioParams)
         rng = Random.MersenneTwister(obstacle_seed)
 
         # Define safe zones (agent start/goal areas, 15m radius around each corner)
-        # v7.2: スケーリングして半径も拡大
         safe_radius = 15.0
 
         safe_zones = [
@@ -470,7 +469,8 @@ function get_obstacles(params::ScenarioParams)
             (90.0, 10.0)       # Bottom-right
         ]
 
-        spacing = 1.0  # 1.0m spacing for filling circular obstacles
+        # Create CircularObstacle array for Random Obstacles
+        circular_obstacles = CircularObstacle[]
 
         # Generate random circular obstacles
         num_circles_generated = 0
@@ -483,7 +483,7 @@ function get_obstacles(params::ScenarioParams)
             cx = margin + rand(rng) * (world_x - 2 * margin)
             cy = margin + rand(rng) * (world_y - 2 * margin)
 
-            # Random radius (2.0 - 4.0 m) - generate first to check full obstacle boundary
+            # Random radius (2.0 - 4.0 m)
             radius = 2.0 + rand(rng) * 2.0
 
             # Check if obstacle (including its radius) overlaps with safe zone
@@ -498,29 +498,16 @@ function get_obstacles(params::ScenarioParams)
             end
 
             if !in_safe_zone
-                # Fill circular obstacle with 1.0m-spaced points
-                # Use grid approach: check all points within bounding box
-                x_min = max(0.0, cx - radius)
-                x_max = min(world_x, cx + radius)
-                y_min = max(0.0, cy - radius)
-                y_max = min(world_y, cy + radius)
-
-                for x in x_min:spacing:x_max
-                    for y in y_min:spacing:y_max
-                        # Check if point is inside circle
-                        dist = sqrt((x - cx)^2 + (y - cy)^2)
-                        if dist <= radius
-                            push!(obstacles, (x, y))
-                        end
-                    end
-                end
-
-                # Successfully generated one circular obstacle
+                # v7.2: Store as CircularObstacle (no point cloud filling)
+                push!(circular_obstacles, CircularObstacle((cx, cy), radius))
                 num_circles_generated += 1
             end
 
             attempts += 1
         end
+
+        # Return CircularObstacle array for Random Obstacles
+        return circular_obstacles
     end
 
     return obstacles

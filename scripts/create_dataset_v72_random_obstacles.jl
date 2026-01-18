@@ -131,18 +131,19 @@ function run_simulation_v72(
         obstacle_seed=seed  # Use same seed for reproducibility
     )
 
-    # Get obstacles from scenario
-    obstacles_tuples = Scenarios.get_obstacles(scenario_params)
+    # Get obstacles from scenario (v7.2: returns CircularObstacle array)
+    circular_obstacles = Scenarios.get_obstacles(scenario_params)
 
-    # Convert tuples to Obstacle structs for dynamics AND storage
-    # Scenarios.get_obstacles returns (x, y) tuples, radius is fixed
-    obstacles = Dynamics.Obstacle[]
-    obstacle_radius = 2.0  # Fixed radius for all obstacles (as per data collection spec)
-    for (x, y) in obstacles_tuples
-        # Create rectangular bounding box for circular obstacle
-        push!(obstacles, Dynamics.Obstacle(
-            x - obstacle_radius, x + obstacle_radius,  # x_min, x_max
-            y - obstacle_radius, y + obstacle_radius   # y_min, y_max
+    # Convert CircularObstacle to rectangular Obstacle for step_v72! collision detection
+    # (Controller uses CircularObstacle for accurate avoidance, step_v72! uses Obstacle for collision logging)
+    obstacles_for_dynamics = Dynamics.Obstacle[]
+    for circ_obs in circular_obstacles
+        cx, cy = circ_obs.center
+        r = circ_obs.radius
+        # Create bounding box
+        push!(obstacles_for_dynamics, Dynamics.Obstacle(
+            cx - r, cx + r,  # x_min, x_max
+            cy - r, cy + r   # y_min, y_max
         ))
     end
 
@@ -172,7 +173,7 @@ function run_simulation_v72(
             # Generate control input (v6.3-style random walk for data collection)
             other_agents = [a for a in agents if a.id != agent.id]
             u = Controller.compute_action_random_collision_free(
-                agent, other_agents, obstacles_tuples,
+                agent, other_agents, circular_obstacles,
                 agent_params, world_params;
                 exploration_noise=0.3,
                 safety_threshold=4.0,
@@ -186,7 +187,7 @@ function run_simulation_v72(
             trajectory_u[t, i, :] = u
 
             # Update agent with v7.2 dynamics (step_v72! uses dynamics_rk4)
-            collision_count = Dynamics.step_v72!(agent, u, agent_params, world_params, obstacles, agents)
+            collision_count = Dynamics.step_v72!(agent, u, agent_params, world_params, obstacles_for_dynamics, agents)
 
             # Log events
             event_collision[t, i] = collision_count > 0
@@ -258,14 +259,14 @@ function run_simulation_v72(
         v72_group["k_align"] = agent_params.k_align
         v72_group["u_max"] = agent_params.u_max
 
-        # Obstacles - store in Python-compatible row-major order
-        obs_data = zeros(4, length(obstacles))  # Julia: (4, N_obs)
-        for (idx, obs) in enumerate(obstacles)
-            obs_data[:, idx] = [obs.x_min, obs.x_max, obs.y_min, obs.y_max]
+        # v7.2: Obstacles - store circular obstacles as (center_x, center_y, radius)
+        obs_data = zeros(3, length(circular_obstacles))  # Julia: (3, N_obs)
+        for (idx, obs) in enumerate(circular_obstacles)
+            obs_data[:, idx] = [obs.center[1], obs.center[2], obs.radius]
         end
-        
+
         obs_group = create_group(file, "obstacles")
-        obs_group["data"] = obs_data  # Saved as (4, N_obs), Python will transpose
+        obs_group["data"] = obs_data  # Saved as (3, N_obs), Python will transpose to (N_obs, 3)
     end
 
     println("    Output: $filename")

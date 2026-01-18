@@ -944,7 +944,7 @@ end
 function compute_action_random_collision_free(
     agent::Agent,
     other_agents::Vector{Agent},
-    obstacles::Vector{Tuple{Float64, Float64}},
+    obstacles::Union{Vector{Tuple{Float64, Float64}}, Vector{Dynamics.CircularObstacle}},
     agent_params::AgentParams,
     world_params::WorldParams;
     exploration_noise::Float64=1.0,  # Acts as temperature for Softmax
@@ -974,18 +974,29 @@ function compute_action_random_collision_free(
         # Check safety (Geometric)
         min_dist = Inf
 
-        # Obstacles (walls)
+        # 1. Check Discrete Obstacles (v7.2: supports both point-based and circular)
+        # This ensures we respect the actual generated obstacles that match the scenario config
+        if !isempty(obstacles)
+            if obstacles isa Vector{Dynamics.CircularObstacle}
+                # v7.2: Circular obstacles with accurate radius-based distance
+                for obs in obstacles
+                    dist = Dynamics.distance_to_circular_obstacle(pos_next, obs, agent_params.r_agent)
+                    min_dist = min(min_dist, dist)
+                end
+            else
+                # Legacy: Point-based obstacles (Scramble/Corridor)
+                for obs in obstacles
+                    obs_pos = [obs[1], obs[2]]
+                    dist = norm(pos_next - obs_pos) - agent_params.r_agent
+                    min_dist = min(min_dist, dist)
+                end
+            end
+        end
+
+        # 2. Check Funnel Walls (Corridor only)
         if is_funnel_corridor
-            # Use corridor wall distance calculation
             dist_wall = distance_to_corridor_wall(pos_next, world_params, agent_params.r_agent)
             min_dist = min(min_dist, dist_wall)
-        else
-            # Original point-based obstacle distance
-            for obs in obstacles
-                obs_pos = [obs[1], obs[2]]
-                dist = norm(pos_next - obs_pos) - agent_params.r_agent
-                min_dist = min(min_dist, dist)
-            end
         end
         
         # Other Agents
