@@ -39,7 +39,7 @@ echo ""
 
 if [ -z "$1" ]; then
     echo "No file specified. File selection dialog will appear..."
-    "$VENV_PYTHON" -B viewer/raw_viewer_v72.py
+    "$VENV_PYTHON" -B viewer/v72/raw_viewer.py
 else
     FILE_PATH="$1"
     if [ ! -f "$FILE_PATH" ]; then
@@ -47,5 +47,5 @@ else
         exit 1
     fi
     echo "Opening: $FILE_PATH"
-    "$VENV_PYTHON" -B viewer/raw_viewer_v72.py --file "$FILE_PATH"
+    "$VENV_PYTHON" -B viewer/v72/raw_viewer.py --file "$FILE_PATH"
 fi

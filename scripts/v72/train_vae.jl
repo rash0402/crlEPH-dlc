@@ -19,7 +19,7 @@ Dataset:
 
 Output:
   - Best model: models/action_vae_v72_best.bson
-  - Training logs: results/vae_tuning/v72_training_YYYYMMDD_HHMMSS.h5
+  - Training logs: results/v72/vae_tuning/v72_training_YYYYMMDD_HHMMSS.h5
 """
 
 using Pkg
@@ -69,7 +69,7 @@ flush(stderr)
 
 # Configuration
 const DATA_DIR = joinpath(@__DIR__, "../data/vae_training/raw_v72")
-const OUTPUT_DIR = joinpath(@__DIR__, "../results/vae_tuning")
+const OUTPUT_DIR = joinpath(@__DIR__, "../results/v72/vae_tuning")
 const MODEL_DIR = joinpath(@__DIR__, "../models")
 mkpath(OUTPUT_DIR)
 mkpath(MODEL_DIR)

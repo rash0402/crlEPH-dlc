@@ -25,7 +25,7 @@ using .ActionVAEModel
 # Constants
 const MODEL_PATH = "models/action_vae_v72_best.bson"
 const DATA_DIR = "data/vae_training/raw_v72"
-const OUTPUT_DIR = "results/vae_vis"
+const OUTPUT_DIR = "results/v72/vae_vis"
 mkpath(OUTPUT_DIR)
 
 function visualize_predictions()
