@@ -315,30 +315,38 @@ class RawV72Viewer:
 
     def setup_widgets(self):
         """Setup interactive widgets (v6.3-style)"""
-        # Time slider - raised to y=0.04 to avoid overlap
-        ax_slider = plt.axes([0.15, 0.04, 0.60, 0.03])
+        # Time slider - match old viewer: short label, width 0.50
+        ax_slider = plt.axes([0.15, 0.04, 0.50, 0.03])
         self.time_slider = Slider(
-            ax_slider, 'Time Step',
+            ax_slider, 'Time',
             0, self.T - 1,
             valinit=0,
-            valstep=1
+            valstep=1,
+            valfmt='%d'
         )
         self.time_slider.on_changed(self.on_slider_change)
 
-        # Open File button (v6.3) - raised to y=0.04
-        ax_open = plt.axes([0.05, 0.04, 0.08, 0.03])
-        self.open_button = Button(ax_open, 'Open File')
-        self.open_button.on_clicked(self.on_open_button)
+        # Skip label (placeholder, no functionality)
+        self.ax_skip_label = plt.axes([0.67, 0.04, 0.06, 0.03])
+        self.ax_skip_label.axis('off')
+        self.ax_skip_label.text(0.5, 0.5, 'Skip:', ha='center', va='center', fontsize=9)
 
-        # Play button - raised to y=0.04
-        ax_play = plt.axes([0.77, 0.04, 0.05, 0.03])
+        # Skip button (placeholder, no functionality)
+        ax_skip = plt.axes([0.73, 0.04, 0.05, 0.03])
+        self.btn_skip = Button(ax_skip, '1')
+        # No callback - just for display
+
+        # Play button
+        ax_play = plt.axes([0.82, 0.04, 0.08, 0.03])
         self.play_button = Button(ax_play, 'Play')
         self.play_button.on_clicked(self.on_play_button)
 
-        # Reset button (v6.3) - raised to y=0.04
-        ax_reset = plt.axes([0.83, 0.04, 0.05, 0.03])
-        self.reset_button = Button(ax_reset, 'Reset')
-        self.reset_button.on_clicked(self.on_reset_button)
+        # Speed display (placeholder)
+        self.ax_speed = plt.axes([0.91, 0.04, 0.07, 0.03])
+        self.ax_speed.axis('off')
+        self.speed_text = self.ax_speed.text(0.0, 0.5, '1x', fontsize=10,
+                                              va='center', fontweight='bold',
+                                              transform=self.ax_speed.transAxes)
 
         # Mouse click handler for agent selection
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
@@ -348,39 +356,7 @@ class RawV72Viewer:
         self.current_step = int(val)
         self.update_display()
 
-    def on_open_button(self, event):
-        """Handle open file button click (v6.3)"""
-        # Stop playback
-        self.playing = False
-        self.play_button.label.set_text('Play')
-
-        # Get current directory from current file
-        current_dir = str(Path(self.h5_file_path).parent)
-
-        # Show file dialog
-        new_file_path = self.select_file(initial_dir=current_dir)
-
-        if new_file_path and new_file_path != self.h5_file_path:
-            # Load new file
-            self.h5_file_path = new_file_path
-            self.load_data()
-
-            # Reset visualization state
-            self.reset_visualization_state()
-
-            # Update time slider range
-            self.time_slider.valmax = self.T - 1
-            self.time_slider.ax.set_xlim(0, self.T - 1)
-
-            # Reset to first frame
-            self.current_step = 0
-            self.time_slider.set_val(0)
-
-            # Update window title
-            self.fig.canvas.manager.set_window_title(f"V7.2 Raw Trajectory Viewer - {Path(self.h5_file_path).name}")
-
-            # Update display
-            self.update_display()
+    # on_open_button removed - not in old viewer layout
 
     def on_play_button(self, event):
         """Handle play button click"""
@@ -392,31 +368,9 @@ class RawV72Viewer:
         else:
             self.stop_animation()
 
-    def on_reset_button(self, event):
-        """Handle reset button click (v6.3)"""
-        self.playing = False
-        self.stop_animation()
-        self.current_step = 0
-        self.time_slider.set_val(0)
-        self.play_button.label.set_text('Play')
-        self.update_display()
+    # on_reset_button removed - not in old viewer layout
 
-    def reset_visualization_state(self):
-        """Reset visualization state when loading new file"""
-        # Reset SPM image handles (will be recreated on next update)
-        self.spm_real_images = [None, None, None]
-
-        # Clear all axes
-        for ax, _ in self.spm_real_axes:
-            ax.clear()
-
-        self.ax_global.clear()
-        self.ax_local.clear()
-        self.ax_heading.clear()
-        self.ax_control.clear()
-        self.ax_collision.clear()
-        self.ax_spm_info.clear()
-        self.ax_controls.clear()
+    # reset_visualization_state removed - not used in old viewer
 
     def start_animation(self):
         """Start timer-based animation"""
