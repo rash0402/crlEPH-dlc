@@ -492,9 +492,11 @@ class RawV72Viewer:
         self.ax_spm_info.clear()
         self.ax_controls.clear()
 
-        # Clear SPM channel axes
+        # Clear SPM channel axes and reset image cache
         for ax, _ in self.spm_real_axes:
             ax.clear()
+        # Reset SPM images after clearing axes (they are now invalid)
+        self.spm_real_images = [None, None, None]
 
         # === Global View ===
         self.ax_global.set_title(f"Global View (Step {t}/{self.T-1}, t={t*self.dt:.2f}s)")
