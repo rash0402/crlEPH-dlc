@@ -1,11 +1,11 @@
 #!/bin/bash
-# Complete Cleanup Script - data/logs and scripts
-# Removes obsolete test files and keeps essential v5.6 files
+# Complete Cleanup Script - EPH v7.2
+# Removes temporary files and old data while keeping essential v7.2 files
 
 set -e
 
 echo "============================================================"
-echo "Complete Cleanup - EPH v5.6 Project"
+echo "Complete Cleanup - EPH v7.2 Project"
 echo "============================================================"
 echo ""
 
@@ -15,13 +15,13 @@ echo "🗑️  Cleaning data/logs/..."
 if [ -d "data/logs" ]; then
     cd data/logs
 
-    # Remove old test logs
+    # Remove old simulation logs
     if ls eph_sim_*.h5 >/dev/null 2>&1; then
         echo "  - Removing old simulation logs (*.h5)"
         rm -f eph_sim_*.h5
     fi
 
-    # Remove empty directories
+    # Remove empty or deprecated directories
     echo "  - Removing empty directories"
     rmdir hyperparameter_tuning 2>/dev/null || true
     rmdir self_hazing 2>/dev/null || true
@@ -35,83 +35,62 @@ fi
 echo "  ✅ data/logs/ cleaned"
 echo ""
 
-# ===== 2. Clean scripts/ =====
-echo "🗑️  Cleaning scripts/..."
+# ===== 2. Clean old VAE training data (pre-v7.2) =====
+echo "🗑️  Cleaning old training data..."
 
-if [ -d "scripts" ]; then
-    cd scripts
-
-    # Remove temporary test/diagnostic scripts
-    echo "  - Removing diagnostic/test scripts"
-    rm -f test_theory_vs_simplified.jl
-    rm -f test_diagnostics.jl
-    rm -f diagnose_haze_mechanism.jl
-    rm -f compare_all_versions.jl
-    rm -f verify_spm_changes.jl
-    rm -f compare_haze_tests.jl
-    rm -f verify_haze_mechanism.jl
-    rm -f analyze_extreme_test.jl
-    rm -f run_extreme_test.jl
-    rm -f quick_test_analysis.jl
-    rm -f run_haze_comparison_test.jl
-    rm -f test_obstacles_unified.jl
-    rm -f test_metrics_fix.jl
-    rm -f test_scenarios.jl
-
-    # Remove old version scripts (pre-v5.6)
-    echo "  - Removing old version scripts"
-    rm -f run_simulation.jl
-    rm -f validate_haze.jl
-    rm -f train_action_vae.jl
-    rm -f collect_diverse_vae_data.jl
-    rm -f analyze_emergency_comparison.jl
-    rm -f run_emergency_comparison.jl
-    rm -f analyze_challenging.jl
-    rm -f run_challenging_experiments.jl
-    rm -f analyze_comparison.jl
-    rm -f run_comparison_experiments.jl
-    rm -f analyze_throughput.jl
-    rm -f run_batch_experiments.jl
-    rm -f evaluate_metrics.jl
-    rm -f validate_m4.jl
-
-    cd ..
+if [ -d "data/vae_training/raw_v62" ]; then
+    echo "  - Removing v6.2 data (if exists)"
+    # rm -rf data/vae_training/raw_v62  # Commented out for safety
 fi
 
-echo "  ✅ scripts/ cleaned"
+if [ -d "data/vae_training/raw_v63" ]; then
+    echo "  - Removing v6.3 data (if exists)"
+    # rm -rf data/vae_training/raw_v63  # Commented out for safety
+fi
+
+echo "  ℹ️  Old data preserved (uncomment in script to delete)"
 echo ""
 
-# ===== 3. Summary =====
+# ===== 3. Clean scripts/archive (optional) =====
+echo "🗑️  Checking scripts/archive/..."
+
+if [ -d "scripts/archive" ]; then
+    echo "  ℹ️  Archive directory exists ($(du -sh scripts/archive 2>/dev/null | cut -f1))"
+    echo "  ℹ️  Review manually if needed"
+fi
+
+echo ""
+
+# ===== 4. Summary =====
 echo "============================================================"
 echo "✅ Cleanup Complete!"
 echo "============================================================"
 echo ""
-echo "📁 Kept Files:"
+echo "📁 Current Structure (v7.2):"
 echo ""
-echo "data/logs/"
-echo "  └── README.md"
+echo "data/"
+echo "  ├── logs/ (simulation logs)"
+echo "  └── vae_training/"
+echo "      └── raw_v72/ (9 files, 25MB) ✅ ACTIVE"
 echo ""
-echo "scripts/ (EPH v5.6 Essential):"
-echo "  ├── run_simulation_eph.jl (Main simulation)"
-echo "  ├── run_haze_comparison_v56.jl (Phase 5 batch)"
-echo "  ├── analyze_phase5_results.jl (Phase 5 analysis)"
-echo "  ├── compare_formulations.jl (Theory validation)"
-echo "  ├── train_vae_v56.jl (VAE training)"
-echo "  ├── tune_vae_v56.jl (VAE tuning)"
-echo "  ├── validate_vae_v56.jl (VAE validation)"
-echo "  ├── create_dataset_v56.jl (Dataset creation)"
-echo "  ├── collect_vae_data_v56.jl (Data collection)"
-echo "  ├── compare_baseline_eph.jl (Baseline comparison)"
-echo "  ├── visualize_comparison.jl (Visualization)"
-echo "  ├── analyze_spm_spatial_distribution.py (SPM analysis)"
-echo "  ├── run_all_eph.sh (EPH launcher)"
-echo "  ├── run_all.sh (General launcher)"
-echo "  ├── setup.sh (Project setup)"
-echo "  └── cleanup_*.sh (Cleanup scripts)"
+echo "scripts/ (v7.2 Essential):"
+echo "  ├── create_dataset_v72_scramble.jl"
+echo "  ├── create_dataset_v72_corridor.jl"
+echo "  ├── create_dataset_v72_random_obstacles.jl"
+echo "  ├── train_action_vae_v72.jl ← NEXT STEP"
+echo "  ├── run_simulation_eph.jl"
+echo "  ├── run_simulation_v72.jl"
+echo "  ├── run_viewer_v72.sh"
+echo "  ├── evaluate_metrics.jl"
+echo "  ├── inspect_h5.jl"
+echo "  ├── remote/ (GPU execution)"
+echo "  └── archive/ (deprecated files)"
 echo ""
-echo "🗑️  Removed:"
-echo "  - 21 test/diagnostic scripts"
-echo "  - 11 old version scripts"
-echo "  - 3 old simulation logs"
-echo "  - 5 empty directories"
+echo "models/"
+echo "  └── (VAE models will be saved here)"
+echo ""
+echo "results/"
+echo "  └── (evaluation results will be saved here)"
+echo ""
+echo "🎯 Next Step: julia --project=. scripts/train_action_vae_v72.jl"
 echo ""

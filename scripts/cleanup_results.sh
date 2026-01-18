@@ -1,62 +1,52 @@
 #!/bin/bash
-# Results Directory Cleanup Script
+# Results Directory Cleanup Script - EPH v7.2
 # Removes obsolete test data while preserving validation evidence
 
 set -e
 
 echo "============================================================"
-echo "Results Directory Cleanup - EPH v5.6"
+echo "Results Directory Cleanup - EPH v7.2"
 echo "============================================================"
 echo ""
 
 # Safety check
 if [ ! -d "results" ]; then
     echo "❌ Error: results directory not found"
-    exit 1
+    echo "   Creating results directory..."
+    mkdir -p results
+    exit 0
 fi
 
 cd results
 
 echo "📊 Current disk usage:"
-du -sh . 2>/dev/null
+du -sh . 2>/dev/null || echo "  (empty)"
 echo ""
 
 # ===== FILES TO DELETE =====
 
 echo "🗑️  Removing obsolete files..."
 
-# 1. Temporary test file (12MB)
-if [ -f "test_official_implementation.h5" ]; then
-    echo "  - test_official_implementation.h5 (12MB)"
-    rm test_official_implementation.h5
+# 1. Old theory comparison results (pre-v7.2)
+if ls theory_comparison_* >/dev/null 2>&1; then
+    echo "  - theory_comparison_* (old validation)"
+    # rm -rf theory_comparison_*  # Commented out for safety
 fi
 
-# 2. Old diagnostic tests (112MB total)
-if [ -d "diagnostic_test_20260111_103149" ]; then
-    echo "  - diagnostic_test_20260111_103149/ (56MB)"
-    rm -rf diagnostic_test_20260111_103149
+# 2. Old Phase 5 test runs (v5.6)
+if [ -d "phase5" ]; then
+    echo "  - phase5/ (v5.6 results)"
+    # rm -rf phase5  # Commented out for safety
 fi
 
-if [ -d "diagnostic_test_20260111_103506" ]; then
-    echo "  - diagnostic_test_20260111_103506/ (56MB)"
-    rm -rf diagnostic_test_20260111_103506
+# 3. Old VAE tuning results (pre-v7.2)
+if ls vae_tuning/*.h5 >/dev/null 2>&1; then
+    echo "  - vae_tuning/*.h5 (old hyperparameter tests)"
+    # rm -f vae_tuning/*.h5  # Commented out for safety
 fi
 
-# 3. Empty/failed test directory
-if [ -d "theory_comparison_20260111_112223" ]; then
-    echo "  - theory_comparison_20260111_112223/ (empty)"
-    rm -rf theory_comparison_20260111_112223
-fi
-
-# 4. Old Phase 5 test runs
-echo "  - phase5/extreme_test_* (old tests)"
-rm -rf phase5/extreme_test_20260111_* 2>/dev/null || true
-
-echo "  - phase5/test_run_* (old tests)"
-rm -rf phase5/test_run_20260111_* 2>/dev/null || true
-
-# 5. Empty directories
-echo "  - Empty directories"
+# 4. Empty directories
+echo "  - Removing empty directories"
 rmdir comparison 2>/dev/null || true
 rmdir control_integration 2>/dev/null || true
 rmdir data_collection 2>/dev/null || true
@@ -65,21 +55,24 @@ rmdir haze_sensitivity 2>/dev/null || true
 rmdir self_hazing 2>/dev/null || true
 
 echo ""
-echo "✅ Cleanup complete!"
+echo "ℹ️  Old results preserved for reference (uncomment in script to delete)"
 echo ""
 
 echo "📊 Disk usage after cleanup:"
-du -sh . 2>/dev/null
+du -sh . 2>/dev/null || echo "  (empty)"
 echo ""
 
-echo "📁 Remaining structure:"
-echo "├── *.md (4 validation reports) ✅ KEPT"
-echo "├── theory_comparison_20260111_112249/ (260,777x evidence) ✅ KEPT"
-echo "├── phase5/haze_comparison_20260111_114422/ (Active Phase 5) ✅ KEPT"
-echo "├── spm_analysis/ (mechanism analysis) ✅ KEPT"
-echo "├── vae_tuning/ (hyperparameter records) ✅ KEPT"
-echo "├── vae_training/ (VAE metadata) ✅ KEPT"
-echo "└── vae_validation/ (VAE validation) ✅ KEPT"
+echo "📁 Expected v7.2 Structure:"
+echo "results/"
+echo "  ├── vae_training_v72/ (training logs) [PENDING]"
+echo "  ├── vae_validation_v72/ (validation metrics) [PENDING]"
+echo "  ├── eph_evaluation/ (EPH controller results) [PENDING]"
+echo "  └── haze_comparison/ (Haze effect analysis) [PENDING]"
+echo ""
+echo "🎯 Results will be generated during:"
+echo "   1. VAE Training (train_action_vae_v72.jl)"
+echo "   2. EPH Evaluation (run_simulation_eph.jl)"
+echo "   3. Haze Ablation Studies"
 echo ""
 
 cd ..
