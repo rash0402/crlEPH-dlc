@@ -41,10 +41,10 @@ catch
 end
 
 # Load project modules
-include("../src/config.jl")
-include("../src/spm.jl")
-include("../src/action_vae.jl")
-include("../src/trajectory_loader.jl")
+include("../../src/config.jl")
+include("../../src/spm.jl")
+include("../../src/action_vae.jl")
+include("../../src/trajectory_loader.jl")
 
 using .Config
 using .SPM
@@ -68,9 +68,9 @@ flush(stdout)
 flush(stderr)
 
 # Configuration
-const DATA_DIR = joinpath(@__DIR__, "../data/vae_training/raw_v72")
-const OUTPUT_DIR = joinpath(@__DIR__, "../results/v72/vae_tuning")
-const MODEL_DIR = joinpath(@__DIR__, "../models")
+const DATA_DIR = joinpath(@__DIR__, "../../data/vae_training/raw_v72")
+const OUTPUT_DIR = joinpath(@__DIR__, "../../results/v72/vae_tuning")
+const MODEL_DIR = joinpath(@__DIR__, "../../models")
 mkpath(OUTPUT_DIR)
 mkpath(MODEL_DIR)
 

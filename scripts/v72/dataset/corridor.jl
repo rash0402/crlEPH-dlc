@@ -46,13 +46,13 @@ using LinearAlgebra
 using ArgParse
 
 # Load project modules
-include("../src/config.jl")
-include("../src/spm.jl")
-include("../src/dynamics.jl")
-include("../src/prediction.jl")  # Required by controller.jl
-include("../src/action_vae.jl")  # Required by controller.jl
-include("../src/controller.jl")
-include("../src/scenarios.jl")
+include("../../src/config.jl")
+include("../../src/spm.jl")
+include("../../src/dynamics.jl")
+include("../../src/prediction.jl")  # Required by controller.jl
+include("../../src/action_vae.jl")  # Required by controller.jl
+include("../../src/controller.jl")
+include("../../src/scenarios.jl")
 
 using .Config
 using .SPM

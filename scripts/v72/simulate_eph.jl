@@ -19,17 +19,17 @@ using Random
 using HDF5
 
 # Load modules
-include("../src/config.jl")
-include("../src/config_v56.jl")
-include("../src/spm.jl")
-include("../src/prediction.jl")
-include("../src/dynamics.jl")
-include("../src/controller.jl")
-include("../src/communication.jl")
-include("../src/logger.jl")
-include("../src/scenarios.jl")
-include("../src/action_vae.jl")
-include("../src/surprise.jl")
+include("../../src/config.jl")
+include("../../src/config_v56.jl")
+include("../../src/spm.jl")
+include("../../src/prediction.jl")
+include("../../src/dynamics.jl")
+include("../../src/controller.jl")
+include("../../src/communication.jl")
+include("../../src/logger.jl")
+include("../../src/scenarios.jl")
+include("../../src/action_vae.jl")
+include("../../src/surprise.jl")
 
 using .Config
 using .ConfigV56
