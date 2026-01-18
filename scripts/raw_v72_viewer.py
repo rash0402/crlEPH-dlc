@@ -29,7 +29,7 @@ Usage:
 import h5py
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Circle, FancyArrow, Wedge
