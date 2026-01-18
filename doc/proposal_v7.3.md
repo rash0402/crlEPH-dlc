@@ -136,7 +136,7 @@ Active Inferenceにおいて、エージェントは期待自由エネルギー 
 ### 3.1 システム構成 (System Architecture)
 
 - **Saliency Polar Map (SPM) センサ**: 視野を $12\times12\times3$ のテンソルに圧縮し、エゴセントリックな空間表現を提供する。
-- **Pattern D VAE**: 観測 $o_t$ と行動候補 $u$ から未来の観測 $o_{t+1}$ を予測する生成モデル。
+- **Pattern D VAE**: 行動条件付きVariational Autoencoder。入力は $(z_t, u, s_t)$ (潜在変数$z_t$、行動$u$、現在状態$s_t$)、出力は次SPM $\text{SPM}_{t+1} \in \mathbb{R}^{12 \times 12 \times 3}$ のみ。**重要**: VAEは状態（$s_{t+1}$）を予測しない。次状態は動力学モデル（RK4）で計算する。
 - **Haze Modulator**: 環境情報と自己予測誤差を統合し、最適な精度 $\Pi$ を計算する。
 - **Physics Engine**: 選択された力ベクトルを入力とし、RK4（ルンゲ=クッタ法）で次状態を更新する。
 
@@ -148,9 +148,9 @@ Active Inferenceにおいて、エージェントは期待自由エネルギー 
         $$ \epsilon = \|o_t - \hat{o}_t\| \rightarrow H_{self} = 1 - e^{-\lambda \epsilon} $$
     2. **行動候補の評価** (各 $u \in \mathcal{U}$ について):
         - 物理予測: $s_{t+1} = \text{RK4}(s_t, u)$
-        - 知覚予測: $\hat{o}_{t+1} = \text{VAE}(o_t, u)$
+        - 知覚予測: $\hat{o}_{t+1} = \text{VAE}(z_t, u, s_t)$ where $z_t = \text{Encoder}(\text{SPM}_t)$
         - ゴール項: $D_{KL}[q(s_{t+1}) || p(s)] \approx (v_{prog} - v_{target})^2 / 2\sigma^2$
-        - 安全性項: $\mathbb{E}[H(o)] \approx \Pi^{-1} \cdot \text{CollisionRisk}(\hat{o}_{t+1})$
+        - 安全性項: $\Phi_{\text{safety}} = \sum_{\rho,\theta} \Pi(\rho,\theta) \cdot \text{SPM}_{\text{pred}}(\rho,\theta|u)$
     3. **自由エネルギー計算**:
         $$ F(u) = \text{GoalTerm} + \text{SafetyTerm} $$
 - **出力**: 最適な力 $u^* = \text{argmin}_u F(u)$
@@ -167,27 +167,320 @@ Active Inferenceにおいて、エージェントは期待自由エネルギー 
 
 ---
 
-## 4. 検証戦略とロードマップ (Verification Strategy and Roadmap)
+## 4. 検証戦略 (Validation Strategy)
 
-> [!TIP] 📊 検証の指針
-> 
-> 具体的な実験データではなく、「妥当性を証明するための枠組み」を記述する。
+### 4.1 3シナリオ設計と評価軸
 
-### 4.1 検証のスコープとシナリオ
+本研究は、**3つの異質なシナリオ**で以下の4つの評価軸を検証する:
 
-- **検証スコープ**: シミュレーション環境での広範なパラメータスタディおよびアブレーションスタディ。
-- **主要シナリオ (3種)**: 
-    1. **スクランブル交差点**: 慣性による創発的秩序（レーン形成）の基礎検証。
-    2. **狭い廊下**: Environmental Hazeによる行動誘導（壁回避、通行区分）の検証。
-    3. **牧羊**: 異種エージェント（羊と犬）間の非言語的協調の検証。
+| 評価軸 | Success Metric | 目標値 | 検証シナリオ |
+|--------|----------------|--------|-------------|
+| **創発度** | Emergence Index (EI) | > 0.5 | Scramble, Corridor |
+| **環境適応性** | Task Success Rate (TSR) | > 0.85 | All 3 scenarios |
+| **転移学習性能** | Transfer Success Rate | > 0.8 | Scramble→Corridor |
+| **Haze制御効果** | Collision reduction | > 30% | Corridor (Experiment 6.1) |
 
-### 4.2 評価指標 (Evaluation Metrics)
+---
 
-1.  **創発度 (Emergence Index, EI)**: 群全体の速度ベクトル場のエントロピー減少率を測定。EI > 0.5 で「創発あり」と定義。
-2.  **転移成功率 (Transfer Success Rate, TSR)**: 学習済みモデルの別タスクでの成功率比。TSR > 0.8 を目標。
-3.  **安全性 (Collision Rate)**: 衝突発生率。5%未満を目標。
+### 4.2 Scenario 1: Scramble Crossing (Baseline)
 
-### 4.3 計画課題と次なるステップ
+#### 4.2.1 環境設定
+
+**目的**: 2次系動力学による創発的Lane Formationの実証
+
+**設定**:
+- **空間**: 10m × 10m 平面
+- **エージェント数**: $N = 20$ (均質Flock)
+- **初期配置**: 4方向から中央交差点へ (各方向5エージェント)
+- **目標方向**: 各エージェントに固定方向ベクトル $\mathbf{d}_{\text{goal},i}$ を割り当て
+  - 例：East (1,0), West (-1,0), North (0,1), South (0,-1)
+- **Environmental Haze**: $H_{\text{env}}(\mathbf{x}) = 0$ (均一、Baselineとして)
+- **Haze parameters**: $\alpha = 0$, $\beta = 0$ (Hazeなし条件も追加テスト)
+
+**Goal Termの設計**（進捗速度ベース）:
+
+**事前分布**:
+$$
+p(s_i|\mathbf{d}_{\text{goal},i}) \propto \exp\left(-\frac{(P_i - P_{\text{target}})^2}{2\sigma_P^2}\right)
+$$
+
+where:
+- $P_i = \mathbf{v}_i \cdot \mathbf{d}_{\text{goal},i}$: 進捗速度（goal方向への速度成分）
+- $P_{\text{target}} = 1.0$ m/s: 目標進捗速度
+- $\sigma_P = 0.5$ m/s: 許容幅
+
+**Goal Term** (KL divergence近似):
+$$
+\Phi_{\text{goal}}(u) = \frac{(P_{\text{pred}}(u) - P_{\text{target}})^2}{2\sigma_P^2}
+$$
+
+where $P_{\text{pred}}(u) = \mathbf{v}_{\text{pred}}(u) \cdot \mathbf{d}_{\text{goal},i}$
+
+**実験条件**:
+| Condition | $\alpha$ | $\beta$ | 説明 |
+|-----------|----------|---------|------|
+| **C1 (No Haze)** | 0.0 | 0.0 | 距離ベースHazeのみ |
+| **C2 (Self-hazing)** | 0.0 | 1.0 | Self-hazingあり |
+| **C3 (Full Haze)** | 0.0 | 2.0 | Self-hazing強 |
+
+#### 4.2.2 評価指標
+
+**Primary Metric: Emergence Index (EI)**
+
+$$
+\text{EI} = \frac{H_{\text{collective}} - \sum_{i=1}^N H_{\text{individual}, i}}{H_{\text{collective}}}
+$$
+
+where:
+- $H_{\text{collective}} = -\sum_{\mathbf{v}} p(\mathbf{v}) \log p(\mathbf{v})$: 集団速度分布のエントロピー
+- $H_{\text{individual}, i} = -\sum_{v_i} p(v_i) \log p(v_i)$: 個体速度分布のエントロピー
+
+**解釈**:
+- EI = 0: 完全に独立（創発なし）
+- EI > 0.5: 高い協調性（真の創発）
+
+**予測**:
+- 2次系: EI ≈ 0.6 (Lane Formationが物理制約から創発)
+- 1次系 (比較用): EI ≈ 0.2 (最適化の結果、創発性低)
+
+**Secondary Metrics**:
+
+1. **Flow Smoothness**:
+$$
+S = 1 - \frac{1}{N} \sum_{i=1}^N \|\Delta\theta_i\|_{\text{avg}}
+$$
+- $\Delta\theta_i$: エージェント$i$の角度変化
+- 目標: $S > 0.8$ (滑らかな流れ)
+
+2. **Lane Formation Stability**:
+- Lane持続時間: > 10秒
+- Lane幅の標準偏差: < 0.5m
+
+3. **Task Success Rate**:
+$$
+\text{TSR} = \frac{\text{\# agents reaching goal within time limit}}{N}
+$$
+- 目標: TSR > 0.85
+
+4. **Collision Rate**:
+$$
+\text{CR} = \frac{\text{\# collisions}}{\text{\# agents} \times \text{timesteps}}
+$$
+- 目標: CR < 0.05 (5%未満)
+
+#### 4.2.3 期待される結果
+
+**Hypothesis 1-1**: 2次系 vs 1次系
+- 2次系: EI = 0.6 ± 0.1, Flow Smoothness = 0.85 ± 0.05
+- 1次系: EI = 0.2 ± 0.1, Flow Smoothness = 0.65 ± 0.10
+- **p < 0.01** (t-test, n=30 runs)
+
+**Hypothesis 1-2**: Self-hazing効果
+- C1 (No Haze): Path diversity低、デッドロック頻発
+- C2 (β=1.0): Path diversity中、デッドロック減少
+- C3 (β=2.0): Path diversity高、探索的行動増加
+
+---
+
+### 4.3 Scenario 2: Narrow Corridor (Environmental Haze Test)
+
+#### 4.3.1 環境設定
+
+**目的**: Environmental Hazeによる環境適応性の実証
+
+**設定**:
+- **空間**: 20m × 5m 狭い廊下
+- **エージェント数**: $N = 15$
+- **初期配置**: 両端から中央へ (各7-8エージェント)
+- **目標方向**:
+  - 左側エージェント: East方向 $\mathbf{d}_{\text{goal}} = (1, 0)$
+  - 右側エージェント: West方向 $\mathbf{d}_{\text{goal}} = (-1, 0)$
+- **障害物**: 壁 (y = 0, y = 5)
+- **Environmental Haze**:
+$$
+H_{\text{env}}(\mathbf{x}) = \begin{cases}
+0.2 & \text{if } |y| < 0.5 \text{ or } |y - 5| < 0.5 \quad \text{(壁近傍)} \\
+0.0 & \text{otherwise} \quad \text{(中央)}
+\end{cases}
+$$
+- **Haze parameters**: $\alpha = 2.0$, $\beta = 1.0$
+
+**Goal Termの設計**（Scrambleと同一）:
+
+$$
+\Phi_{\text{goal}}(u) = \frac{(P_{\text{pred}}(u) - P_{\text{target}})^2}{2\sigma_P^2}
+$$
+
+where $P_{\text{pred}}(u) = \mathbf{v}_{\text{pred}}(u) \cdot \mathbf{d}_{\text{goal},i}$
+
+**重要**: Goal Termの形式は Scramble と完全に同一。Environmental Haze $H_{\text{env}}$ のみ変更することで、**転移学習性能を評価**。
+
+#### 4.3.2 実験条件
+
+| Condition | $H_{\text{env}}$ | $\alpha$ | 説明 |
+|-----------|------------------|----------|------|
+| **C1 (Baseline)** | 0.0 (uniform) | 0.0 | Environmental Hazeなし |
+| **C2 (Wall Haze)** | 0.2 (near walls) | 2.0 | 壁近傍で注意増大 |
+| **C3 (Center Haze)** | 0.3 (center) | 2.0 | 中央で注意増大 (対照実験) |
+
+**予測**:
+- C1: 壁衝突多発 (CR ≈ 0.15)
+- C2: 壁衝突減少 (CR ≈ 0.05, **67% reduction**)
+- C3: 中央で渋滞、壁衝突増加 (性能劣化の実証)
+
+#### 4.3.3 評価指標
+
+**Primary Metric: Collision Reduction**
+
+$$
+\text{Collision Reduction} = \frac{\text{CR}_{\text{baseline}} - \text{CR}_{\text{haze}}}{\text{CR}_{\text{baseline}}} \times 100\%
+$$
+
+**目標**: > 30% reduction
+
+**Secondary Metrics**:
+1. **Throughput**: エージェント数/分 (廊下を通過)
+2. **Flow Efficiency**: 平均速度 / 最大速度
+3. **Lane Formation**: 2車線化の発生頻度
+
+#### 4.3.4 転移学習評価 (Scramble → Corridor)
+
+**プロトコル**:
+1. ScrambleシナリオでVAEを学習
+2. **VAE凍結** (パラメータ固定)
+3. Corridorシナリオで直接使用
+4. $H_{\text{env}}$のみ変更
+
+**Transfer Success Rate**:
+$$
+\text{TSR}_{\text{transfer}} = \frac{\text{TSR}_{\text{transfer}}}{\text{TSR}_{\text{native}}}
+$$
+
+where:
+- $\text{TSR}_{\text{native}}$: Corridorで学習したモデルの性能
+- $\text{TSR}_{\text{transfer}}$: Scrambleから転移したモデルの性能
+
+**目標**: TSR_transfer > 0.8 (ネイティブの80%以上)
+
+**期待値**: TSR_transfer ≈ 0.87 (高い転移性能)
+
+---
+
+### 4.4 Scenario 3: Sheepdog Herding (Heterogeneous Active Inference)
+
+#### 4.4.1 環境設定
+
+**目的**: 異種エージェント(Shepherd vs. Flock)の協調制御
+
+**設定**:
+- **空間**: 15m × 15m 平面
+- **エージェント構成**:
+  - Flock: $N_f = 10$ (被制御群)
+  - Shepherd: $N_s = 1$ (制御者)
+- **Flockの初期配置**: 中央にランダム分散
+- **Shepherdの初期配置**: Flockの外側
+- **目標**: Flockを指定領域 (Target Zone, 半径2mの円) へ誘導
+- **Environmental Haze**: Shepherdが動的に設定可能 (Optional実装)
+
+#### 4.4.2 Active Inference設定
+
+**Dog Agent** (EPH-driven、進捗速度ベース):
+
+**目標**: 羊群を特定方向 $\mathbf{d}_{\text{push}}$ に押す（例：北方向 (0,1)）
+
+**事前分布**:
+$$
+p(s_{\text{dog}}|\mathbf{d}_{\text{push}}) \propto \exp\left(-\frac{(P_{\text{dog}} - v_{\text{target}})^2}{2\sigma_v^2}\right)
+$$
+
+where:
+- $P_{\text{dog}} = \mathbf{v}_{\text{dog}} \cdot \mathbf{d}_{\text{push}}$: Dog の進捗速度
+- $v_{\text{target}} = 1.0$ m/s: 目標速度
+- $\sigma_v = 0.5$ m/s
+
+**Goal Term**:
+$$
+\Phi_{\text{goal}}^{\text{dog}}(u) = \frac{(P_{\text{dog,pred}}(u) - v_{\text{target}})^2}{2\sigma_v^2}
+$$
+
+**Sheep Agent** (Boids-driven):
+
+Sheep は EPH ではなく、古典的 Boids モデルで駆動：
+
+$$
+\mathbf{F}_{\text{sheep},i} = w_c \mathbf{F}_{\text{cohesion}} + w_a \mathbf{F}_{\text{alignment}} + w_s \mathbf{F}_{\text{separation}} + w_d \mathbf{F}_{\text{dog-avoidance}}
+$$
+
+**重要な設計原理**:
+- Sheep の Boids パラメータ $(w_c, w_a, w_s, w_d)$ を環境変数として変化させる
+- Dog の EPH は Sheep の挙動変化に対して**明示的な再学習なし**で適応
+
+#### 4.4.3 評価指標
+
+**Primary Metric: Herding Success Rate**
+
+$$
+\text{HSR} = \begin{cases}
+1 & \text{if } \frac{N_{\text{in target}}}{N_f} > 0.8 \text{ within } T_{\max} \\
+0 & \text{otherwise}
+\end{cases}
+$$
+
+**目標**: HSR > 0.75 (over 30 episodes)
+
+**Secondary Metrics**:
+1. **Herding Time**: 目標達成までの時間
+2. **Flock Cohesion**: $\text{Cohesion} = 1 - \frac{\sigma_{\text{flock}}}{d_{\max}}$
+3. **Shepherd Efficiency**: 移動距離 / Flock移動距離
+
+---
+
+### 4.5 比較ベースライン
+
+EPHの優位性を示すため、以下のベースラインと比較:
+
+| Baseline | 説明 | 期待される性能 |
+|----------|------|---------------|
+| **Social Force Model (SFM)** | Helbing et al. (1995) | TSR ≈ 0.80, EI ≈ 0.2 |
+| **ORCA** | Van den Berg et al. (2011) | TSR ≈ 0.85, EI ≈ 0.15 |
+| **PPO (RL)** | Proximal Policy Optimization | TSR ≈ 0.88, EI ≈ 0.3 |
+| **EPH (1st-order)** | 1次系版EPH | TSR ≈ 0.83, EI ≈ 0.25 |
+| **EPH (2nd-order, proposed)** | 本研究 | **TSR ≈ 0.90, EI ≈ 0.6** |
+
+---
+
+### 4.5 比較ベースライン
+
+EPHの優位性を示すため、以下のベースラインと比較:
+
+| Baseline | 説明 | 期待される性能 |
+|----------|------|---------------|
+| **Social Force Model (SFM)** | Helbing et al. (1995) | TSR ≈ 0.80, EI ≈ 0.2 |
+| **ORCA** | Van den Berg et al. (2011) | TSR ≈ 0.85, EI ≈ 0.15 |
+| **PPO (RL)** | Proximal Policy Optimization | TSR ≈ 0.88, EI ≈ 0.3 |
+| **EPH (1st-order)** | 1次系版EPH | TSR ≈ 0.83, EI ≈ 0.25 |
+| **EPH (2nd-order, proposed)** | 本研究 | **TSR ≈ 0.90, EI ≈ 0.6** |
+
+---
+
+### 4.6 統計的検証プロトコル
+
+**実験デザイン**:
+- **Runs per condition**: $n = 30$
+- **Significance level**: $\alpha = 0.01$ (Bonferroni補正)
+- **統計検定**:
+  - Paired t-test (2nd vs. 1st order)
+  - ANOVA (複数条件間比較)
+  - Wilcoxon signed-rank test (非正規分布の場合)
+
+**再現性保証**:
+- Random seed固定 (seeds: 0-29)
+- 全コード・データをGitHub公開
+- Docker container提供
+
+---
+
+### 4.7 計画課題と次なるステップ
 
 - **計画課題**: 大規模化（$N > 100$）した際の計算コストの増大と、リアルタイム性の維持。
 - **ロードマップ (Publication Strategy - Theory First, Application Second)**:

@@ -103,6 +103,7 @@ archive/v55_results/
 tmp/
 *.log
 logs/
+scripts/remote/.env
 
 # Large media files
 *.webp
