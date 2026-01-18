@@ -175,8 +175,8 @@ function run_simulation_v72(
             u = Controller.compute_action_random_collision_free(
                 agent, other_agents, circular_obstacles,
                 agent_params, world_params;
-                exploration_noise=0.3,
-                safety_threshold=4.0,
+                exploration_noise=0.3,      # v7.2: Default exploration
+                safety_threshold=4.0,       # v7.2: Conservative safety margin
                 repulsion_strength=2.0
             )
 

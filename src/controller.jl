@@ -1029,15 +1029,13 @@ function compute_action_random_collision_free(
     
     # 3. Select Action
     if !isempty(safe_indices)
-        # Pick the one with highest score
+        # Pick the one with highest score (goal alignment + exploration)
         best_idx_local = argmax(scores)
         best_global_idx = safe_indices[best_idx_local]
         return candidates[best_global_idx]
     else
-        # No strictly safe action found (within threshold)
-        # Fallback: Maximize minimum distance (Survival Mode)
-        # But we must ensure it's at least collision free (dist > 0)
-        # If all candidates collide (min_dist <= 0), we still pick max min_dist
+        # Fallback: Select the candidate that maximizes minimum distance
+        # (Even if < safety_threshold, prefer the "least bad" option to keep moving)
         best_fallback_idx = argmax(min_dist_vals)
         return candidates[best_fallback_idx]
     end
