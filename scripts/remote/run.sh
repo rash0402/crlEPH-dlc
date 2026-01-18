@@ -11,8 +11,19 @@ fi
 
 if [ "$EXECUTION_MODE" == "docker" ]; then
     echo "Running in Docker mode on remote ($REMOTE_HOST)..."
-    # Note: -t enables TTY which is good for colors/progress bars but might cause issues with some non-interactive scripts
-    ssh -t "$REMOTE_USER@$REMOTE_HOST" "cd $REMOTE_DIR && docker run $DOCKER_FLAGS --rm -v \$(pwd):/root/eph_project -w /root/eph_project $DOCKER_IMAGE_NAME $CMD"
+    
+    # Check if .julia_cache exists on remote, creates it if not
+    # We mount this to /root/.julia inside the container to persist compiled packages (CUDA, etc.)
+    ssh -t "$REMOTE_USER@$REMOTE_HOST" "mkdir -p $REMOTE_DIR/.julia_cache"
+    
+    # Note: 
+    # -v $(pwd):/root/eph_project : Syncs code changes
+    # -v $(pwd)/.julia_cache:/root/.julia : Persists package cache (HUGE speedup)
+    ssh -t "$REMOTE_USER@$REMOTE_HOST" "cd $REMOTE_DIR && docker run $DOCKER_FLAGS --rm \
+        -v \$(pwd):/root/eph_project \
+        -v \$(pwd)/.julia_cache:/root/.julia \
+        -w /root/eph_project \
+        $DOCKER_IMAGE_NAME $CMD"
 else
     echo "Running in Direct mode on remote ($REMOTE_HOST)..."
     ssh -t "$REMOTE_USER@$REMOTE_HOST" "cd $REMOTE_DIR && $CMD"
