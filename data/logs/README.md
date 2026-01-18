@@ -1,56 +1,53 @@
-# EPH v5.6 Logs Directory
+# EPH Simulation Logs
 
-This directory contains simulation logs for EPH v5.6.
+Runtime simulation logs are stored here (git-ignored for space efficiency).
 
-## Directory Structure
+## Current Version: v7.2
+
+**5D State Space**: Position (x, y), Velocity (vx, vy), Heading (θ)
+
+## File Format
+
+All logs are in HDF5 format with the following structure:
 
 ```
-data/logs/
-├── control_integration/       # Phase 4: Fixed Haze control integration
-│   ├── scramble/              # Scramble Crossing scenario
-│   └── corridor/              # Corridor scenario
-├── comparison/                # Phase 5.1-5.4: Ablation & comparison
-│   ├── scramble/
-│   │   ├── A0_baseline/       # Standard FEP (no Surprise, no Haze)
-│   │   ├── A1_haze_only/      # Haze modulation only
-│   │   ├── A2_surprise_only/  # Surprise only (no Haze modulation)
-│   │   └── A3_eph_v56/        # Full EPH v5.6 (Surprise + Haze)
-│   └── corridor/
-│       └── (same structure)
-├── haze_sensitivity/          # Phase 5.5: Haze parametric study
-│   ├── scramble/              # 5 Haze values × 4 densities × 5 seeds
-│   └── corridor/
-└── self_hazing/               # Phase 6: Self-Hazing meta-learning
-    ├── scramble/
-    └── corridor/
+/trajectory/
+  ├─ pos      [T, N, 2]  # Position (x, y)
+  ├─ vel      [T, N, 2]  # Velocity (vx, vy)
+  ├─ heading  [T, N]     # Heading θ
+  ├─ u        [T, N, 2]  # Control force (Fx, Fy)
+  ├─ d_goal   [N, 2]     # Direction vectors
+  └─ group    [N]        # Group ID
+
+/events/
+  ├─ collision        [T, N]
+  └─ near_collision   [T, N]
+
+/obstacles/              # For random_obstacles scenario
+  ├─ centers  [M, 2]
+  └─ radii    [M]
+
+/metadata/
+  ├─ scenario         str
+  ├─ version          str
+  ├─ density          int
+  ├─ seed             int
+  └─ collision_rate   float
+
+/v72_params/
+  ├─ mass             float  # 70.0 kg
+  ├─ k_align          float  # 4.0 rad/s
+  └─ u_max            float  # 150.0 N
 ```
 
 ## Naming Convention
 
-Simulation logs: `sim_{scenario}_{condition}_h{haze}_d{density}_s{seed}.h5`
+`eph_sim_YYYYMMDD_HHMMSS.h5`
 
-Examples:
-- `sim_scramble_A3_h0.5_d10_s1.h5` - EPH v5.6, Scramble, Haze=0.5, Density=10, Seed=1
-- `sim_corridor_h0.7_d15_s3.h5` - Corridor, Haze=0.7, Density=15, Seed=3
-
-## File Format
-
-All logs are in HDF5 format containing:
-- `/agents/{id}/positions` - Agent trajectories
-- `/agents/{id}/velocities` - Agent velocities
-- `/agents/{id}/spms` - Saliency Polar Maps (16×16×3)
-- `/agents/{id}/actions` - Control inputs
-- `/agents/{id}/haze` - Haze values (Phase 4+)
-- `/agents/{id}/precision` - Precision β values
-- `/agents/{id}/surprise` - Surprise values (Phase 4+)
-- `/metadata` - Simulation parameters
-
-## Version History
-
-- **v5.6** (2026-01-10): Current version with Surprise integration and dual scenarios
-- **v5.5** (archived in `archive/v55_logs/`): Pattern D VAE without Surprise separation
+Example: `eph_sim_20260118_143022.h5`
 
 ## Notes
 
-⚠️ This directory is excluded from Git (see `.gitignore`)
-📊 Analysis results are stored in `results/` directory
+⚠️ This directory is git-ignored (see `.gitignore`)
+📊 Training data is in `data/vae_training/raw_v72/`
+🔍 Use `viewer/v72/raw_viewer.py` to visualize logs
